@@ -7,7 +7,7 @@ class Wishlists::ProductsController < ApplicationController
   def index
     wishlist = Wishlist.find_by_external_id!(params[:wishlist_id])
 
-    render json: WishlistPresenter.new(wishlist:, page: params[:page]).public_items(request:, pundit_user:)
+    render json: WishlistPresenter.new(wishlist:).public_items(request:, pundit_user:, page: params[:page])
   end
 
   def create

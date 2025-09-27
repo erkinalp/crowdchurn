@@ -37,7 +37,7 @@ class WishlistsController < ApplicationController
     @user = wishlist.user
     @title = wishlist.name
     @show_user_favicon = true
-    @wishlist_presenter = WishlistPresenter.new(wishlist:, page: params[:page])
+    @wishlist_presenter = WishlistPresenter.new(wishlist:)
     @discover_props = { taxonomies_for_nav: } if params[:layout] == Product::Layout::DISCOVER
   end
 

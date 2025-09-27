@@ -4,14 +4,13 @@ class WishlistPresenter
   include Rails.application.routes.url_helpers
   include Pagy::Backend
 
-  attr_reader :wishlist, :page
+  attr_reader :wishlist
 
   PER_PAGE = 20
   private_constant :PER_PAGE
 
-  def initialize(wishlist:, page: nil)
+  def initialize(wishlist:)
     @wishlist = wishlist
-    @page = (page || 1).to_i
   end
 
   def self.library_props(wishlists:, is_wishlist_creator: true)
@@ -28,8 +27,8 @@ class WishlistPresenter
     end
   end
 
-  def public_items(request:, pundit_user:, recommended_by: nil)
-    paginated_public_items(request:, pundit_user:, recommended_by:)
+  def public_items(request:, pundit_user:, recommended_by: nil, page: 1)
+    paginated_public_items(request:, pundit_user:, recommended_by:, page:)
   end
 
   def library_props(product_count:, is_wishlist_creator: true)
@@ -55,7 +54,7 @@ class WishlistPresenter
   end
 
   def public_props(request:, pundit_user:, recommended_by: nil)
-    items_with_pagination = paginated_public_items(request:, pundit_user:, recommended_by:)
+    items_with_pagination = paginated_public_items(request:, pundit_user:, recommended_by:, page: 1)
 
     {
       id: wishlist.external_id,
@@ -102,7 +101,7 @@ class WishlistPresenter
   end
 
   private
-    def paginated_public_items(request:, pundit_user:, recommended_by:)
+    def paginated_public_items(request:, pundit_user:, recommended_by:, page:)
       pagination, wishlist_products = pagy(wishlist.alive_wishlist_products, page:, limit: PER_PAGE)
 
       paginated_products = wishlist_products
