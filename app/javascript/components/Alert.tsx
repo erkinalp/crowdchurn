@@ -7,7 +7,7 @@ import { useRunOnce } from "$app/components/useRunOnce";
 
 const ALERT_KEY = "alert";
 
-export type AlertPayload = { message: string; status: "success" | "danger" | "info" | "warning"; html?: boolean };
+type AlertPayload = { message: string; status: "success" | "danger" | "info" | "warning"; html?: boolean };
 
 const Alert = ({ initial }: { initial: AlertPayload | null }) => {
   const [alert, setAlert] = React.useState<AlertPayload | null>(initial);
@@ -43,7 +43,7 @@ const Alert = ({ initial }: { initial: AlertPayload | null }) => {
     <div
       role="alert"
       className={cx(
-        "bg-filled fixed left-1/2 top-4 min-w-max max-w-sm px-4 py-2",
+        "bg-filled fixed left-1/2 top-4 w-max max-w-[calc(100vw-2rem)] px-4 py-2 md:max-w-sm",
         alert?.status,
         isVisible ? "visible" : "invisible",
       )}
@@ -59,6 +59,8 @@ const Alert = ({ initial }: { initial: AlertPayload | null }) => {
   );
 };
 
+export default Alert;
+
 export const showAlert = (
   message: string,
   status: "success" | "error" | "info" | "warning",
@@ -72,5 +74,3 @@ export const showAlert = (
     window.location.origin,
   );
 };
-
-export default Alert;
