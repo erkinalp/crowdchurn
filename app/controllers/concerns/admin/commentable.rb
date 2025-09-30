@@ -4,7 +4,7 @@ module Admin::Commentable
   include Pagy::Backend
 
   def index
-    pagy, comments = pagy(
+    pagination, comments = pagy(
       commentable.comments.order(created_at: :desc).includes(:author),
       limit: params[:per_page],
       page: params[:page]
@@ -12,7 +12,7 @@ module Admin::Commentable
 
     render json: {
       comments: json_payload(comments),
-      pagination: pagy
+      pagination:
     }
   end
 
