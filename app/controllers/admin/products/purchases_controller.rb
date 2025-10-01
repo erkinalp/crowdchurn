@@ -5,7 +5,7 @@ class Admin::Products::PurchasesController < Admin::Products::BaseController
 
   def index
     pagination, purchases = pagy_countless(
-      Purchase.for_admin_listing.includes(:subscription, :price, :refunds),
+      @product.sales.for_admin_listing.includes(:subscription, :price, :refunds),
       limit: params[:per_page],
       page: params[:page],
       countless_minimal: true

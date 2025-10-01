@@ -5,6 +5,7 @@ import { Icon } from "$app/components/Icons";
 import { Popover } from "$app/components/Popover";
 import { useOriginalLocation } from "$app/components/useOriginalLocation";
 import { WithTooltip } from "$app/components/WithTooltip";
+import { Form } from "@inertiajs/react";
 
 type Props = { card_types: { id: string; name: string }[] };
 export const SearchPopover = ({ card_types }: Props) => {
@@ -24,8 +25,8 @@ export const SearchPopover = ({ card_types }: Props) => {
         </WithTooltip>
       }
     >
-      <div style={{ width: "23rem", maxWidth: "100%", display: "grid", gap: "var(--spacer-3)" }}>
-        <form action={Routes.admin_search_users_path()} method="get" className="input-with-button">
+      <div className="grid gap-3 max-w-full w-96">
+        <Form action={Routes.admin_search_users_path()} method="get" className="input-with-button">
           <div className="input">
             <Icon name="person" />
             <input
@@ -39,8 +40,8 @@ export const SearchPopover = ({ card_types }: Props) => {
           <Button color="primary" type="submit">
             <Icon name="solid-search" />
           </Button>
-        </form>
-        <form action={Routes.admin_search_purchases_path()} method="get" className="input-with-button">
+        </Form>
+        <Form action={Routes.admin_search_purchases_path()} method="get" className="input-with-button">
           <div className="input">
             <Icon name="solid-currency-dollar" />
             <input
@@ -53,7 +54,7 @@ export const SearchPopover = ({ card_types }: Props) => {
           <Button color="primary" type="submit">
             <Icon name="solid-search" />
           </Button>
-        </form>
+        </Form>
         <form action={Routes.admin_affiliates_path()} method="get" className="input-with-button">
           <div className="input">
             <Icon name="people-fill" />

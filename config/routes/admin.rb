@@ -46,6 +46,7 @@ namespace :admin do
       end
     end
     resources :service_charges, only: :index
+
     member do
       post :add_credit
       post :mass_transfer_purchases
@@ -145,10 +146,6 @@ namespace :admin do
 
   post "/paydays/pay_user/:id", to: "paydays#pay_user", as: :pay_user
 
-  # Search
-  get "/search_users", to: "search#users", as: :search_users
-  get "/search_purchases", to: "search#purchases", as: :search_purchases
-
   # Compliance
   scope module: "compliance" do
     resources :guids, only: [:show]
@@ -166,5 +163,14 @@ namespace :admin do
 
   scope module: "users" do
     post :block_ip_address
+  end
+
+  namespace :search do
+    resources :users, only: [:index]
+    resources :purchases, only: [:index] do
+      scope module: :purchases do
+        resources :past_chargebacked_purchases, only: [:index]
+      end
+    end
   end
 end
