@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-# fron
-
 class Admin::Search::UsersController < Admin::Search::BaseController
   include Admin::ListPaginatedUsers
 

@@ -11,8 +11,9 @@ class Admin::AffiliatesController < Admin::BaseController
 
   def index
     super do |pagination, users|
-      if users.one? && params[:page].blank?
-        redirect_to admin_affiliate_path(users.first) && return
+      if users.one? && params[:page].blank? && !request.format.json?
+        redirect_to admin_affiliate_path(users.first)
+        return
       end
     end
   end

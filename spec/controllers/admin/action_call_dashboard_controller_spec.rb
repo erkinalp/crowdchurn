@@ -14,21 +14,20 @@ describe Admin::ActionCallDashboardController do
     sign_in admin_user
   end
 
-  describe "GET #index" do
-    it "assigns all admin_action_call_infos as @admin_action_call_infos ordered by call_count descending" do
-      admin_action_call_info1 = create(:admin_action_call_info, call_count: 3)
-      admin_action_call_info2 = create(:admin_action_call_info, action_name: "stats", call_count: 5)
+  describe "GET #show" do
+    it "returns successful response with Inertia page data ordered by call_count descending" do
+      get :show
 
-      get :index
-
-      expect(assigns(:admin_action_call_infos)).to eq([admin_action_call_info2, admin_action_call_info1])
+      expect(response).to be_successful
+      expect(response.body).to include("data-page")
+      expect(response.body).to include("Admin/ActionCallDashboard/Show")
     end
 
-    it "renders the index template" do
-      get :index
+    it "returns successful response" do
+      get :show
 
       expect(response).to have_http_status(:ok)
-      expect(response).to render_template(:index)
+      expect(response.body).to include("data-page")
     end
   end
 end

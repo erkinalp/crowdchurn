@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class Admin::Compliance::Guids::Usersontroller < Admin::Compliance::Guids::BaseController
+class Admin::Compliance::Guids::UsersController < Admin::Compliance::Guids::BaseController
   include Admin::ListPaginatedUsers
 
   private
@@ -14,5 +14,9 @@ class Admin::Compliance::Guids::Usersontroller < Admin::Compliance::Guids::BaseC
 
     def inertia_template
       "Admin/Compliance/Guids/Users/Index"
+    end
+
+    def guid
+      params[:guid_id]
     end
 end
