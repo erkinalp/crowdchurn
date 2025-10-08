@@ -15,10 +15,4 @@ class Admin::Users::Products::PurchasesController < Admin::Users::Products::Base
       pagination: pagy
     }
   end
-
-
-  private
-    def affiliate_user?
-      ActiveRecord::Type::Boolean.new.cast(params[:is_affiliate_user])
-    end
 end
