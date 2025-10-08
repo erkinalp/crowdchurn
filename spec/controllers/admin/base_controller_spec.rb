@@ -113,7 +113,8 @@ describe Admin::BaseController do
             get :index
 
             expect(response).to have_http_status(:ok)
-            expect(response).to render_template(:index)
+            expect(response.body).to include("data-page")
+            expect(response.body).to include("Admin/Base/Index")
           end
         end
 
@@ -122,7 +123,8 @@ describe Admin::BaseController do
             get :index
 
             expect(response).to have_http_status(:ok)
-            expect(response).to render_template(:index)
+            expect(response.body).to include("data-page")
+            expect(response.body).to include("Admin/Base/Index")
           end
         end
       end
