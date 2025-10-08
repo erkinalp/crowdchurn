@@ -44,8 +44,8 @@ nav {
   footer {
     display: none;
 
-    >a,
-    details>summary {
+    > a,
+    details > summary {
       @include text-singleline;
       padding: spacer(4) spacer(5);
       border-top: $border-width solid gray(3);
@@ -76,7 +76,7 @@ nav {
     .popover {
       position: relative;
 
-      &>summary {
+      & > summary {
         display: revert;
 
         &::before {
@@ -86,7 +86,7 @@ nav {
         }
       }
 
-      &[open]>summary {
+      &[open] > summary {
         margin: 0;
 
         &::before {
@@ -109,12 +109,12 @@ nav {
           margin-right: spacer(1) + spacer(2);
         }
 
-        >hr {
+        > hr {
           margin: spacer(2) 0;
         }
 
         [role="menuitemradio"] {
-          >* {
+          > * {
             vertical-align: middle;
           }
 
@@ -157,9 +157,9 @@ nav {
         mask-position: 0;
       }
 
-      section>a,
-      footer>a,
-      details>summary,
+      section > a,
+      footer > a,
+      details > summary,
       [role="menuitem"] {
         font-size: 0;
 
@@ -169,7 +169,7 @@ nav {
         }
       }
 
-      footer>details>summary {
+      footer > details > summary {
         padding-left: 0;
         padding-right: 0;
         text-align: center;
