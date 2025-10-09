@@ -83,7 +83,7 @@ module Product::AsJson
 
       ppp_factors = purchasing_power_parity_enabled? ? options[:preloaded_ppp_factors] || PurchasingPowerParityService.new.get_all_countries_factors(user) : nil
 
-      json = super_as_json(only: keep).merge!(
+      json = as_json(original: true, only: keep).merge!(
         "id" => external_id,
         "url" => nil, # Deprecated
         "price" => cached_default_price_cents,
