@@ -35,7 +35,7 @@ S3_BASE_URL = GlobalConfig.get("S3_BASE_URL_TEMPLATE", "https://s3.amazonaws.com
 PUBLIC_STORAGE_S3_BUCKET = {
   development: "gumroad-dev-public-storage",
   staging: "gumroad-dev-public-storage",
-  test: "gumroad-specs",
+  test: "gumroad-test-public",
   production: "gumroad-public-storage"
 }[Rails.env.to_sym]
 
