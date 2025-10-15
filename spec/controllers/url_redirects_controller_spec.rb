@@ -881,7 +881,7 @@ describe UrlRedirectsController do
         travel_to(Time.current) do
           @product = create(:product)
           product_file = create(:product_file,
-                                url: "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/test.mp4",
+                                url: "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/test.mp4",
                                 filegroup: "video",
                                 stream_only: true,
                                 width: 1920,
@@ -900,7 +900,7 @@ describe UrlRedirectsController do
       describe "hls" do
         before do
           @multifile_product = create(:product)
-          @video_file_1 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true, display_name: "Chapter 2", position: 2)
+          @video_file_1 = create(:product_file, url: "#{S3_BASE_URL}/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true, display_name: "Chapter 2", position: 2)
           @multifile_product.product_files << @video_file_1
           @transcoded_video = create(:transcoded_video, link: @multifile_product, streamable: @video_file_1, original_video_key: @video_file_1.s3_key,
                                                         transcoded_video_key: "attachments/2_1/original/chapter2/hls/index.m3u8", is_hls: true,
@@ -936,11 +936,11 @@ describe UrlRedirectsController do
 
         context "when the product has rich content" do
           it "sets the correct source urls for all video files in the product and returns the index of the file that should be played on load" do
-            pdf_file = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachment/manual.pdf")
-            video_file_2 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4", position: 2)
-            subtitle_file_en = create(:subtitle_file, language: "English", url: "https://s3.amazonaws.com/gumroad-specs/attachment/english.srt", product_file: video_file_2)
-            subtitle_file_es = create(:subtitle_file, language: "Spanish", url: "https://s3.amazonaws.com/gumroad-specs/attachment/spanish.srt", product_file: video_file_2)
-            video_file_3 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter3.mp4", position: 1)
+            pdf_file = create(:product_file, url: "#{S3_BASE_URL}/attachment/manual.pdf")
+            video_file_2 = create(:product_file, url: "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4", position: 2)
+            subtitle_file_en = create(:subtitle_file, language: "English", url: "#{S3_BASE_URL}/attachment/english.srt", product_file: video_file_2)
+            subtitle_file_es = create(:subtitle_file, language: "Spanish", url: "#{S3_BASE_URL}/attachment/spanish.srt", product_file: video_file_2)
+            video_file_3 = create(:product_file, url: "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter3.mp4", position: 1)
             @multifile_product.product_files << pdf_file
             @multifile_product.product_files << video_file_2
             @multifile_product.product_files << video_file_3
@@ -972,12 +972,12 @@ describe UrlRedirectsController do
         end
 
         it "sets the correct source urls for all video attachments of an installment and returns the index of the file that should be played on load" do
-          pdf_file = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachment/manual.pdf")
-          video_file_1 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true, display_name: "Chapter 2", position: 2)
-          video_file_2 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4", position: 1)
-          subtitle_file_en = create(:subtitle_file, language: "English", url: "https://s3.amazonaws.com/gumroad-specs/attachment/english.srt", product_file: video_file_2)
-          subtitle_file_fr = create(:subtitle_file, language: "Français", url: "https://s3.amazonaws.com/gumroad-specs/attachment/french.srt", product_file: video_file_2)
-          video_file_3 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter_2_no_spaces.mp4", display_name: "Chapter 2 No Spaces", position: 0)
+          pdf_file = create(:product_file, url: "#{S3_BASE_URL}/attachment/manual.pdf")
+          video_file_1 = create(:product_file, url: "#{S3_BASE_URL}/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true, display_name: "Chapter 2", position: 2)
+          video_file_2 = create(:product_file, url: "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4", position: 1)
+          subtitle_file_en = create(:subtitle_file, language: "English", url: "#{S3_BASE_URL}/attachment/english.srt", product_file: video_file_2)
+          subtitle_file_fr = create(:subtitle_file, language: "Français", url: "#{S3_BASE_URL}/attachment/french.srt", product_file: video_file_2)
+          video_file_3 = create(:product_file, url: "#{S3_BASE_URL}/attachments/2/original/chapter_2_no_spaces.mp4", display_name: "Chapter 2 No Spaces", position: 0)
           mp3_file = create(:product_file, url: "#{S3_BASE_URL}/specs/magic.mp3")
           installment = create(:installment)
           installment.product_files << video_file_1 << video_file_2 << pdf_file << video_file_3 << mp3_file
@@ -1006,7 +1006,7 @@ describe UrlRedirectsController do
       describe "GET hls_playlist" do
         before do
           @multifile_product = create(:product)
-          @file_1 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true)
+          @file_1 = create(:product_file, url: "#{S3_BASE_URL}/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true)
           @multifile_product.product_files << @file_1
           @transcoded_video = create(:transcoded_video, link: @multifile_product, streamable: @file_1, original_video_key: @file_1.s3_key,
                                                         transcoded_video_key: "attachments/2_1/original/chapter2/hls/index.m3u8",
@@ -1041,7 +1041,7 @@ describe UrlRedirectsController do
         end
 
         it "urls encode the playlist urls" do
-          @file_1.update_column(:url, "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter 2 of 5 (1280*720).mp4")
+          @file_1.update_column(:url, "#{S3_BASE_URL}/attachments/2/original/chapter 2 of 5 (1280*720).mp4")
           @transcoded_video.update_column(:transcoded_video_key, "attachments/2_1/original/chapter 2 of 5 (1280*720)/hls/index.m3u8")
           travel_to(Date.parse("2014-01-27")) do
             get :hls_playlist, params: { id: @multifile_url_redirect.token, product_file_id: @file_1.id }
@@ -1059,7 +1059,7 @@ describe UrlRedirectsController do
         end
 
         it "escapes RFC 3986 2.2 reserved characters in the file name" do
-          @file_1.update_column(:url, "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/me+you.mp4")
+          @file_1.update_column(:url, "#{S3_BASE_URL}/attachments/2/original/me+you.mp4")
           @transcoded_video.update_column(:transcoded_video_key, "attachments/2_1/original/me+you/hls/index.m3u8")
           travel_to(Date.parse("2014-01-27")) do
             get :hls_playlist, params: { id: @multifile_url_redirect.token, product_file_id: @file_1.id }
@@ -1090,7 +1090,7 @@ describe UrlRedirectsController do
       let(:product_file) do
         create(
           :product_file,
-          url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter2.mp4",
+          url: "#{S3_BASE_URL}/attachments/2/original/chapter2.mp4",
           is_transcoded_for_hls: true
         )
       end
@@ -1127,8 +1127,8 @@ describe UrlRedirectsController do
     describe "multiple files" do
       before do
         @product = create(:product)
-        ch1 = "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4"
-        ch2 = "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter2.mp4"
+        ch1 = "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4"
+        ch2 = "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter2.mp4"
         @product.product_files << create(:product_file, url: ch1)
         @product.product_files << create(:product_file, url: ch2)
         @product.save!
@@ -1147,7 +1147,7 @@ describe UrlRedirectsController do
 
       it "redirects to the correct url for downloading a specific file" do
         file = "attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4"
-        url = "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4?"
+        url = "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4?"
         url += "AWSAccessKeyId=AKIAIKFZLOLAPOKIC6EA&Expires=1386261022&Signature=FxVDOkutrgrGFLWXISp0JroWFLo%3D"
         url += "&response-content-disposition=attachment"
         allow_any_instance_of(UrlRedirect).to receive(:signed_download_url_for_s3_key_and_filename).with(file, "chapter1.mp4", { is_video: true }).and_return(url)
@@ -1169,8 +1169,8 @@ describe UrlRedirectsController do
       describe "licenses" do
         before do
           @product = create(:product)
-          ch1 = "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4"
-          ch2 = "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter2.mp4"
+          ch1 = "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4"
+          ch2 = "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter2.mp4"
           @product.product_files << create(:product_file, url: ch1)
           @product.product_files << create(:product_file, url: ch2)
           @product.is_licensed = true

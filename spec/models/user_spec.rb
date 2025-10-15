@@ -2358,7 +2358,7 @@ describe User, :vcr do
 
   describe "#alive_product_files_excluding_product" do
     before do
-      s3_file_url = ->(suffix) { "https://s3.amazonaws.com/gumroad-specs/attachment/manual-#{suffix}.pdf" }
+      s3_file_url = ->(suffix) { "#{S3_BASE_URL}/attachment/manual-#{suffix}.pdf" }
 
       @user1 = create(:user)
       @product1 = create(:product, user: @user1)
@@ -2418,7 +2418,7 @@ describe User, :vcr do
 
     it "returns alive product files that are unique by `url` even if there are no product files associated with the specified product" do
       product.product_files.alive.each(&:mark_deleted!)
-      duplicate_file_url = "https://s3.amazonaws.com/gumroad-specs/attachment/pencil.png"
+      duplicate_file_url = "#{S3_BASE_URL}/attachment/pencil.png"
       another_product_file = create(:product_file, link: @other_product, url: duplicate_file_url)
       another_product.product_files << another_product_file
       create(:product_file, link: create(:product, user:), url: duplicate_file_url)
@@ -2429,7 +2429,7 @@ describe User, :vcr do
     it "returns alive product files associated with the specified product even if it not published" do
       product.update!(purchase_disabled_at: Time.current)
       product_file = product.product_files.alive.first
-      another_product_file = create(:product_file, link: @other_product, url: "https://s3.amazonaws.com/gumroad-specs/attachment/pencil.png")
+      another_product_file = create(:product_file, link: @other_product, url: "#{S3_BASE_URL}/attachment/pencil.png")
       another_product.product_files << another_product_file
 
       expect(product.alive?).to eq(false)
@@ -2438,8 +2438,8 @@ describe User, :vcr do
 
     it "does not include duplicate product files and prefers those product files among the duplicates that belong to the specified product" do
       product_file = product.product_files.alive.first
-      duplicate_file_url = "https://s3.amazonaws.com/gumroad-specs/attachment/pencil.png"
-      another_duplicate_file_url = "https://s3.amazonaws.com/gumroad-specs/attachment/logo.png"
+      duplicate_file_url = "#{S3_BASE_URL}/attachment/pencil.png"
+      another_duplicate_file_url = "#{S3_BASE_URL}/attachment/logo.png"
       _another_product_file1 = create(:product_file, link: another_product, url: duplicate_file_url)
       duplicate_product_file = create(:product_file, link: product, url: duplicate_file_url)
       another_product_file2 = create(:product_file, link: another_product, url: another_duplicate_file_url)

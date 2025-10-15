@@ -18,9 +18,9 @@ describe Api::Mobile::PurchasesController do
     before do
       @mobile_friendly_pdf_product = create(:product, user: @user)
       create(:product_file, link_id: @mobile_friendly_pdf_product.id,
-                            url: "https://s3.amazonaws.com/gumroad-specs/attachments/23b2d41ac63a40b5afa1a99bf38a0982/original/nyt.pdf")
+                            url: "#{S3_BASE_URL}/attachments/23b2d41ac63a40b5afa1a99bf38a0982/original/nyt.pdf")
       @mobile_friendly_movie_product = create(:product, user: @user)
-      create(:product_file, link_id: @mobile_friendly_movie_product.id, url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter2.mp4")
+      create(:product_file, link_id: @mobile_friendly_movie_product.id, url: "#{S3_BASE_URL}/attachments/2/original/chapter2.mp4")
       @mobile_friendly_mp3_product = create(:product, user: @user)
       create(:product_file, link_id: @mobile_friendly_mp3_product.id, url: "#{S3_BASE_URL}/specs/magic.mp3")
       @subscription_product = create(:membership_product, subscription_duration: "monthly", user: @user)

@@ -92,8 +92,8 @@ describe SubtitleFile do
   end
 
   describe "#has_alive_duplicate_files?" do
-    let!(:file_1) { create(:subtitle_file, url: "https://s3.amazonaws.com/gumroad-specs/some-file.srt") }
-    let!(:file_2) { create(:subtitle_file, url: "https://s3.amazonaws.com/gumroad-specs/some-file.srt") }
+    let!(:file_1) { create(:subtitle_file, url: "#{S3_BASE_URL}/some-file.srt") }
+    let!(:file_2) { create(:subtitle_file, url: "#{S3_BASE_URL}/some-file.srt") }
 
     it "returns true if there's an alive record with the same url" do
       file_1.mark_deleted

@@ -213,11 +213,11 @@ describe "Product::Searchable - Search scenarios" do
         @creator = create(:recommendable_user)
 
         non_recommendable_product = create(:product, name: "non-recommendable product", user: @creator)
-        create(:product_file, link: non_recommendable_product, url: "https://s3.amazonaws.com/gumroad-specs/attachments/23b2d41ac63a40b5afa1a99bf38a0982/original/nyt.pdf")
+        create(:product_file, link: non_recommendable_product, url: "#{S3_BASE_URL}/attachments/23b2d41ac63a40b5afa1a99bf38a0982/original/nyt.pdf")
         create(:product_file, link: non_recommendable_product, url: "#{S3_BASE_URL}/specs/magic.mp3")
 
         @pdf_product = create(:product, :recommendable, name: "PDF product", user: @creator)
-        create(:product_file, link: @pdf_product, url: "https://s3.amazonaws.com/gumroad-specs/attachments/23b2d41ac63a40b5afa1a99bf38a0982/original/nyt.pdf")
+        create(:product_file, link: @pdf_product, url: "#{S3_BASE_URL}/attachments/23b2d41ac63a40b5afa1a99bf38a0982/original/nyt.pdf")
 
         @mp3_product = create(:product, :recommendable, name: "MP3 product", user: @creator)
         create(:product_file, link: @mp3_product, url: "#{S3_BASE_URL}/specs/magic.mp3")

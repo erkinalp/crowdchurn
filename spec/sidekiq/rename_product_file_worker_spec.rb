@@ -4,7 +4,7 @@ require "spec_helper"
 
 describe RenameProductFileWorker do
   before do
-    @product_file = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachment/pencil.png")
+    @product_file = create(:product_file, url: "#{S3_BASE_URL}/attachment/pencil.png")
   end
 
   describe "#perform" do

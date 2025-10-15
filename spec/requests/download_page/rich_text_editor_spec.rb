@@ -347,7 +347,7 @@ describe("Download Page – Rich Text Editor Content", type: :system, js: true) 
     end
 
     it "shows inline preview for video file embeds" do
-      subtitle_file = create(:subtitle_file, product_file: @video_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/6505430906858/ba3afa0e200b414caa6fe8b0be05ae20/original/sample.srt")
+      subtitle_file = create(:subtitle_file, product_file: @video_file, url: "#{S3_BASE_URL}/attachments/6505430906858/ba3afa0e200b414caa6fe8b0be05ae20/original/sample.srt")
       subtitle_blob = ActiveStorage::Blob.create_and_upload!(io: Rack::Test::UploadedFile.new(Rails.root.join("spec", "support", "fixtures", "sample.srt"), "text/plain"), filename: "sample.srt")
       allow_any_instance_of(ProductFile).to receive(:signed_download_url_for_s3_key_and_filename).with(subtitle_file.s3_key, subtitle_file.s3_filename, is_video: true).and_return(subtitle_blob.url)
 

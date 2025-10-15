@@ -14,7 +14,7 @@ describe PdfStampingService::Stamp do
     end
 
     context "with encrypted PDF" do
-      let(:pdf) { create(:readable_document, url: "#{S3_BASE_URL}/specs/encrypted-GameFu.pdf") }
+      let(:pdf) { create(:readable_document, url: "#{S3_BASE_URL}/specs/encrypted_pdf.pdf") }
 
       it "logs and returns false" do
         expect(Rails.logger).to receive(:error).with(
@@ -54,7 +54,7 @@ describe PdfStampingService::Stamp do
 
     context "when applying the watermark fails" do
       context "when the PDF is encrypted" do
-        let(:pdf_url) { "#{S3_BASE_URL}/specs/encrypted-GameFu.pdf" }
+        let(:pdf_url) { "#{S3_BASE_URL}/specs/encrypted_pdf.pdf" }
 
         it "logs and raises PdfStampingService::Stamp::Error" do
           expect(Rails.logger).to receive(:error).with(

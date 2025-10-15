@@ -104,7 +104,7 @@ describe Api::Mobile::UrlRedirectsController do
     it "provides purchase link and file data if the url redirect is still valid" do
       product = create(:subscription_product, price_cents: 100)
       url_redirect = create(:url_redirect, link: product)
-      product.product_files << create(:product_file, position: 0, link: product, url: "https://s3.amazonaws.com/gumroad-specs/attachment/pencil.png")
+      product.product_files << create(:product_file, position: 0, link: product, url: "#{S3_BASE_URL}/attachment/pencil.png")
       subscription = create(:subscription, link: product, cancelled_at: Time.current)
       create(:purchase, url_redirect:, is_original_subscription_purchase: true, purchaser: subscription.user, link: product, subscription:)
       get :url_redirect_attributes, params: { id: url_redirect.external_id, mobile_token: Api::Mobile::BaseController::MOBILE_TOKEN }
@@ -120,7 +120,7 @@ describe Api::Mobile::UrlRedirectsController do
       @product
     end
     let!(:file_1) do
-      create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true)
+      create(:product_file, url: "#{S3_BASE_URL}/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true)
     end
     let!(:transcoded_video) do
       create(:transcoded_video, link: product,
@@ -132,7 +132,7 @@ describe Api::Mobile::UrlRedirectsController do
     let!(:url_redirect) { create(:url_redirect, link: product, purchase: nil) }
     let(:subtitle_en_file_path) { "attachment/english.srt" }
     let(:subtitle_fr_file_path) { "attachment/french.srt" }
-    let(:subtitle_url_bucket_url) { "https://s3.amazonaws.com/gumroad-specs/" }
+    let(:subtitle_url_bucket_url) { "#{S3_BASE_URL}/" }
     let(:subtitle_en_url) { "#{subtitle_url_bucket_url}#{subtitle_en_file_path}" }
     let(:subtitle_fr_url) { "#{subtitle_url_bucket_url}#{subtitle_fr_file_path}" }
 
@@ -267,7 +267,7 @@ describe Api::Mobile::UrlRedirectsController do
   describe "GET hls_playlist" do
     before do
       product = create(:product)
-      @file_1 = create(:product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true)
+      @file_1 = create(:product_file, url: "#{S3_BASE_URL}/attachments/2/original/chapter2.mp4", is_transcoded_for_hls: true)
       product.product_files << @file_1
       create(:transcoded_video, link: product,
                                 streamable: @file_1,
@@ -330,10 +330,10 @@ describe Api::Mobile::UrlRedirectsController do
   describe "GET download" do
     before do
       @product.product_files = [create(
-        :product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4"
+        :product_file, url: "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4"
       ),
                                 create(
-                                  :product_file, url: "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter2.mp4"
+                                  :product_file, url: "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter2.mp4"
                                 )]
       @url_redirect = create(:url_redirect, link: @product, purchase: nil)
     end
@@ -349,7 +349,7 @@ describe Api::Mobile::UrlRedirectsController do
     end
 
     it "never displays a confirmation page for download urls" do
-      s3_url = "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4?AWSAccessKeyId=AKIAIKFZLOLAPOKIC6EA&"
+      s3_url = "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4?AWSAccessKeyId=AKIAIKFZLOLAPOKIC6EA&"
       s3_url += "Expires=1386261022&Signature=FxVDOkutrgrGFLWXISp0JroWFLo%3D&response-content-disposition=attachment"
       allow_any_instance_of(Aws::S3::Object).to receive(:content_length).and_return(1_000_000)
       allow_any_instance_of(UrlRedirect).to receive(:signed_download_url_for_s3_key_and_filename)
@@ -358,7 +358,7 @@ describe Api::Mobile::UrlRedirectsController do
       @url_redirect.mark_as_seen
       @url_redirect.increment!(:uses, 1)
       @request.remote_ip = "123.4.5.6"
-      loc_url = "https://s3.amazonaws.com/gumroad-specs/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4?AWSAccessKeyId=AKIAIKFZLOLAPOKIC6EA&"
+      loc_url = "#{S3_BASE_URL}/attachments/43a5363194e74e9ee75b6203eaea6705/original/chapter1.mp4?AWSAccessKeyId=AKIAIKFZLOLAPOKIC6EA&"
       loc_url += "Expires=1386261022&Signature=FxVDOkutrgrGFLWXISp0JroWFLo%3D&response-content-disposition=attachment"
       @request.user_agent = "iOSBuyer/1.3 CFNetwork/711.3.18 Darwin/14.3.0"
 

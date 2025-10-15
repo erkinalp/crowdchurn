@@ -3,7 +3,7 @@
 FactoryBot.define do
   factory :subtitle_file do
     product_file
-    url { "https://s3.amazonaws.com/gumroad-specs/#{SecureRandom.hex}.srt" }
+    url { "#{S3_BASE_URL}/#{SecureRandom.hex}.srt" }
     language { "English" }
   end
 end

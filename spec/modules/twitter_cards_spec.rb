@@ -53,7 +53,7 @@ describe TwitterCards, :vcr do
     it "does not uri escape the preview image url" do
       link = create(:product)
       create(:asset_preview, link:, url: "#{S3_BASE_URL}/specs/file with spaces.png")
-      link.product_files << create(:product_file, link:, url: "https://s3.amazonaws.com/gumroad-specs/attachment/pencil1.png")
+      link.product_files << create(:product_file, link:, url: "#{S3_BASE_URL}/attachment/pencil1.png")
       link.save!
       link.reload
 
@@ -64,7 +64,7 @@ describe TwitterCards, :vcr do
     it "does not uri escape the preview image url but it should html-escape it if necessary" do
       link = create(:product)
       create(:asset_preview, link:, url: "#{S3_BASE_URL}/specs/file_with_double_quotes\".png")
-      link.product_files << create(:product_file, link:, url: "https://s3.amazonaws.com/gumroad-specs/attachment/pencil1.png")
+      link.product_files << create(:product_file, link:, url: "#{S3_BASE_URL}/attachment/pencil1.png")
       link.save!
       link.reload
 

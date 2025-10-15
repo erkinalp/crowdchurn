@@ -31,9 +31,9 @@ describe PdfStampingService::StampForPurchase do
       end
 
       context "with encrypted stampable PDFs" do
-        let!(:product_file_two) { create(:readable_document, pdf_stamp_enabled: true, url: "#{AWS_S3_ENDPOINT}/gumroad-specs/specs/encrypted_pdf.pdf") }
+        let!(:product_file_two) { create(:readable_document, pdf_stamp_enabled: true, url: "#{S3_BASE_URL}/specs/encrypted_pdf.pdf") }
         let!(:product_file_three) { create(:readable_document, pdf_stamp_enabled: true) }
-        let!(:product_file_four) { create(:readable_document, pdf_stamp_enabled: false, url: "#{AWS_S3_ENDPOINT}/gumroad-specs/specs/encrypted_pdf.pdf") }
+        let!(:product_file_four) { create(:readable_document, pdf_stamp_enabled: false, url: "#{S3_BASE_URL}/specs/encrypted_pdf.pdf") }
 
         before do
           product.product_files << product_file_one

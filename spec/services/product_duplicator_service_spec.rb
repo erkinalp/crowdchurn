@@ -20,8 +20,8 @@ describe ProductDuplicatorService do
   end
 
   it "duplicates the product and marks the duplicate product as draft" do
-    file_params = [{ external_id: SecureRandom.uuid, url: "https://s3.amazonaws.com/gumroad-specs/attachment/pencil.png" },
-                   { external_id: SecureRandom.uuid, url: "https://s3.amazonaws.com/gumroad-specs/attachment/manual.pdf" }]
+    file_params = [{ external_id: SecureRandom.uuid, url: "#{S3_BASE_URL}/attachment/pencil.png" },
+                   { external_id: SecureRandom.uuid, url: "#{S3_BASE_URL}/attachment/manual.pdf" }]
     product.save_files!(file_params)
 
     variant_category = create(:variant_category, title: "sizes", link: product)
