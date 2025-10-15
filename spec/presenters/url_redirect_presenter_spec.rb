@@ -112,7 +112,7 @@ describe UrlRedirectPresenter do
 
       content_items = instance.download_attributes[:content_items]
       expect(content_items.length).to eq(1)
-      expect(content_items.first[:thumbnail_url]).to eq("http://minio:9000/gumroad-test-public/#{file.thumbnail_variant.key}")
+      expect(content_items.first[:thumbnail_url]).to eq("#{AWS_S3_ENDPOINT}/gumroad-specs/#{file.thumbnail_variant.key}")
     end
   end
 

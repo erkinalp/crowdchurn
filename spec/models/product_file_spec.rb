@@ -772,7 +772,7 @@ describe ProductFile do
         product_file.thumbnail.attach(io: File.open(Rails.root.join("spec", "support", "fixtures", "smilie.png")), filename: "smilie.png")
 
         expect(product_file).to be_valid
-        expect(product_file.thumbnail_variant.url).to match("http://minio:9000/gumroad-test-public/#{product_file.thumbnail_variant.key}")
+        expect(product_file.thumbnail_variant.url).to match("#{AWS_S3_ENDPOINT}/gumroad-specs/#{product_file.thumbnail_variant.key}")
       end
     end
 
@@ -785,7 +785,7 @@ describe ProductFile do
       end
 
       it "returns the CDN URL if thumbnail exists" do
-        stub_const("CDN_URL_MAP", { "https://gumroad-specs.s3.amazonaws.com" => "https://public-files.gumroad.com" })
+        stub_const("CDN_URL_MAP", { "#{AWS_S3_ENDPOINT}/gumroad-specs" => "https://public-files.gumroad.com" })
 
         product_file = create(:streamable_video)
         product_file.thumbnail.attach(io: File.open(Rails.root.join("spec", "support", "fixtures", "smilie.png")), filename: "smilie.png")
@@ -799,7 +799,7 @@ describe ProductFile do
 
         allow(product_file).to receive(:thumbnail_variant).and_raise(ActiveStorage::InvariableError)
 
-        expect(product_file.thumbnail_url).to match("http://minio:9000/gumroad-test-public/#{product_file.thumbnail.key}")
+        expect(product_file.thumbnail_url).to match("#{AWS_S3_ENDPOINT}/gumroad-specs/#{product_file.thumbnail.key}")
       end
     end
 

@@ -245,7 +245,9 @@ describe User, :vcr do
 
   describe "has_cdn_url" do
     before do
-      stub_const("CDN_URL_MAP", { "https://gumroad-specs.s3.amazonaws.com" => "https://public-files.gumroad.com", "https://s3.amazonaws.com/gumroad/" => "https://public-files.gumroad.com/res/gumroad/" })
+      stub_const("CDN_URL_MAP", { "#{AWS_S3_ENDPOINT}/gumroad-specs" => "https://public-files.gumroad.com", "https://s3.amazonaws.com/gumroad/" => "https://public-files.gumroad.com/res/gumroad/" })
+      puts "CDN_URL_MAP: #{CDN_URL_MAP}"
+      puts "AWS_S3_ENDPOINT: #{AWS_S3_ENDPOINT}"
     end
 
     describe "#subscribe_preview_url" do
@@ -1264,7 +1266,7 @@ describe User, :vcr do
 
         it "returns URL to user's subscribe preview" do
           key = @user_with_preview.subscribe_preview.key
-          expect(@user_with_preview.subscribe_preview_url).to match("http://minio:9000/gumroad-test-public/#{key}")
+          expect(@user_with_preview.subscribe_preview_url).to match("#{AWS_S3_ENDPOINT}/gumroad-specs/#{key}")
         end
       end
     end
@@ -1283,7 +1285,7 @@ describe User, :vcr do
 
         it "returns URL to user's avatar" do
           variant = @user_with_avatar.avatar.variant(resize_to_limit: [256, 256]).processed.key
-          expect(@user_with_avatar.resized_avatar_url(size: 256)).to match("http://minio:9000/gumroad-test-public/#{variant}")
+          expect(@user_with_avatar.resized_avatar_url(size: 256)).to match("#{AWS_S3_ENDPOINT}/gumroad-specs/#{variant}")
         end
       end
     end
@@ -1306,7 +1308,7 @@ describe User, :vcr do
         end
 
         it "returns URL to user's avatar" do
-          expect(@user_with_avatar.avatar_url).to match("http://minio:9000/gumroad-test-public/#{@user_with_avatar.avatar_variant.key}")
+          expect(@user_with_avatar.avatar_url).to match("#{AWS_S3_ENDPOINT}/gumroad-specs/#{@user_with_avatar.avatar_variant.key}")
         end
       end
 

@@ -67,10 +67,10 @@ RSpec.describe VideoFile::HasThumbnail do
         video_file.thumbnail.attach(jpg_image)
         video_file.save!
 
-        expect(video_file.thumbnail_url).to eq("http://minio:9000/gumroad-test-public/#{video_file.thumbnail.key}")
+        expect(video_file.thumbnail_url).to eq("#{AWS_S3_ENDPOINT}/gumroad-specs/#{video_file.thumbnail.key}")
 
         video_file.thumbnail.variant(:preview).processed
-        expect(video_file.thumbnail_url).to eq("http://minio:9000/gumroad-test-public/#{video_file.thumbnail.variant(:preview).key}")
+        expect(video_file.thumbnail_url).to eq("#{AWS_S3_ENDPOINT}/gumroad-specs/#{video_file.thumbnail.variant(:preview).key}")
       end
     end
 

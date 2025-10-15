@@ -361,10 +361,10 @@ describe("Download Page – Rich Text Editor Content", type: :system, js: true) 
       wait_for_ajax
 
       within(find_embed(name: "Video file")) do
-        expect(page).to have_selector("img[src='http://minio:9000/gumroad-test-public/#{@video_file.thumbnail_variant.key}']")
+        expect(page).to have_selector("img[src='#{AWS_S3_ENDPOINT}/gumroad-specs/#{@video_file.thumbnail_variant.key}']")
         click_on "Watch"
         expect(page).to_not have_button("Watch")
-        expect(page).to_not have_selector("img[src='http://minio:9000/gumroad-test-public/#{@video_file.thumbnail_variant.key}']")
+        expect(page).to_not have_selector("img[src='#{AWS_S3_ENDPOINT}/gumroad-specs/#{@video_file.thumbnail_variant.key}']")
         expect(page).to have_selector("[aria-label='Video Player']")
         expect(page).to have_button("Pause")
         expect(page).to have_button("Rewind 10 Seconds")

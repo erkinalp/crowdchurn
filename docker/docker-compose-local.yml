@@ -17,7 +17,7 @@ services:
 
   redis:
     image: redis:7.0.7
-    command: ["redis-server", "--appendonly", "yes"]
+    command: [ "redis-server", "--appendonly", "yes" ]
     ports:
       - "6379:6379"
     volumes:
@@ -53,7 +53,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: [ "CMD", "mc", "ready", "local" ]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -65,7 +65,7 @@ services:
       minio:
         condition: service_healthy
     entrypoint: >
-      /bin/sh -c " /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin; for bucket in gumroad-development-private gumroad-development-public gumroad-test-private gumroad-test-public gumroad-specs; do
+      /bin/sh -c " /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin; for bucket in gumroad-specs; do
         if ! /usr/bin/mc ls myminio/$$bucket > /dev/null 2>&1; then
           echo \"Bucket $$bucket does not exist. Creating...\";
           /usr/bin/mc mb myminio/$$bucket;

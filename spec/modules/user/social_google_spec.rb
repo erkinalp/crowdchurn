@@ -54,7 +54,7 @@ describe User::SocialGoogle do
     it "stores the user's profile picture from Google to S3 and returns the URL for the saved file" do
       google_picture_url = @user.google_picture_url(@data)
 
-      expect(google_picture_url).to match("http://minio:9000/gumroad-test-public/#{@user.avatar_variant.key}")
+      expect(google_picture_url).to match("#{AWS_S3_ENDPOINT}/gumroad-specs/#{@user.avatar_variant.key}")
 
       picture_response = HTTParty.get(google_picture_url)
       expect(picture_response.content_type).to eq("image/jpeg")

@@ -104,7 +104,7 @@ describe("Bundle edit page", type: :system, js: true) do
     expect(bundle.name).to eq("New bundle")
     public_file = bundle.alive_public_files.sole
     expect(bundle.description).to include("<p>This is a new bundle of products</p>")
-    expect(bundle.description).to include(%{<figure><img src="http://minio:9000/gumroad-test-public/#{ActiveStorage::Blob.find_by(filename: "test.jpg").key}"><p class="figcaption"></p></figure>})
+    expect(bundle.description).to include(%{<figure><img src="#{AWS_S3_ENDPOINT}/gumroad-specs/#{ActiveStorage::Blob.find_by(filename: "test.jpg").key}"><p class="figcaption"></p></figure>})
     expect(bundle.description).to include(%{<public-file-embed id="#{public_file.public_id}"></public-file-embed>})
     expect(bundle.custom_permalink).to eq("bundle")
     expect(bundle.price_cents).to eq(100)
