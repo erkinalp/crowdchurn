@@ -28,7 +28,7 @@ describe ExpiringS3FileService do
                                          path: "folder",
                                          expiry: 1.hour).perform
       expect(result).to match(
-        /gumroad-specs.s3.amazonaws.com\/folder\/prefix_.*txt.*3600/
+        /#{AWS_S3_ENDPOINT}\/gumroad-specs\/folder\/prefix_.*txt.*3600/
                         )
     end
 
