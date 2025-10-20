@@ -86,7 +86,7 @@ export const SheetFooter = ({ children, className }: SheetFooterProps) => (
 
 export const SheetClose = ({ children, asChild, onClick }: SheetCloseProps) => {
   if (asChild && React.isValidElement(children)) {
-    return React.cloneElement(children, { onClick } as any);
+    return React.cloneElement(children, { onClick } as React.HTMLAttributes<HTMLElement>);
   }
 
   return (
