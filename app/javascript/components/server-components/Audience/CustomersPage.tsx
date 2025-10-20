@@ -75,7 +75,7 @@ import { ReviewVideoPlayer } from "$app/components/ReviewVideoPlayer";
 import { Select } from "$app/components/Select";
 import { showAlert } from "$app/components/server-components/Alert";
 import { Toggle } from "$app/components/Toggle";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle } from "$app/components/ui/Sheet";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import Placeholder from "$app/components/ui/Placeholder";
 import { useDebouncedCallback } from "$app/components/useDebouncedCallback";
@@ -781,20 +781,17 @@ const CustomerDrawer = ({
     });
 
   return (
-    <Aside
-      ariaLabel="Customer Details"
-      onClose={onClose}
-      header={
+    <Sheet ariaLabel="Customer Details">
+      <SheetHeader onClose={onClose}>
         <div className="flex items-center gap-2">
           {onBack ? (
             <button onClick={onBack} aria-label="Return to bundle">
               <Icon name="arrow-left" style={{ fontSize: "var(--big-icon-size)" }} />
             </button>
           ) : null}
-          <h2 className="text-singleline">{customer.product.name}</h2>
+          <SheetTitle>{customer.product.name}</SheetTitle>
         </div>
-      }
-    >
+      </SheetHeader>
       {commission ? <CommissionStatusPill commission={commission} /> : null}
       {customer.is_additional_contribution ? (
         <div role="status" className="info">
@@ -1314,7 +1311,7 @@ const CustomerDrawer = ({
           )}
         </section>
       ) : null}
-    </Aside>
+    </Sheet>
   );
 };
 

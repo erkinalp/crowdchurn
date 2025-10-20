@@ -32,7 +32,7 @@ import { Layout } from "$app/components/Collaborators/Layout";
 import { Icon } from "$app/components/Icons";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
 import { showAlert } from "$app/components/server-components/Alert";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "$app/components/ui/Sheet";
 import Placeholder from "$app/components/ui/Placeholder";
 import { WithTooltip } from "$app/components/WithTooltip";
 
@@ -85,11 +85,10 @@ const CollaboratorDetails = ({
   const navigation = useNavigation();
 
   return ReactDOM.createPortal(
-    <Aside
-      ariaLabel="Collaborator Details"
-      onClose={onClose}
-      header={<h2 className="text-singleline">{selectedCollaborator.name}</h2>}
-    >
+    <Sheet ariaLabel="Collaborator Details">
+      <SheetHeader onClose={onClose}>
+        <SheetTitle>{selectedCollaborator.name}</SheetTitle>
+      </SheetHeader>
       {selectedCollaborator.setup_incomplete ? (
         <div role="alert" className="warning">
           Collaborators won't receive their cut until they set up a payout account in their Gumroad settings.
@@ -113,7 +112,7 @@ const CollaboratorDetails = ({
         ))}
       </section>
 
-      <section className="mt-auto flex gap-4">
+      <SheetFooter>
         <Link
           to={`/collaborators/${selectedCollaborator.id}/edit`}
           className="button flex-1"
@@ -131,8 +130,8 @@ const CollaboratorDetails = ({
         >
           {navigation.state === "submitting" ? "Removing..." : "Remove"}
         </Button>
-      </section>
-    </Aside>,
+      </SheetFooter>
+    </Sheet>,
     document.body,
   );
 };

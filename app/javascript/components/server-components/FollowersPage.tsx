@@ -14,7 +14,7 @@ import { Popover } from "$app/components/Popover";
 import { Progress } from "$app/components/Progress";
 import { showAlert } from "$app/components/server-components/Alert";
 import { ExportSubscribersPopover } from "$app/components/server-components/FollowersPage/ExportSubscribersPopover";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle } from "$app/components/ui/Sheet";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import Placeholder from "$app/components/ui/Placeholder";
 import { Tabs, Tab } from "$app/components/ui/Tabs";
@@ -206,12 +206,13 @@ export const FollowersPage = ({ followers: initialFollowers, per_page, total }: 
               </Button>
             ) : null}
             {selectedFollower ? (
-              <Aside
+              <Sheet
                 ariaLabel="Follower Details"
-                onClose={() => setSelectedFollowerId(null)}
                 className={selectedFollower.can_update ? "" : "js-team-member-read-only"}
-                header={<h2 className="text-singleline">Details</h2>}
               >
+                <SheetHeader onClose={() => setSelectedFollowerId(null)}>
+                  <SheetTitle>Details</SheetTitle>
+                </SheetHeader>
                 <div className="stack">
                   <div>
                     <div>
@@ -228,7 +229,7 @@ export const FollowersPage = ({ followers: initialFollowers, per_page, total }: 
                     </div>
                   </div>
                 </div>
-              </Aside>
+              </Sheet>
             ) : null}
           </div>
         ) : (

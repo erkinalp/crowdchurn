@@ -9,14 +9,12 @@ type AsideProps = {
   ariaLabel?: string;
   onClose?: () => void;
   header?: React.ReactNode;
-  fixed?: boolean;
 };
 
-export const Aside = ({ children, className, ariaLabel, onClose, header, fixed = true }: AsideProps) => {
+export const Aside = ({ children, className, ariaLabel, onClose, header }: AsideProps) => {
   const classes = cx(
     "overflow-auto bg-filled p-6 gap-4 flex flex-col",
-    fixed ? "fixed top-0 right-0 bottom-0 z-[var(--z-index-menubar)] w-full" : "relative",
-    !fixed && "hidden lg:flex",
+    "relative hidden lg:flex",
     "lg:border-l lg:border-border lg:w-[40vw]",
     className,
   );

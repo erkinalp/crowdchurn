@@ -5,7 +5,7 @@ import { assertResponseError } from "$app/utils/request";
 
 import { Icon } from "$app/components/Icons";
 import { showAlert } from "$app/components/server-components/Alert";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle } from "$app/components/ui/Sheet";
 
 export const WishlistEditor = ({
   id,
@@ -44,20 +44,17 @@ export const WishlistEditor = ({
   };
 
   return (
-    <Aside
-      ariaLabel="Wishlist Editor"
-      onClose={close}
-      header={
+    <Sheet ariaLabel="Wishlist Editor">
+      <SheetHeader onClose={close}>
         <div>
-          <h2 className="text-singleline">{newName || "Untitled"}</h2>
+          <SheetTitle>{newName || "Untitled"}</SheetTitle>
           {isDiscoverable ? (
             <small className="text-muted mt-1">
               <Icon name="solid-check-circle" /> Discoverable
             </small>
           ) : null}
         </div>
-      }
-    >
+      </SheetHeader>
       <fieldset>
         <label htmlFor={`${uid}-name`}>Name</label>
         <input
@@ -79,6 +76,6 @@ export const WishlistEditor = ({
           onBlur={() => void update()}
         />
       </fieldset>
-    </Aside>
+    </Sheet>
   );
 };

@@ -20,7 +20,7 @@ import {
   useSearchContext,
   ViewEmailButton,
 } from "$app/components/server-components/EmailsPage";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "$app/components/ui/Sheet";
 import { useDebouncedCallback } from "$app/components/useDebouncedCallback";
 import { useOnChange } from "$app/components/useOnChange";
 import { useUserAgentInfo } from "$app/components/UserAgent";
@@ -180,11 +180,10 @@ export const PublishedTab = () => {
               </Button>
             ) : null}
             {selectedInstallment ? (
-              <Aside
-                ariaLabel="Email Details"
-                onClose={() => setSelectedInstallmentId(null)}
-                header={<h2 className="text-singleline">{selectedInstallment.name}</h2>}
-              >
+              <Sheet ariaLabel="Email Details">
+                <SheetHeader onClose={() => setSelectedInstallmentId(null)}>
+                  <SheetTitle>{selectedInstallment.name}</SheetTitle>
+                </SheetHeader>
                 <div className="stack">
                   <div>
                     <h5>Sent</h5>
@@ -231,7 +230,7 @@ export const PublishedTab = () => {
                     </NavigationButton>
                   ) : null}
                 </div>
-                <div className="grid grid-flow-col gap-4">
+                <SheetFooter>
                   <NewEmailButton copyFrom={selectedInstallment.external_id} />
                   <EditEmailButton id={selectedInstallment.external_id} />
                   <Button
@@ -246,8 +245,8 @@ export const PublishedTab = () => {
                   >
                     Delete
                   </Button>
-                </div>
-              </Aside>
+                </SheetFooter>
+              </Sheet>
             ) : null}
             {deletingInstallment ? (
               <Modal

@@ -350,7 +350,7 @@ const FormPage = ({
             </Toggle>
           </section>
         </div>
-        <Aside ariaLabel="Preview" className="hidden lg:block" fixed={false}>
+        <Aside ariaLabel="Preview" className="hidden lg:block">
           <CheckoutPreview
             cartItem={{
               ...cartItem,

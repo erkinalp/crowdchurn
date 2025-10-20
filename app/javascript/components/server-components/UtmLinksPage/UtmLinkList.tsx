@@ -24,7 +24,7 @@ import { Popover } from "$app/components/Popover";
 import { Progress } from "$app/components/Progress";
 import { showAlert } from "$app/components/server-components/Alert";
 import { extractSortParam } from "$app/components/server-components/UtmLinksPage";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "$app/components/ui/Sheet";
 import Placeholder from "$app/components/ui/Placeholder";
 import { useDebouncedCallback } from "$app/components/useDebouncedCallback";
 import { useUserAgentInfo } from "$app/components/UserAgent";
@@ -415,7 +415,10 @@ const UtmLinkDetails = ({
   const userAgentInfo = useUserAgentInfo();
 
   return ReactDOM.createPortal(
-    <Aside ariaLabel="UTM Link Details" onClose={onClose} header={<h2 className="text-singleline">{utmLink.title}</h2>}>
+    <Sheet ariaLabel="UTM Link Details">
+      <SheetHeader onClose={onClose}>
+        <SheetTitle>{utmLink.title}</SheetTitle>
+      </SheetHeader>
       <section className="stack">
         <div>
           <h3>Details</h3>
@@ -520,17 +523,16 @@ const UtmLinkDetails = ({
           <h5>{utmLink.utm_url}</h5>
         </div>
       </section>
-      <div style={{ display: "grid", gridAutoFlow: "column", gap: "var(--spacer-4)" }}>
+      <SheetFooter>
         <Link to={duplicateLinkPath(utmLink)} className="button">
-          {" "}
           Duplicate
         </Link>
-        <NavigationButton href={editLinkPath(utmLink)}> Edit</NavigationButton>
+        <NavigationButton href={editLinkPath(utmLink)}>Edit</NavigationButton>
         <Button color="danger" onClick={onDelete}>
           Delete
         </Button>
-      </div>
-    </Aside>,
+      </SheetFooter>
+    </Sheet>,
     document.body,
   );
 };

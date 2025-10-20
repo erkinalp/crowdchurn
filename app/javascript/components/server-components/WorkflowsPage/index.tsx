@@ -42,7 +42,7 @@ export const Layout = ({ title, actions, navigation, children, preview }: Layout
     {preview ? (
       <FixedAsideWrapper showAside>
         <div>{children}</div>
-        <Aside ariaLabel="Preview" className="hidden lg:block" fixed={false}>
+        <Aside ariaLabel="Preview" className="hidden lg:block">
           {preview}
         </Aside>
       </FixedAsideWrapper>

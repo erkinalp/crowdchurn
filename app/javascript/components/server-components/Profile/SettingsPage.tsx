@@ -220,7 +220,6 @@ const SettingsPage = ({ creator_profile, profile_settings, settings_pages, ...pr
         </form>
         <Aside
           ariaLabel="Preview"
-          fixed={false}
           header={
             <>
               <h2 className="text-singleline">Preview</h2>

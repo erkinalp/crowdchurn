@@ -34,6 +34,7 @@ import { Popover } from "$app/components/Popover";
 import { applySelection } from "$app/components/Product/ConfigurationSelector";
 import { Select } from "$app/components/Select";
 import { CrossSellModal, UpsellModal } from "$app/components/server-components/CheckoutPage";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "$app/components/ui/Sheet";
 import { Aside, FixedAsideWrapper } from "$app/components/ui/Aside";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import Placeholder from "$app/components/ui/Placeholder";
@@ -394,11 +395,10 @@ const UpsellDrawer = ({
   const loggedInUser = useLoggedInUser();
   const isReadOnly = !loggedInUser?.policies.upsell.create;
   return (
-    <Aside
-      ariaLabel="Upsell Details"
-      onClose={onClose}
-      header={<h2 className="text-singleline">{selectedUpsell.name}</h2>}
-    >
+    <Sheet ariaLabel="Upsell Details">
+      <SheetHeader onClose={onClose}>
+        <SheetTitle>{selectedUpsell.name}</SheetTitle>
+      </SheetHeader>
       <section className="stack">
         <h3>Details</h3>
         <div>
@@ -493,7 +493,7 @@ const UpsellDrawer = ({
           ))}
         </section>
       )}
-      <section className="grid auto-cols-fr grid-flow-row gap-4 sm:grid-flow-col">
+      <SheetFooter>
         <Button onClick={onCreate} disabled={isLoading || isReadOnly}>
           Duplicate
         </Button>
@@ -503,8 +503,8 @@ const UpsellDrawer = ({
         <Button onClick={onDelete} color="danger" disabled={isLoading || isReadOnly}>
           {isLoading ? "Deleting..." : "Delete"}
         </Button>
-      </section>
-    </Aside>
+      </SheetFooter>
+    </Sheet>
   );
 };
 
@@ -929,7 +929,7 @@ const Form = ({
             )}
           </section>
         </form>
-        <Aside ariaLabel="Preview" fixed={false}>
+        <Aside ariaLabel="Preview">
           <CheckoutPreview cartItem={previewCartItem}>
             <dialog open aria-labelledby={`${uid}preview`}>
               <header>

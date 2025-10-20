@@ -195,7 +195,6 @@ export const Layout = ({
         {preview ? (
           <Aside
             ariaLabel="Preview"
-            fixed={false}
             className="sticky top-0 min-h-screen self-start overflow-y-auto"
             header={
               <>

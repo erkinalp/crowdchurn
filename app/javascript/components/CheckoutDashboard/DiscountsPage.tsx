@@ -32,7 +32,7 @@ import { Popover } from "$app/components/Popover";
 import { PriceInput } from "$app/components/PriceInput";
 import { Select, Option } from "$app/components/Select";
 import { TypeSafeOptionSelect } from "$app/components/TypeSafeOptionSelect";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "$app/components/ui/Sheet";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import Placeholder from "$app/components/ui/Placeholder";
 import { useDebouncedCallback } from "$app/components/useDebouncedCallback";
@@ -475,13 +475,10 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
           </Placeholder>
         )}
         {selectedOfferCode ? (
-          <Aside
-            ariaLabel="Discount Details"
-            onClose={() => setSelectedOfferCodeId(null)}
-            header={
-              <h2 className="text-singleline">{selectedOfferCode.name || selectedOfferCode.code.toUpperCase()}</h2>
-            }
-          >
+          <Sheet ariaLabel="Discount Details">
+            <SheetHeader onClose={() => setSelectedOfferCodeId(null)}>
+              <SheetTitle>{selectedOfferCode.name || selectedOfferCode.code.toUpperCase()}</SheetTitle>
+            </SheetHeader>
             <section className="stack">
               <h3>Details</h3>
               <div>
@@ -569,7 +566,7 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
                 })}
               </section>
             ) : null}
-            <section className="grid auto-cols-fr grid-flow-row gap-4 sm:grid-flow-col">
+            <SheetFooter>
               <Button onClick={() => setView("create")} disabled={!selectedOfferCode.can_update || isLoading}>
                 Duplicate
               </Button>
@@ -594,8 +591,8 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
               >
                 {isLoading ? "Deleting..." : "Delete"}
               </Button>
-            </section>
-          </Aside>
+            </SheetFooter>
+          </Sheet>
         ) : null}
       </section>
     </Layout>

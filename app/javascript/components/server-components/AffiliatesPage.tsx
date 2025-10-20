@@ -53,7 +53,7 @@ import { Pagination } from "$app/components/Pagination";
 import { Popover } from "$app/components/Popover";
 import { Progress } from "$app/components/Progress";
 import { showAlert } from "$app/components/server-components/Alert";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "$app/components/ui/Sheet";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import Placeholder from "$app/components/ui/Placeholder";
 import { Tabs, Tab } from "$app/components/ui/Tabs";
@@ -604,11 +604,10 @@ const AffiliateDetails = ({
   const navigation = useNavigation();
 
   return ReactDOM.createPortal(
-    <Aside
-      ariaLabel="Affiliate Details"
-      onClose={onClose}
-      header={<h2 className="text-singleline">{selectedAffiliate.affiliate_user_name}</h2>}
-    >
+    <Sheet ariaLabel="Affiliate Details">
+      <SheetHeader onClose={onClose}>
+        <SheetTitle>{selectedAffiliate.affiliate_user_name}</SheetTitle>
+      </SheetHeader>
       {selectedAffiliate.products.map((product) => {
         const productStatistics = statistics?.products[product.id];
 
@@ -639,7 +638,7 @@ const AffiliateDetails = ({
           </section>
         );
       })}
-      <section style={{ display: "grid", gap: "var(--spacer-4)", gridAutoFlow: "column", gridAutoColumns: "1fr" }}>
+      <SheetFooter>
         <Link
           to={`/affiliates/${selectedAffiliate.id}/edit`}
           className="button"
@@ -656,8 +655,8 @@ const AffiliateDetails = ({
         >
           {navigation.state === "submitting" ? "Deleting..." : "Delete"}
         </Button>
-      </section>
-    </Aside>,
+      </SheetFooter>
+    </Sheet>,
     document.body,
   );
 };

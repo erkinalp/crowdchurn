@@ -17,7 +17,7 @@ import { Icon } from "$app/components/Icons";
 import { LoadingSpinner } from "$app/components/LoadingSpinner";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
 import { showAlert } from "$app/components/server-components/Alert";
-import { Aside } from "$app/components/ui/Aside";
+import { Sheet, SheetHeader, SheetTitle, SheetFooter } from "$app/components/ui/Sheet";
 import Placeholder from "$app/components/ui/Placeholder";
 import { WithTooltip } from "$app/components/WithTooltip";
 
@@ -72,11 +72,10 @@ const IncomingCollaboratorDetails = ({
   disabled: boolean;
 }) =>
   ReactDOM.createPortal(
-    <Aside
-      ariaLabel="Incoming Collaborator Details"
-      onClose={onClose}
-      header={<h2 className="text-singleline">{selected.seller_name}</h2>}
-    >
+    <Sheet ariaLabel="Incoming Collaborator Details">
+      <SheetHeader onClose={onClose}>
+        <SheetTitle>{selected.seller_name}</SheetTitle>
+      </SheetHeader>
       <section className="stack">
         <h3>Email</h3>
         <div>
@@ -96,9 +95,13 @@ const IncomingCollaboratorDetails = ({
         ))}
       </section>
 
-      <section className="mt-auto flex gap-4">
-        {selected.invitation_accepted ? (
-          <Button className="flex-1" aria-label="Remove" color="danger" disabled={disabled} onClick={onRemove}>
+      <SheetFooter>
+        {disabled ? (
+          <Button className="flex-1" disabled>
+            <LoadingSpinner />
+          </Button>
+        ) : selected.invitation_accepted ? (
+          <Button className="flex-1" color="danger" aria-label="Remove" onClick={onRemove} disabled={disabled}>
             Remove
           </Button>
         ) : (
@@ -111,8 +114,8 @@ const IncomingCollaboratorDetails = ({
             </Button>
           </>
         )}
-      </section>
-    </Aside>,
+      </SheetFooter>
+    </Sheet>,
     document.body,
   );
 
