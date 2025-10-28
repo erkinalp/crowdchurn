@@ -11,11 +11,7 @@ Billy.configure do |c|
   c.non_whitelisted_requests_disabled = false
 
   # Don't cache requests to the app itself (localhost/test domain)
-  c.whitelist = [
-    'app.test.gumroad.com',
-    '127.0.0.1',
-    'localhost',
-  ]
+  c.whitelist << /test\.gumroad\.com/
 end
 
 # From https://knapsackpro.com/faq/question/how-to-configure-puffing-billy-gem-with-knapsack-pro-queue-mode
