@@ -9,6 +9,12 @@ Billy.configure do |c|
   c.non_successful_cache_disabled = false
   c.non_successful_error_level = :warn
   c.non_whitelisted_requests_disabled = false
+
+  # # Don't cache requests to the app itself (localhost/test domain)
+  # c.non_cacheable_request_matcher = lambda do |method, uri, _headers, _body|
+  #   host = URI(uri).host
+  #   host == "app.test.gumroad.com" || host == "127.0.0.1" || host == "localhost"
+  # end
 end
 
 # From https://knapsackpro.com/faq/question/how-to-configure-puffing-billy-gem-with-knapsack-pro-queue-mode
