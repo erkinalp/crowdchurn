@@ -243,9 +243,11 @@ const MenubarItem = ({
     >
       <a
         href={menuItem.href ?? "#"}
-        className={classNames("button", isHighlighted ? "pill" : "border-transparent! bg-transparent! text-inherit!", {
-          expandable: showExpandableIcon,
-        })}
+        className={classNames(
+          "pill button",
+          { "border-transparent! bg-transparent! text-inherit!": !isHighlighted },
+          { expandable: showExpandableIcon },
+        )}
         role="menuitem"
         aria-current={isHighlighted}
         aria-haspopup="menu"
@@ -276,9 +278,11 @@ const MenubarItem = ({
     <div onMouseEnter={() => handleToggleMenu(true)} onMouseLeave={() => handleToggleMenu(false)}>
       <a
         href={menuItem.href ?? "#"}
-        className={classNames("button", isHighlighted ? "pill" : "border-transparent! bg-transparent! text-inherit!", {
-          expandable: showExpandableIcon,
-        })}
+        className={classNames(
+          "pill button",
+          { "border-transparent! bg-transparent! text-inherit!": !isHighlighted },
+          { expandable: showExpandableIcon },
+        )}
         role="menuitem"
         aria-current={isHighlighted}
         {...extraAriaAttrs}
@@ -354,32 +358,6 @@ const OverlayMenu = ({
   );
 };
 
-const MenuItemLink = ({
-  href,
-  onClick,
-  className,
-  children,
-  ...props
-}: {
-  href?: string | undefined;
-  onClick?: ((e: React.MouseEvent<HTMLAnchorElement>) => void) | undefined;
-  className?: string | undefined;
-  children: React.ReactNode;
-} & React.AriaAttributes) => (
-  <a
-    href={href ?? "#"}
-    onClick={onClick}
-    className={classNames(
-      "shrink-0 justify-between gap-2 overflow-visible! p-4! whitespace-normal! underline hover:bg-black! hover:text-white! dark:hover:bg-gray! dark:hover:text-black!",
-      className,
-    )}
-    role="menuitem"
-    {...props}
-  >
-    {children}
-  </a>
-);
-
 const ItemsList = ({
   menuId,
   menuItem: initialMenuItem,
@@ -452,8 +430,33 @@ const ItemsList = ({
           {item.children.length > 0 && <Icon name="outline-cheveron-right" className="shrink-0" />}
         </MenuItemLink>
       ))}
-
       {displayedItem.image ? <img src={displayedItem.image} className="w-full translate-x-6 translate-y-6" /> : null}
     </div>
   );
 };
+
+const MenuItemLink = ({
+  href,
+  onClick,
+  className,
+  children,
+  ...props
+}: {
+  href?: string | undefined;
+  onClick?: ((e: React.MouseEvent<HTMLAnchorElement>) => void) | undefined;
+  className?: string | undefined;
+  children: React.ReactNode;
+} & React.AriaAttributes) => (
+  <a
+    href={href ?? "#"}
+    onClick={onClick}
+    className={classNames(
+      "shrink-0 justify-between gap-2 overflow-visible! p-4! whitespace-normal! hover:bg-foreground! hover:text-background!",
+      className,
+    )}
+    role="menuitem"
+    {...props}
+  >
+    {children}
+  </a>
+);
