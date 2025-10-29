@@ -326,15 +326,11 @@ const OverlayMenu = ({
         <Icon name="filter" />
       </Button>
       <div
-        className="z-modal fixed inset-0 top-0 bg-black/80"
+        className="z-modal fixed inset-0 bg-black/80"
         style={menuTop ? { top: menuTop } : undefined}
         hidden={!menuOpen}
       >
-        <button
-          className="absolute top-4 right-4 text-[var(--big-icon-size)]"
-          onClick={() => setMenuOpen(false)}
-          aria-label="Close Menu"
-        >
+        <button className="absolute top-4 right-4 text-xl" onClick={() => setMenuOpen(false)} aria-label="Close Menu">
           <Icon name="x" className="text-white" />
         </button>
         <ItemsList
@@ -393,7 +389,7 @@ const ItemsList = ({
       {isNestedView ? (
         <MenuItemLink
           key={`back${displayedItem.key}`}
-          href={displayedItem.parent?.href}
+          href={displayedItem.parent?.href ?? "#"}
           onClick={(e) => {
             if (e.ctrlKey || e.shiftKey) return;
             setDisplayedItem(displayedItem.parent ?? initialMenuItem);
