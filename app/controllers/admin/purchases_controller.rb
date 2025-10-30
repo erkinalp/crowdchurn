@@ -23,17 +23,16 @@ class Admin::PurchasesController < Admin::BaseController
     @title = "Purchase #{@purchase.id}"
 
     render inertia: "Admin/Purchases/Show", props: {
-      purchase: @purchase.as_json(admin_show: true).merge(
-        product: @purchase.link.as_json(
-          admin: true,
-          admins_can_mark_as_staff_picked: ->(product) { policy([:admin, :products, :staff_picked, product]).create? },
-          admins_can_unmark_as_staff_picked: ->(product) { policy([:admin, :products, :staff_picked, product]).destroy? }
-        ),
-        user: @purchase.link.user.as_json(
-          admin: true,
-          impersonatable: policy([:admin, :impersonators, @purchase.link.user]).create?
-        )
-      )
+      purchase: @purchase.as_json(admin_show: true),
+      product: @purchase.link.as_json(
+        admin: true,
+        admins_can_mark_as_staff_picked: ->(product) { policy([:admin, :products, :staff_picked, product]).create? },
+        admins_can_unmark_as_staff_picked: ->(product) { policy([:admin, :products, :staff_picked, product]).destroy? }
+      ),
+      user: Admin::UserPresenter::Card.new(
+        user: @purchase.link.user,
+        impersonatable: policy([:admin, :impersonators, @purchase.link.user]).create?
+      ).props
     }
   end
 

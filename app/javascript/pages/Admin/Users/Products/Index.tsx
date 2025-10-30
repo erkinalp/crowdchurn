@@ -9,14 +9,16 @@ import AdminUserAndProductsTabs from "$app/components/Admin/UserAndProductsTabs"
 import { type User as UserType } from "$app/components/Admin/Users/User";
 
 type AdminUsersProductsContentProps = {
+  user: UserType;
   products: ProductType[];
-  is_affiliate_user?: boolean;
+  isAffiliateUser?: boolean;
   pagination: Pagination;
 };
 
 const AdminUsersProductsContent = ({
+  user,
   products,
-  is_affiliate_user = false,
+  isAffiliateUser = false,
   pagination,
 }: AdminUsersProductsContentProps) => {
   if (pagination.page === 1 && products.length === 0) {
@@ -30,14 +32,14 @@ const AdminUsersProductsContent = ({
   return (
     <div className="space-y-4">
       {products.map((product) => (
-        <AdminUsersProductsProduct key={product.id} product={product} is_affiliate_user={is_affiliate_user} />
+        <AdminUsersProductsProduct key={product.id} user={user} product={product} isAffiliateUser={isAffiliateUser} />
       ))}
     </div>
   );
 };
 
 type Props = {
-  is_affiliate_user?: boolean;
+  isAffiliateUser?: boolean;
 };
 
 type AdminUsersProductsProps = {
@@ -46,13 +48,18 @@ type AdminUsersProductsProps = {
   pagination: Pagination;
 };
 
-const AdminUsersProducts = ({ is_affiliate_user = false }: Props) => {
+const AdminUsersProducts = ({ isAffiliateUser = false }: Props) => {
   const { user, products, pagination } = usePage<AdminUsersProductsProps>().props;
 
   return (
     <div className="paragraphs">
       <AdminUserAndProductsTabs selectedTab="products" user={user} />
-      <AdminUsersProductsContent products={products} is_affiliate_user={is_affiliate_user} pagination={pagination} />
+      <AdminUsersProductsContent
+        user={user}
+        products={products}
+        isAffiliateUser={isAffiliateUser}
+        pagination={pagination}
+      />
       <PaginatedLoader itemsLength={products.length} pagination={pagination} only={["products", "pagination"]} />
     </div>
   );

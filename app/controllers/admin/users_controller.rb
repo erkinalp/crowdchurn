@@ -16,7 +16,10 @@ class Admin::UsersController < Admin::BaseController
     else
       render inertia: "Admin/Users/Show",
              props: {
-               user: @user.as_json(admin: true, impersonatable: policy([:admin, :impersonators, @user]).create?),
+               user: Admin::UserPresenter::Card.new(
+                user: @user,
+                impersonatable: policy([:admin, :impersonators, @user]).create?
+              ).props,
              }
     end
   end
