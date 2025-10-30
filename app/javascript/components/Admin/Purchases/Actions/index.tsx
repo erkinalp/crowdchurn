@@ -47,7 +47,7 @@ const AdminPurchasesActions = ({ purchase }: AdminPurchasesActionsProps) => (
           success_message="Taxes refunded!"
         />
         <AdminActionButton
-          url={Routes.refund_admin_compliance_cards_path({ stripe_fingerprint: purchase.stripe_fingerprint })}
+          url={Routes.refund_admin_cards_path({ stripe_fingerprint: purchase.stripe_fingerprint })}
           label="Refund Card for Fraud"
           loading="Refunding..."
           done="Refunding purchases!"

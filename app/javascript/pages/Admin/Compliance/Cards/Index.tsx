@@ -24,7 +24,7 @@ const AdminComplianceCards = () => {
         product_title_query={product_title_query}
         purchase_status={purchase_status}
         pagination={pagination}
-        endpoint={Routes.admin_compliance_cards_path}
+        endpoint={Routes.admin_cards_path}
       />
     </div>
   );

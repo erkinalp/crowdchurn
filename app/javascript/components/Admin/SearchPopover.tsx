@@ -160,7 +160,7 @@ const SearchPopover = () => {
         <div role="separator">or search by card</div>
 
         <form
-          onSubmit={(e) => submitForm(e, Routes.admin_compliance_cards_path(), null)}
+          onSubmit={(e) => submitForm(e, Routes.admin_cards_path(), null)}
           style={{ display: "contents" }}
         >
           <select name="card_type" value={data.card_type} onChange={(e) => setData("card_type", e.target.value)}>
