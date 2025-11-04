@@ -213,9 +213,6 @@ const CustomersPage = ({
   const reloadCustomers = async () => loadCustomers(1);
 
   const debouncedReloadCustomers = useDebouncedCallback(asyncVoid(reloadCustomers), 300);
-  React.useEffect(() => {
-    if (searchQuery !== null) debouncedReloadCustomers();
-  }, [searchQuery]);
 
   useOnChange(() => {
     debouncedReloadCustomers();
@@ -251,7 +248,14 @@ const CustomersPage = ({
         title="Sales"
         actions={
           <>
-            <Search value={searchQuery ?? ""} onSearch={(q) => updateQuery({ query: q })} placeholder="Search sales" />
+            <Search
+              value={searchQuery ?? ""}
+              onSearch={(query) => {
+                updateQuery({ query });
+                debouncedReloadCustomers();
+              }}
+              placeholder="Search sales"
+            />
             <Popover aria-label="Filter">
               <PopoverTrigger>
                 <WithTooltip tip="Filter">
