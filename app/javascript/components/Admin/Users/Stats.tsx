@@ -3,8 +3,8 @@ import { cast } from "ts-safe-cast";
 
 import { request, assertResponseError } from "$app/utils/request";
 
-import { LoadingSpinner } from "$app/components/LoadingSpinner";
 import { useClientAlert } from "$app/components/ClientAlertProvider";
+import { LoadingSpinner } from "$app/components/LoadingSpinner";
 import { useIsIntersecting } from "$app/components/useIsIntersecting";
 
 type UserStatsProps = {

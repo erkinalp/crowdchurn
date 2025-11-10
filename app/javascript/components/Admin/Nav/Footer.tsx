@@ -5,9 +5,9 @@ import { cast } from "ts-safe-cast";
 import { CurrentUser } from "$app/types/user";
 import { assertResponseError } from "$app/utils/request";
 
+import { useClientAlert } from "$app/components/ClientAlertProvider";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
 import { Popover } from "$app/components/Popover";
-import { useClientAlert } from "$app/components/ClientAlertProvider";
 
 type ResponseData = {
   redirect_to: string;

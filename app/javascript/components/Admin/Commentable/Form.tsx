@@ -5,7 +5,6 @@ import { cast } from "ts-safe-cast";
 import { request } from "$app/utils/request";
 
 import type { CommentProps } from "$app/components/Admin/Commentable/Comment";
-
 import { useClientAlert } from "$app/components/ClientAlertProvider";
 
 type AdminCommentableFormProps = {
