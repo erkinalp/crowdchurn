@@ -65,13 +65,13 @@ describe "Sales analytics", :js, :sidekiq_inline, :elasticsearch_wait_for_refres
 
       chart = find('[data-testid="chart"]')
       chart.hover
-      expect(page).to have_tooltip(text: "3 views1 sale(33.3% conversion)$5Saturday, December 16", visible: :all)
+      expect(page).to have_tooltip(text: "3 views1 sale(33.3% conversion)$5Saturday, December 16", visible: :all, attached: false)
 
       select "Monthly", from: "Aggregate by"
       expect(page).to have_css('[data-testid="chart-dot"]', count: 1)
       expect(page).to have_css('[data-testid="chart-bar"]', count: 2)
       chart.hover
-      expect(page).to have_tooltip(text: "6 views4 sales(66.7% conversion)$12December 2023", visible: :all)
+      expect(page).to have_tooltip(text: "6 views4 sales(66.7% conversion)$12December 2023", visible: :all, attached: false)
 
       select "Daily", from: "Aggregate by"
 

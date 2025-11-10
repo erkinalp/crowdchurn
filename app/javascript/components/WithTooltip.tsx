@@ -5,8 +5,6 @@ import { classNames } from "$app/utils/classNames";
 
 export type Position = "top" | "left" | "bottom" | "right";
 
-export const tooltipClasses = "w-40 z-30 max-w-max rounded-md bg-primary p-3 text-primary-foreground";
-
 export const WithTooltip = ({
   tip,
   children,
@@ -31,7 +29,7 @@ export const WithTooltip = ({
         <Tooltip.Content
           onPointerDownOutside={(e) => e.preventDefault()}
           {...props}
-          className={classNames(tooltipClasses, className)}
+          className={classNames("z-30 w-40 max-w-max rounded-md bg-primary p-3 text-primary-foreground", className)}
         >
           <Tooltip.Arrow className="fill-primary" />
           {tip}

@@ -257,7 +257,7 @@ const CustomersPage = ({
               onToggle={() => searchInputRef.current?.focus()}
               trigger={
                 <WithTooltip tip="Search">
-                  <div className="button">
+                  <div className="button w-full">
                     <Icon name="solid-search" />
                   </div>
                 </WithTooltip>
@@ -279,7 +279,7 @@ const CustomersPage = ({
               aria-label="Filter"
               trigger={
                 <WithTooltip tip="Filter">
-                  <div className="button">
+                  <div className="button w-full">
                     <Icon name="filter" />
                   </div>
                 </WithTooltip>
@@ -401,7 +401,7 @@ const CustomersPage = ({
               aria-label="Export"
               trigger={
                 <WithTooltip tip="Export">
-                  <div className="button">
+                  <div className="button w-full">
                     <Icon name="download" />
                   </div>
                 </WithTooltip>

@@ -51,7 +51,7 @@ describe "Audience analytics", :js, :sidekiq_inline, :elasticsearch_wait_for_ref
 
       chart = find('[data-testid="chart"]')
       chart.hover
-      expect(page).to have_tooltip(text: "1 new follower1 follower removed2 total followers", visible: :all)
+      expect(page).to have_tooltip(text: "1 new follower1 follower removed2 total followers", visible: :all, attached: false)
 
       toggle_disclosure "12/1/2023 – 12/31/2023"
       click_on "Custom range..."
@@ -61,7 +61,7 @@ describe "Audience analytics", :js, :sidekiq_inline, :elasticsearch_wait_for_ref
 
       expect(page).to have_css('[data-testid="chart-dot"]', count: 2)
       chart.hover
-      expect(page).to have_tooltip(text: "0 new followers2 total followersSunday, December 17", visible: :all)
+      expect(page).to have_tooltip(text: "0 new followers2 total followersSunday, December 17", visible: :all, attached: false)
     end
   end
 end
