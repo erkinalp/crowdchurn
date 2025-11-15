@@ -105,7 +105,12 @@ namespace :admin do
       resource :details, controller: "details", only: [:show]
       resource :info, only: [:show]
       resource :staff_picked, controller: "staff_picked", only: [:create]
-      resources :purchases, only: [:index]
+      resources :purchases, only: [:index] do
+        collection do
+          post :mass_refund
+          get "mass_refund_batches/:id", action: :mass_refund_batch, as: :mass_refund_batch
+        end
+      end
     end
   end
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_11_10_144032) do
+ActiveRecord::Schema[7.1].define(version: 2025_11_15_113902) do
   create_table "active_storage_attachments", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
     t.string "name", limit: 191, null: false
     t.string "record_type", limit: 191, null: false
@@ -1129,6 +1129,26 @@ ActiveRecord::Schema[7.1].define(version: 2025_11_10_144032) do
     t.index ["unique_permalink"], name: "index_links_on_unique_permalink", length: 191
     t.index ["user_id", "updated_at"], name: "index_links_on_user_id_and_updated_at"
     t.index ["user_id"], name: "index_links_on_user_id"
+  end
+
+  create_table "mass_refund_batches", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "product_id", null: false
+    t.bigint "admin_user_id", null: false
+    t.json "purchase_ids", null: false
+    t.integer "status", default: 0, null: false
+    t.integer "refunded_count", default: 0, null: false
+    t.integer "blocked_count", default: 0, null: false
+    t.integer "failed_count", default: 0, null: false
+    t.json "errors_by_purchase_id", null: false
+    t.text "error_message"
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["admin_user_id"], name: "index_mass_refund_batches_on_admin_user_id"
+    t.index ["product_id", "created_at"], name: "index_mass_refund_batches_on_product_id_and_created_at"
+    t.index ["product_id"], name: "index_mass_refund_batches_on_product_id"
+    t.index ["status"], name: "index_mass_refund_batches_on_status"
   end
 
   create_table "media_locations", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
@@ -2730,4 +2750,6 @@ ActiveRecord::Schema[7.1].define(version: 2025_11_10_144032) do
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "mass_refund_batches", "links", column: "product_id", name: "__fk_rails_f331e685b2"
+  add_foreign_key "mass_refund_batches", "users", column: "admin_user_id", name: "__fk_rails_70742574c4"
 end

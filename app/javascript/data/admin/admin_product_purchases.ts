@@ -17,6 +17,7 @@ export type ProductPurchase = {
   error_code: string | null;
   purchase_state: string;
   gumroad_responsible_for_tax: boolean;
+  buyer_blocked: boolean;
 };
 
 export type ProductPurchasesResult = {

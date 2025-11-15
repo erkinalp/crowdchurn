@@ -81,6 +81,7 @@ const AdminProductPurchases = ({
                           )
                         </li>
                       ) : null}
+                      {purchase.buyer_blocked ? <li>(buyer blocked)</li> : null}
                       {purchase.is_chargedback ? <li>(chargeback)</li> : null}
                       {purchase.is_chargeback_reversed ? <li>(chargeback_reversed)</li> : null}
                     </ul>
