@@ -331,7 +331,7 @@ const OverlayMenu = ({
         open={menuOpen}
         onOpenChange={setMenuOpen}
         modal
-        className="h-full w-80 max-w-[calc(100vw-3.25rem)] p-0 md:w-80 md:border-l-0"
+        className="w-80 max-w-[calc(100vw-3.25rem)] p-0 md:w-80 md:border-l-0"
       >
         <ItemsList
           menuId={overlayMenuUID}
