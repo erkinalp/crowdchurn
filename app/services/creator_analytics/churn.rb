@@ -13,7 +13,6 @@ class CreatorAnalytics::Churn
     product_scope.subscription_products
   end
 
-
   # Sample output:
   # {
   #   metadata: {
@@ -77,59 +76,58 @@ class CreatorAnalytics::Churn
   end
 
   private
+    def product_scope
+      @product_scope ||= CreatorAnalytics::Churn::ProductScope.new(seller:)
+    end
 
-  def product_scope
-    @product_scope ||= CreatorAnalytics::Churn::ProductScope.new(seller:)
-  end
+    def build_payload(date_window)
+      fetcher = CreatorAnalytics::Churn::ElasticsearchFetcher.new(
+        seller:,
+        products: subscription_products,
+        date_window:
+      )
 
-  def build_payload(date_window)
-    fetcher = CreatorAnalytics::Churn::ElasticsearchFetcher.new(
-      seller:,
-      products: subscription_products,
-      date_window:
-    )
+      CreatorAnalytics::Churn::DatasetBuilder.new(
+        product_scope:,
+        date_window:,
+        churn_events: fetcher.churn_events,
+        new_subscriptions: fetcher.new_subscriptions,
+        initial_active_counts: fetcher.initial_active_counts
+      ).build
+    end
 
-    CreatorAnalytics::Churn::DatasetBuilder.new(
-      product_scope:,
-      date_window:,
-      churn_events: fetcher.churn_events,
-      new_subscriptions: fetcher.new_subscriptions,
-      initial_active_counts: fetcher.initial_active_counts
-    ).build
-  end
+    def use_cache?
+      @use_cache ||= LargeSeller.where(user: seller).exists?
+    end
 
-  def use_cache?
-    @use_cache ||= LargeSeller.where(user: seller).exists?
-  end
+    def cacheable_range?(date_window)
+      return false unless use_cache?
+      date_window.end_date <= cache_cutoff_date
+    end
 
-  def cacheable_range?(date_window)
-    return false unless use_cache?
-    date_window.end_date <= cache_cutoff_date
-  end
+    def cache_cutoff_date
+      @cache_cutoff_date ||= (Time.zone.now.in_time_zone(seller.timezone).to_date - 2.days)
+    end
 
-  def cache_cutoff_date
-    @cache_cutoff_date ||= (Time.zone.now.in_time_zone(seller.timezone).to_date - 2.days)
-  end
+    def read_cached_payload(date_window)
+      record = ComputedSalesAnalyticsDay.find_by(key: cache_key_for(date_window))
+      return unless record
+      JSON.parse(record.data).deep_symbolize_keys
+    end
 
-  def read_cached_payload(date_window)
-    record = ComputedSalesAnalyticsDay.find_by(key: cache_key_for(date_window))
-    return unless record
-    JSON.parse(record.data).deep_symbolize_keys
-  end
+    def write_cached_payload(date_window, payload)
+      ComputedSalesAnalyticsDay.upsert_data_from_key(cache_key_for(date_window), payload)
+    end
 
-  def write_cached_payload(date_window, payload)
-    ComputedSalesAnalyticsDay.upsert_data_from_key(cache_key_for(date_window), payload)
-  end
-
-  def cache_key_for(date_window)
-    version = $redis.get(RedisKey.seller_analytics_cache_version) || 0
-    [
-      "creator_analytics_churn",
-      "v#{version}",
-      "seller_#{seller.id}",
-      seller.timezone,
-      date_window.start_date,
-      date_window.end_date
-    ].join(":")
-  end
+    def cache_key_for(date_window)
+      version = $redis.get(RedisKey.seller_analytics_cache_version) || 0
+      [
+        "creator_analytics_churn",
+        "v#{version}",
+        "seller_#{seller.id}",
+        seller.timezone,
+        date_window.start_date,
+        date_window.end_date
+      ].join(":")
+    end
 end

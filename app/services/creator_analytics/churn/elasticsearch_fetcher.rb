@@ -100,70 +100,69 @@ class CreatorAnalytics::Churn::ElasticsearchFetcher
   end
 
   private
+    def product_ids
+      @product_ids ||= products.map(&:id)
+    end
 
-  def product_ids
-    @product_ids ||= products.map(&:id)
-  end
+    def base_query
+      query = search_body[:query].deep_dup
+      query[:bool][:filter] ||= []
+      query[:bool][:must] ||= []
+      query[:bool][:filter] << { term: { seller_id: seller.id } }
+      query[:bool][:filter] << { terms: { product_id: product_ids } }
+      query[:bool][:must] << { term: { selected_flags: "is_original_subscription_purchase" } }
+      query
+    end
 
-  def base_query
-    query = search_body[:query].deep_dup
-    query[:bool][:filter] ||= []
-    query[:bool][:must] ||= []
-    query[:bool][:filter] << { term: { seller_id: seller.id } }
-    query[:bool][:filter] << { terms: { product_id: product_ids } }
-    query[:bool][:must] << { term: { selected_flags: "is_original_subscription_purchase" } }
-    query
-  end
+    def search_body
+      @search_body ||= PurchaseSearchService.new(Purchase::CHARGED_SALES_SEARCH_OPTIONS).body
+    end
 
-  def search_body
-    @search_body ||= PurchaseSearchService.new(Purchase::CHARGED_SALES_SEARCH_OPTIONS).body
-  end
+    def composite_sources(field:)
+      [
+        { product_id: { terms: { field: "product_id" } } },
+        {
+          date: {
+            date_histogram: {
+              field: field,
+              calendar_interval: "day",
+              format: "yyyy-MM-dd",
+              time_zone: date_window.timezone_offset
+            }
+          }
+        }
+      ]
+    end
 
-  def composite_sources(field:)
-    [
-      { product_id: { terms: { field: "product_id" } } },
-      {
-        date: {
-          date_histogram: {
-            field: field,
-            calendar_interval: "day",
-            format: "yyyy-MM-dd",
-            time_zone: date_window.timezone_offset
+    def paginate(query:, sources:, aggs:)
+      body = {
+        query: query,
+        size: 0,
+        aggs: {
+          composite_agg: {
+            composite: { size: ES_MAX_BUCKET_SIZE, sources: sources },
+            aggs: aggs
           }
         }
       }
-    ]
-  end
 
-  def paginate(query:, sources:, aggs:)
-    body = {
-      query: query,
-      size: 0,
-      aggs: {
-        composite_agg: {
-          composite: { size: ES_MAX_BUCKET_SIZE, sources: sources },
-          aggs: aggs
-        }
-      }
-    }
+      buckets = []
+      after_key = nil
 
-    buckets = []
-    after_key = nil
+      loop do
+        body[:aggs][:composite_agg][:composite][:after] = after_key if after_key
+        response = Purchase.search(body).aggregations.composite_agg
+        buckets.concat(response.buckets)
+        break if response.buckets.size < ES_MAX_BUCKET_SIZE
+        after_key = response.after_key
+      end
 
-    loop do
-      body[:aggs][:composite_agg][:composite][:after] = after_key if after_key
-      response = Purchase.search(body).aggregations.composite_agg
-      buckets.concat(response.buckets)
-      break if response.buckets.size < ES_MAX_BUCKET_SIZE
-      after_key = response.after_key
+      buckets
     end
 
-    buckets
-  end
+    def parse_bucket_date(raw_value)
+      return Date.parse(raw_value) if raw_value.is_a?(String)
 
-  def parse_bucket_date(raw_value)
-    return Date.parse(raw_value) if raw_value.is_a?(String)
-
-    Time.at(raw_value / 1000.0).in_time_zone(seller.timezone).to_date
-  end
+      Time.at(raw_value / 1000.0).in_time_zone(seller.timezone).to_date
+    end
 end

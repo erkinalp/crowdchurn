@@ -14,13 +14,9 @@ class CreatorAnalytics::Churn::DateWindow
     @start_date, @end_date = clamp_dates(parse_date(@raw_start_date), parse_date(@raw_end_date))
   end
 
-  def start_date
-    @start_date
-  end
+  attr_reader :start_date
 
-  def end_date
-    @end_date
-  end
+  attr_reader :end_date
 
   def timezone_offset
     seller.timezone_formatted_offset
@@ -35,41 +31,40 @@ class CreatorAnalytics::Churn::DateWindow
   end
 
   private
-
-  def parse_date(value)
-    case value
-    when Date
-      value
-    when Time
-      value.in_time_zone(seller.timezone).to_date
-    when String
-      Date.parse(value)
-    else
-      raise CreatorAnalytics::Churn::InvalidDateRange, "Invalid date input: #{value.inspect}"
-    end
-  rescue ArgumentError => e
-    raise CreatorAnalytics::Churn::InvalidDateRange, e.message
-  end
-
-  def clamp_dates(start_value, end_value)
-    earliest = product_scope.earliest_analytics_date
-    latest = default_end_date
-
-    clamped_start = start_value.clamp(earliest, latest)
-    clamped_end = end_value.clamp(clamped_start, latest)
-
-    if clamped_start > clamped_end
-      raise CreatorAnalytics::Churn::InvalidDateRange, "Start date must be before end date"
+    def parse_date(value)
+      case value
+      when Date
+        value
+      when Time
+        value.in_time_zone(seller.timezone).to_date
+      when String
+        Date.parse(value)
+      else
+        raise CreatorAnalytics::Churn::InvalidDateRange, "Invalid date input: #{value.inspect}"
+      end
+    rescue ArgumentError => e
+      raise CreatorAnalytics::Churn::InvalidDateRange, e.message
     end
 
-    [clamped_start, clamped_end]
-  end
+    def clamp_dates(start_value, end_value)
+      earliest = product_scope.earliest_analytics_date
+      latest = default_end_date
 
-  def default_start_date
-    default_end_date - 30
-  end
+      clamped_start = start_value.clamp(earliest, latest)
+      clamped_end = end_value.clamp(clamped_start, latest)
 
-  def default_end_date
-    @default_end_date ||= Time.zone.now.in_time_zone(seller.timezone).to_date
-  end
+      if clamped_start > clamped_end
+        raise CreatorAnalytics::Churn::InvalidDateRange, "Start date must be before end date"
+      end
+
+      [clamped_start, clamped_end]
+    end
+
+    def default_start_date
+      default_end_date - 30
+    end
+
+    def default_end_date
+      @default_end_date ||= Time.zone.now.in_time_zone(seller.timezone).to_date
+    end
 end
