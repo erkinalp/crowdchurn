@@ -2,7 +2,7 @@
 
 class RefundPurchaseWorker
   include Sidekiq::Job
-  sidekiq_options retry: 1, queue: :default
+  sidekiq_options retry: 5, queue: :default
 
   def perform(purchase_id, admin_user_id, reason = nil)
     purchase = Purchase.find(purchase_id)
