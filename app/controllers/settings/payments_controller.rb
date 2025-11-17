@@ -28,7 +28,11 @@ class Settings::PaymentsController < Settings::BaseController
       begin
         UpdateUserCountry.new(new_country_code: updated_country_code, user: current_seller).process
         flash[:notice] = "Your country has been updated!"
-        return render inertia: "Settings/Payments", props: settings_presenter.payments_props(remote_ip: request.remote_ip), status: :ok
+        return redirect_to(
+          settings_payments_path,
+          status: :see_other,
+          notice: "Your country has been updated!"
+        )
       rescue => e
         Bugsnag.notify("Update country failed for user #{current_seller.id} (from #{compliance_info.country_code} to #{updated_country_code}): #{e}")
         return redirect_to(
