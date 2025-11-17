@@ -33,8 +33,8 @@ class Settings::MainController < Settings::BaseController
     error_message = current_seller.errors.full_messages.to_sentence.presence ||
       "Something broke. We're looking into what happened. Sorry about this!"
     redirect_to settings_main_path,
-                  alert: error_message,
-                  status: :see_other
+                alert: error_message,
+                status: :see_other
   end
 
   def resend_confirmation_email
@@ -43,8 +43,8 @@ class Settings::MainController < Settings::BaseController
       return redirect_to settings_main_path, status: :see_other, notice: "Confirmation email resent!"
     end
     redirect_to settings_main_path,
-                  status: :see_other,
-                  alert: "Sorry, something went wrong. Please try again."
+                status: :see_other,
+                alert: "Sorry, something went wrong. Please try again."
   end
 
   private

@@ -48,9 +48,9 @@ class Settings::AdvancedController < Settings::BaseController
     end
 
     if current_seller.save
-      return redirect_to settings_advanced_path, status: :see_other, notice: "Your account has been updated!"
+      redirect_to settings_advanced_path, status: :see_other, notice: "Your account has been updated!"
     else
-      return redirect_to settings_advanced_path, status: :see_other, alert: current_seller.errors.full_messages.to_sentence
+      redirect_to settings_advanced_path, status: :see_other, alert: current_seller.errors.full_messages.to_sentence
     end
   end
 

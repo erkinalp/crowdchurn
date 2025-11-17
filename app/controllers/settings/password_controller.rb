@@ -11,7 +11,7 @@ class Settings::PasswordController < Settings::BaseController
   end
 
   def update
-    added_password = false
+    false
 
     if @user.provider.present?
       unless @user.confirmed?
@@ -20,7 +20,7 @@ class Settings::PasswordController < Settings::BaseController
 
       @user.password = params["user"]["new_password"]
       @user.provider = nil
-      added_password = true
+      true
     else
       if params["user"].blank? || params["user"]["password"].blank? ||
          !@user.valid_password?(params["user"]["password"])
@@ -34,9 +34,9 @@ class Settings::PasswordController < Settings::BaseController
       invalidate_active_sessions_except_the_current_session!
 
       bypass_sign_in(@user)
-      return redirect_to settings_password_path, status: :see_other, notice: "You have successfully changed your password."
+      redirect_to settings_password_path, status: :see_other, notice: "You have successfully changed your password."
     else
-      return redirect_to settings_password_path, status: :see_other, alert: "New password #{@user.errors[:password].to_sentence}"
+      redirect_to settings_password_path, status: :see_other, alert: "New password #{@user.errors[:password].to_sentence}"
     end
   end
 

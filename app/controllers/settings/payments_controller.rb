@@ -182,20 +182,20 @@ class Settings::PaymentsController < Settings::BaseController
       return true if result[:success]
 
       error_message = case result[:error]
-      when :check_card_information_prompt
-        "Please check your card information, we couldn't verify it."
-      when :credit_card_error
-        strip_tags(result[:data])
-      when :bank_account_error
-        strip_tags(result[:data])
-      when :account_number_does_not_match
-        "The account numbers do not match."
-      when :provide_valid_email_prompt
-        "Please provide a valid email address."
-      when :provide_ascii_only_email_prompt
-        "Email address cannot contain non-ASCII characters"
-      when :paypal_payouts_not_supported
-        "PayPal payouts are not supported in your country."
+                      when :check_card_information_prompt
+                        "Please check your card information, we couldn't verify it."
+                      when :credit_card_error
+                        strip_tags(result[:data])
+                      when :bank_account_error
+                        strip_tags(result[:data])
+                      when :account_number_does_not_match
+                        "The account numbers do not match."
+                      when :provide_valid_email_prompt
+                        "Please provide a valid email address."
+                      when :provide_ascii_only_email_prompt
+                        "Email address cannot contain non-ASCII characters"
+                      when :paypal_payouts_not_supported
+                        "PayPal payouts are not supported in your country."
       end
 
       re_render_with_error(error_message)
