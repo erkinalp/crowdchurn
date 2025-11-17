@@ -199,7 +199,7 @@ describe("Advanced Settings Scenario", type: :system, js: true) do
       expect(seller.blocked_customer_objects.active.email.pluck(:object_value)).to match_array(["customer2@example.com", "john@example.com", "bob@example.com"])
 
       # Unblocks all the previously blocked emails if saved with a blank value
-      fill_in "Block emails from purchasing", with: ""
+      fill_in "Block emails from purchasing", with: "", fill_options: { clear: :backspace }
       click_on "Update settings", match: :first
       expect(page).to have_alert(text: "Your account has been updated!")
       expect(page).to have_field("Block emails from purchasing", with: "")
