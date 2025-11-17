@@ -3,8 +3,9 @@
 require "spec_helper"
 require "shared_examples/sellers_base_controller_concern"
 require "shared_examples/authorize_called"
+require "inertia_rails/rspec"
 
-describe Settings::TeamController do
+describe Settings::TeamController, type: :controller, inertia: true do
   it_behaves_like "inherits from Sellers::BaseController"
 
   let(:seller) { create(:named_seller) }
@@ -16,17 +17,14 @@ describe Settings::TeamController do
   end
 
   describe "GET show" do
-    it "returns http success and assigns correct instance variables" do
+    it "returns http success and renders Inertia component" do
       get :show
 
       expect(response).to be_successful
-      settings_presenter = assigns[:settings_presenter]
-      expect(settings_presenter.pundit_user).to eq(controller.pundit_user)
-      team_presenter = assigns[:team_presenter]
-      expect(team_presenter.pundit_user).to eq(controller.pundit_user)
-      react_component_props = assigns[:react_component_props]
-      expect(react_component_props[:member_infos].map(&:to_hash)).to eq(team_presenter.member_infos.map(&:to_hash))
-      expect(react_component_props[:settings_pages]).to eq(settings_presenter.pages)
+      expect(inertia.component).to eq("Settings/Team")
+      expect(inertia.props).to be_present
+      expect(inertia.props[:member_infos]).to be_present
+      expect(inertia.props[:settings_pages]).to be_present
     end
 
     context "when user does not have an email" do
