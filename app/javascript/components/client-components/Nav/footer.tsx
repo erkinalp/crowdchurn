@@ -1,10 +1,10 @@
 import React from "react";
 
-import { DashboardNavProfilePopover } from "$app/components/Admin/Nav/ProfilePopover";
 import { useCurrentSeller } from "$app/components/CurrentSeller";
 import { useAppDomain } from "$app/components/DomainSettings";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
 import { NavLink, NavLinkDropdownItem, UnbecomeDropdownItem, NavLinkDropdownMembershipItem } from "$app/components/Nav";
+import { DashboardNavProfilePopover } from "$app/components/ProfilePopover";
 
 function NavbarFooter() {
   const routeParams = { host: useAppDomain() };
@@ -26,7 +26,7 @@ function NavbarFooter() {
               {teamMemberships.map((teamMembership) => (
                 <NavLinkDropdownMembershipItem key={teamMembership.id} teamMembership={teamMembership} />
               ))}
-              <hr />
+              <hr className="my-2" />
             </>
           ) : null}
           <NavLinkDropdownItem

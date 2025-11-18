@@ -5,7 +5,6 @@ import { createCast } from "ts-safe-cast";
 import { register } from "$app/utils/serverComponentUtil";
 import { initTeamMemberReadOnlyAccess } from "$app/utils/team_member_read_only";
 
-import { DashboardNavProfilePopover } from "$app/components/Admin/Nav/ProfilePopover";
 import { useCurrentSeller } from "$app/components/CurrentSeller";
 import { useAppDomain, useDiscoverUrl } from "$app/components/DomainSettings";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
@@ -15,7 +14,9 @@ import {
   NavLinkDropdownItem,
   UnbecomeDropdownItem,
   NavLinkDropdownMembershipItem,
+  NavSection,
 } from "$app/components/Nav";
+import { DashboardNavProfilePopover } from "$app/components/ProfilePopover";
 import { UnreadTicketsBadge } from "$app/components/support/UnreadTicketsBadge";
 import { useRunOnce } from "$app/components/useRunOnce";
 
@@ -90,7 +91,7 @@ export const Nav = (props: Props) => {
                   {teamMemberships.map((teamMembership) => (
                     <NavLinkDropdownMembershipItem key={teamMembership.id} teamMembership={teamMembership} />
                   ))}
-                  <hr />
+                  <hr className="my-2" />
                 </>
               ) : null}
               <NavLinkDropdownItem
@@ -107,7 +108,7 @@ export const Nav = (props: Props) => {
       }
       {...props}
     >
-      <section>
+      <NavSection>
         <NavLink text="Home" icon="shop-window-fill" href={Routes.dashboard_url(routeParams)} exactHrefMatch />
         <NavLink
           text="Products"
@@ -144,8 +145,8 @@ export const Nav = (props: Props) => {
         {loggedInUser?.policies.community.index ? (
           <NavLink text="Community" icon="solid-chat-alt" href={Routes.community_path(routeParams)} />
         ) : null}
-      </section>
-      <section>
+      </NavSection>
+      <NavSection>
         <NavLink text="Discover" icon="solid-search" href={discoverUrl} exactHrefMatch />
         {currentSeller?.id === loggedInUser?.id ? (
           <NavLink
@@ -155,7 +156,7 @@ export const Nav = (props: Props) => {
             additionalPatterns={[Routes.wishlists_url(routeParams)]}
           />
         ) : null}
-      </section>
+      </NavSection>
     </NavFramework>
   );
 };

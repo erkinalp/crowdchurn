@@ -5,8 +5,9 @@ import { cast } from "ts-safe-cast";
 import { CurrentUser } from "$app/types/user";
 import { assertResponseError } from "$app/utils/request";
 
-import { DashboardNavProfilePopover } from "$app/components/Admin/Nav/ProfilePopover";
+import { Icon } from "$app/components/Icons";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
+import { DashboardNavProfilePopover } from "$app/components/ProfilePopover";
 import { showAlert } from "$app/components/server-components/Alert";
 
 type ResponseData = {
@@ -48,7 +49,7 @@ const AdminNavFooter = () => {
   };
 
   return (
-    <DashboardNavProfilePopover user={current_user}>
+    <DashboardNavProfilePopover user={loggedInUser}>
       <div role="menu" className="shadow-none!">
         {current_user.impersonated_user ? (
           <>
@@ -56,16 +57,16 @@ const AdminNavFooter = () => {
               <img className="user-avatar" src={current_user.impersonated_user.avatar_url} alt="Your avatar" />
               <span>{current_user.impersonated_user.name}</span>
             </a>
-            <hr />
+            <hr className="my-2" />
           </>
         ) : null}
-        <Link role="menuitem" href={Routes.logout_url()} method="delete">
-          <span className="icon icon-box-arrow-in-right-fill"></span>
+        <Link role="menuitem" href={Routes.logout_url()} method="delete" className="w-full">
+          <Icon name="box-arrow-in-right-fill" className="mr-3 ml-1" />
           Logout
         </Link>
         {loggedInUser?.isImpersonating ? (
-          <a role="menuitem" href="#" onClick={handleUnbecome}>
-            <span className="icon icon-box-arrow-in-right-fill"></span>
+          <a role="menuitem" href="#" onClick={handleUnbecome} className="w-full">
+            <Icon name="box-arrow-in-right-fill" className="mr-3 ml-1" />
             Unbecome
           </a>
         ) : null}

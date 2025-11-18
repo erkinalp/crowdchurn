@@ -3,10 +3,16 @@ import { createCast } from "ts-safe-cast";
 
 import { register } from "$app/utils/serverComponentUtil";
 
-import { DashboardNavProfilePopover } from "$app/components/Admin/Nav/ProfilePopover";
 import { useAppDomain } from "$app/components/DomainSettings";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
-import { Nav as NavFramework, NavLink, NavLinkDropdownItem, UnbecomeDropdownItem } from "$app/components/Nav";
+import {
+  Nav as NavFramework,
+  NavLink,
+  NavLinkDropdownItem,
+  NavSection,
+  UnbecomeDropdownItem,
+} from "$app/components/Nav";
+import { DashboardNavProfilePopover } from "$app/components/ProfilePopover";
 
 type ImpersonatedUser = {
   name: string;
@@ -29,15 +35,15 @@ export const Nav = ({ title, current_user }: Props) => {
     <NavFramework
       title={title}
       footer={
-        <DashboardNavProfilePopover user={current_user}>
-          <div role="menu" className="shadow-none!">
+        <DashboardNavProfilePopover user={loggedInUser}>
+          <div role="menu">
             {current_user.impersonated_user ? (
               <>
                 <a role="menuitem" href={Routes.root_url()}>
                   <img className="user-avatar" src={current_user.impersonated_user.avatar_url} alt="Your avatar" />
                   <span>{current_user.impersonated_user.name}</span>
                 </a>
-                <hr />
+                <hr className="my-2" />
               </>
             ) : null}
             <NavLinkDropdownItem text="Logout" icon="box-arrow-in-right-fill" href={Routes.logout_url()} />
@@ -46,7 +52,7 @@ export const Nav = ({ title, current_user }: Props) => {
         </DashboardNavProfilePopover>
       }
     >
-      <section>
+      <NavSection>
         <NavLink text="Suspend users" icon="shield-exclamation" href={Routes.admin_suspend_users_url(routeParams)} />
         <NavLink text="Block emails" icon="envelope-fill" href={Routes.admin_block_email_domains_url(routeParams)} />
         <NavLink
@@ -58,7 +64,7 @@ export const Nav = ({ title, current_user }: Props) => {
         <NavLink text="Features" icon="solid-flag" href={Routes.admin_flipper_ui_url(routeParams)} />
         <NavLink text="Refund queue" icon="solid-currency-dollar" href={Routes.admin_refund_queue_url(routeParams)} />
         <NavLink text="Sales reports" icon="bar-chart-fill" href={Routes.admin_sales_reports_url(routeParams)} />
-      </section>
+      </NavSection>
     </NavFramework>
   );
 };
