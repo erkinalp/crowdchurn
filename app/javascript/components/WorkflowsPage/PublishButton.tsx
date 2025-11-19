@@ -2,9 +2,9 @@ import * as React from "react";
 
 import { type SaveActionName } from "$app/types/workflow";
 
-import { Button } from "$app/components/Button";
+import { Button, buttonVariants } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
-import { Popover } from "$app/components/Popover";
+import { Popover, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 import { Toggle } from "$app/components/Toggle";
 
 type PublishButtonProps = {
@@ -25,10 +25,8 @@ export const PublishButton = ({
   isDisabled,
   sendToPastCustomers,
   onClick,
-}: PublishButtonProps) => {
-  const [popoverOpen, setPopoverOpen] = React.useState(false);
-
-  return isPublished ? (
+}: PublishButtonProps) =>
+  isPublished ? (
     <Button onClick={() => onClick("save_and_unpublish")} disabled={isDisabled}>
       Unpublish
     </Button>
@@ -37,25 +35,22 @@ export const PublishButton = ({
       Publish
     </Button>
   ) : (
-    <Popover
-      disabled={isDisabled}
-      trigger={
-        <div className="button" color="accent">
+    <Popover>
+      <PopoverTrigger disabled={isDisabled}>
+        <div className={buttonVariants({ color: "accent" })}>
           Publish
           <Icon name="outline-cheveron-down" />
         </div>
-      }
-      open={popoverOpen}
-      onToggle={setPopoverOpen}
-    >
-      <fieldset>
-        <Button color="accent" onClick={() => onClick("save_and_publish")} disabled={isDisabled}>
-          Publish now
-        </Button>
-        <Toggle value={sendToPastCustomers.enabled} onChange={sendToPastCustomers.toggle}>
-          {sendToPastCustomers.label}
-        </Toggle>
-      </fieldset>
+      </PopoverTrigger>
+      <PopoverContent>
+        <fieldset>
+          <Button color="accent" onClick={() => onClick("save_and_publish")} disabled={isDisabled}>
+            Publish now
+          </Button>
+          <Toggle value={sendToPastCustomers.enabled} onChange={sendToPastCustomers.toggle}>
+            {sendToPastCustomers.label}
+          </Toggle>
+        </fieldset>
+      </PopoverContent>
     </Popover>
   );
-};

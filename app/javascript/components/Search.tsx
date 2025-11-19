@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { buttonVariants } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
 import { Popover, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 import { WithTooltip } from "$app/components/WithTooltip";
@@ -16,7 +17,7 @@ export const Search = ({ onSearch, value, placeholder = "Search" }: SearchProps)
     <Popover>
       <PopoverTrigger>
         <WithTooltip tip="Search" position="bottom">
-          <div className="button">
+          <div className={buttonVariants()}>
             <Icon name="solid-search" />
           </div>
         </WithTooltip>

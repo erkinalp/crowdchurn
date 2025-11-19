@@ -390,10 +390,8 @@ export const RichTextEditorToolbar = ({
         onMouseLeave={() => setShowTooltip(false)}
       >
         <Popover aria-label="Text formats">
-          <PopoverTrigger>
-            <div className="toolbar-item">
-              {activeFormatOption?.name ?? "Text"} <Icon name="outline-cheveron-down" />
-            </div>
+          <PopoverTrigger className="toolbar-item">
+            {activeFormatOption?.name ?? "Text"} <Icon name="outline-cheveron-down" />
           </PopoverTrigger>
           <PopoverContent className="border-0 p-0 shadow-none" arrowClassName="fill-white dark:fill-black/35">
             <ul role="menu" className="flex flex-col">
@@ -470,10 +468,8 @@ export const RichTextEditorToolbar = ({
               <>
                 <Separator aria-orientation="vertical" />
                 <Popover>
-                  <PopoverTrigger>
-                    <div className="toolbar-item">
-                      Insert <Icon name="outline-cheveron-down" />
-                    </div>
+                  <PopoverTrigger className="toolbar-item">
+                    Insert <Icon name="outline-cheveron-down" />
                   </PopoverTrigger>
                   <PopoverContent className="border-0 p-0 shadow-none" arrowClassName="fill-white dark:fill-black/35">
                     <PopoverClose>

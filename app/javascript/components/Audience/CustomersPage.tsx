@@ -57,7 +57,7 @@ import { asyncVoid } from "$app/utils/promise";
 import { RecurrenceId, recurrenceLabels } from "$app/utils/recurringPricing";
 import { AbortError, assertResponseError } from "$app/utils/request";
 
-import { Button, NavigationButton } from "$app/components/Button";
+import { Button, buttonVariants, NavigationButton } from "$app/components/Button";
 import { useCurrentSeller } from "$app/components/CurrentSeller";
 import { DateInput } from "$app/components/DateInput";
 import { DateRangePicker } from "$app/components/DateRangePicker";
@@ -260,7 +260,7 @@ const CustomersPage = ({
             <Popover aria-label="Filter">
               <PopoverTrigger>
                 <WithTooltip tip="Filter">
-                  <div className="button">
+                  <div className={buttonVariants()}>
                     <Icon name="filter" />
                   </div>
                 </WithTooltip>
@@ -382,7 +382,7 @@ const CustomersPage = ({
             <Popover aria-label="Export">
               <PopoverTrigger>
                 <WithTooltip tip="Export">
-                  <div className="button">
+                  <div className={buttonVariants()}>
                     <Icon name="download" />
                   </div>
                 </WithTooltip>

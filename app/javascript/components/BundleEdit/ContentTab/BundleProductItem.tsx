@@ -57,9 +57,7 @@ export const BundleProductItem = ({
               {bundleProduct.is_quantity_enabled || bundleProduct.variants ? (
                 <li>
                   <Popover>
-                    <PopoverTrigger>
-                      <div className="link">Configure</div>
-                    </PopoverTrigger>
+                    <PopoverTrigger className="underline">Configure</PopoverTrigger>
                     <PopoverContent>
                       <div className="flex w-96 flex-col gap-4">
                         <ConfigurationSelector

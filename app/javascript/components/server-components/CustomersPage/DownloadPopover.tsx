@@ -2,9 +2,10 @@ import { lightFormat, subMonths } from "date-fns";
 import * as React from "react";
 import { createCast } from "ts-safe-cast";
 
+import { classNames } from "$app/utils/classNames";
 import { register } from "$app/utils/serverComponentUtil";
 
-import { Button } from "$app/components/Button";
+import { Button, buttonVariants } from "$app/components/Button";
 import { DateRangePicker } from "$app/components/DateRangePicker";
 import { Icon } from "$app/components/Icons";
 import { Popover, PopoverContent, PopoverTrigger } from "$app/components/Popover";
@@ -18,7 +19,7 @@ export const DownloadPopover = ({ authenticityToken }: Props) => {
     <Popover aria-label="Export">
       <PopoverTrigger>
         <WithTooltip tip="Export" position="bottom">
-          <div className="button js-toggle-download-box">
+          <div className={classNames(buttonVariants(), "js-toggle-download-box")}>
             <Icon name="download" />
           </div>
         </WithTooltip>

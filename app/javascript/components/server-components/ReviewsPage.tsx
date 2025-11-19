@@ -4,7 +4,7 @@ import { cast, createCast } from "ts-safe-cast";
 import { ProductNativeType } from "$app/parsers/product";
 import { register } from "$app/utils/serverComponentUtil";
 
-import { Button, NavigationButton } from "$app/components/Button";
+import { buttonVariants, NavigationButton } from "$app/components/Button";
 import { useDiscoverUrl } from "$app/components/DomainSettings";
 import { Icon } from "$app/components/Icons";
 import { Layout } from "$app/components/Library/Layout";
@@ -196,10 +196,10 @@ const Row = ({ review, onChange }: { review: Review; onChange: (review: Review) 
     <td>
       <div className="actions">
         <Popover>
-          <PopoverTrigger>
-            <Button aria-label="Edit">
+          <PopoverTrigger aria-label="Edit">
+            <div className={buttonVariants()}>
               <Icon name="pencil" />
-            </Button>
+            </div>
           </PopoverTrigger>
           <PopoverContent className="border-0 p-0 shadow-none">
             <div className="stack">

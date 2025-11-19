@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { buttonVariants } from "$app/components/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 
 type Props = { iosAppUrl: string; androidAppUrl: string };
@@ -7,7 +8,7 @@ type Props = { iosAppUrl: string; androidAppUrl: string };
 export const OpenInAppButton = ({ iosAppUrl, androidAppUrl }: Props) => (
   <Popover>
     <PopoverTrigger>
-      <span className="button">Open in app</span>
+      <div className={buttonVariants()}>Open in app</div>
     </PopoverTrigger>
     <PopoverContent>
       <div className="mx-auto grid w-72 gap-4 text-center">

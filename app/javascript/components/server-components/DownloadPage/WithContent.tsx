@@ -9,7 +9,7 @@ import { request } from "$app/utils/request";
 import { generatePageIcon } from "$app/utils/rich_content_page";
 import { register } from "$app/utils/serverComponentUtil";
 
-import { Button } from "$app/components/Button";
+import { Button, buttonVariants } from "$app/components/Button";
 import { DiscordButton } from "$app/components/DiscordButton";
 import { DownloadAllButton } from "$app/components/Download/DownloadAllButton";
 import { FileItem, FileList as DownloadFileList, FolderItem } from "$app/components/Download/FileList";
@@ -339,7 +339,7 @@ const WithContent = ({
           {isDesktop ? null : (
             <Popover aria-label="Table of Contents">
               <PopoverTrigger>
-                <div className="button">
+                <div className={buttonVariants()}>
                   <Icon name="unordered-list" />
                 </div>
               </PopoverTrigger>

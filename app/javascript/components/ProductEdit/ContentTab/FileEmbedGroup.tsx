@@ -11,7 +11,7 @@ import { isTuple } from "$app/utils/array";
 import GuidGenerator from "$app/utils/guid_generator";
 import { assertResponseError } from "$app/utils/request";
 
-import { Button, NavigationButton } from "$app/components/Button";
+import { Button, buttonVariants, NavigationButton } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
 import { LoadingSpinner } from "$app/components/LoadingSpinner";
 import { Popover, PopoverTrigger, PopoverContent } from "$app/components/Popover";
@@ -173,7 +173,7 @@ const FileEmbedGroupNodeView = ({
               {showDownloadButton ? (
                 <Popover>
                   <PopoverTrigger>
-                    <div className="button">
+                    <div className={buttonVariants()}>
                       Download all
                       <Icon name="outline-cheveron-down" />
                     </div>

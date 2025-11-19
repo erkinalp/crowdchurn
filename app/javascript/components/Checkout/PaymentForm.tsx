@@ -228,7 +228,7 @@ const EmailAddress = () => {
           </legend>
           <div className="relative inline-block w-full">
             <Popover open={!!state.emailTypoSuggestion}>
-              <PopoverTrigger asChild>
+              <PopoverTrigger>
                 <input
                   id={`${uid}email`}
                   type="email"

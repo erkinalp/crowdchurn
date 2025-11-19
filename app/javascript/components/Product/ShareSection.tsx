@@ -3,7 +3,7 @@ import * as React from "react";
 import { Wishlist, addToWishlist, createWishlist } from "$app/data/wishlists";
 import { assertResponseError } from "$app/utils/request";
 
-import { Button } from "$app/components/Button";
+import { Button, buttonVariants } from "$app/components/Button";
 import { ComboBox } from "$app/components/ComboBox";
 import { CopyToClipboard } from "$app/components/CopyToClipboard";
 import { useAppDomain } from "$app/components/DomainSettings";
@@ -140,11 +140,11 @@ export const ShareSection = ({
         />
 
         <Popover aria-label="Share">
-          <PopoverTrigger>
+          <PopoverTrigger aria-label="Share">
             <WithTooltip tip="Share" position="bottom">
-              <Button aria-label="Share">
+              <div className={buttonVariants()}>
                 <Icon name="share" />
-              </Button>
+              </div>
             </WithTooltip>
           </PopoverTrigger>
           <PopoverContent>

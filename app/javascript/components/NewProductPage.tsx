@@ -16,7 +16,7 @@ import {
 } from "$app/utils/recurringPricing";
 import { assertResponseError, request } from "$app/utils/request";
 
-import { Button, NavigationButton } from "$app/components/Button";
+import { Button, buttonVariants, NavigationButton } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
 import { Popover, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 import { showAlert } from "$app/components/server-components/Alert";
@@ -230,10 +230,10 @@ const NewProductPage = ({
             </Link>
             {ai_generation_enabled ? (
               <Popover open={aiPopoverOpen} onOpenChange={setAiPopoverOpen}>
-                <PopoverTrigger>
-                  <Button color="primary" outline aria-label="Create a product with AI">
+                <PopoverTrigger aria-label="Create a product with AI">
+                  <div className={buttonVariants({ variant: "outline", color: "primary" })}>
                     <Icon name="sparkle" />
-                  </Button>
+                  </div>
                 </PopoverTrigger>
                 <PopoverContent>
                   <div className="w-96 max-w-full">

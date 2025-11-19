@@ -4,7 +4,7 @@ import { ExportablePayout, exportPayouts, getExportablePayouts } from "$app/data
 import { asyncVoid } from "$app/utils/promise";
 import { assertResponseError } from "$app/utils/request";
 
-import { Button } from "$app/components/Button";
+import { Button, buttonVariants } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
 import { LoadingSpinner } from "$app/components/LoadingSpinner";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "$app/components/Popover";
@@ -149,10 +149,10 @@ const ExportPayoutsPopoverContent = () => {
 
 export const ExportPayoutsPopover = () => (
   <Popover aria-label="Bulk export">
-    <PopoverTrigger>
-      <Button aria-label="Bulk export">
+    <PopoverTrigger aria-label="Bulk export">
+      <div className={buttonVariants()}>
         <Icon name="download" />
-      </Button>
+      </div>
     </PopoverTrigger>
     <PopoverContent>
       <ExportPayoutsPopoverContent />

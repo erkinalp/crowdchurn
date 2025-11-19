@@ -618,10 +618,8 @@ export const CommunityView = () => {
                     </span>
 
                     <Popover open={switcherOpen} onOpenChange={setSwitcherOpen} aria-label="Switch creator">
-                      <PopoverTrigger>
-                        <div className="flex h-8 w-8 justify-center">
-                          <Icon name="outline-cheveron-down" />
-                        </div>
+                      <PopoverTrigger className="flex h-8 w-8 justify-center">
+                        <Icon name="outline-cheveron-down" />
                       </PopoverTrigger>
                       <PopoverContent className="shrink-0 border-0 p-0 shadow-none">
                         <div role="menu">

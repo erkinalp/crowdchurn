@@ -507,9 +507,7 @@ const CartItemComponent = ({
               isPWYW ? (
                 <li>
                   <Popover>
-                    <PopoverTrigger>
-                      <span className="link">Configure</span>
-                    </PopoverTrigger>
+                    <PopoverTrigger className="underline">Configure</PopoverTrigger>
                     <PopoverContent>
                       <div className="flex w-96 flex-col gap-4">
                         <ConfigurationSelector

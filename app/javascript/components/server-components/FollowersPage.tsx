@@ -5,7 +5,7 @@ import { createCast } from "ts-safe-cast";
 import { deleteFollower, fetchFollowers, Follower } from "$app/data/followers";
 import { register } from "$app/utils/serverComponentUtil";
 
-import { Button } from "$app/components/Button";
+import { Button, buttonVariants } from "$app/components/Button";
 import { CopyToClipboard } from "$app/components/CopyToClipboard";
 import { useCurrentSeller } from "$app/components/CurrentSeller";
 import { Icon } from "$app/components/Icons";
@@ -121,11 +121,11 @@ export const FollowersPage = ({ followers: initialFollowers, per_page, total }: 
             <Search onSearch={setSearchQuery} value={searchQuery} placeholder="Search followers" />
           )}
           <Popover aria-label="Export">
-            <PopoverTrigger>
+            <PopoverTrigger aria-label="Export">
               <WithTooltip tip="Export" position="bottom">
-                <Button aria-label="Export">
+                <div className={buttonVariants()}>
                   <Icon aria-label="Download" name="download" />
-                </Button>
+                </div>
               </WithTooltip>
             </PopoverTrigger>
             <PopoverContent>

@@ -633,10 +633,8 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
                   open={insertMenuState != null}
                   onOpenChange={(open) => setInsertMenuState(open ? "open" : null)}
                 >
-                  <PopoverTrigger>
-                    <div className="toolbar-item">
-                      Insert <Icon name="outline-cheveron-down" />
-                    </div>
+                  <PopoverTrigger className="toolbar-item">
+                    Insert <Icon name="outline-cheveron-down" />
                   </PopoverTrigger>
                   <PopoverContent className="border-0 p-0 shadow-none">
                     <div role="menu" onClick={() => setInsertMenuState(null)}>

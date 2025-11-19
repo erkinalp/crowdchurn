@@ -14,7 +14,7 @@ import { asyncVoid } from "$app/utils/promise";
 import { assertResponseError } from "$app/utils/request";
 
 import { AnalyticsLayout } from "$app/components/Analytics/AnalyticsLayout";
-import { Button, NavigationButton } from "$app/components/Button";
+import { Button, buttonVariants, NavigationButton } from "$app/components/Button";
 import { CopyToClipboard } from "$app/components/CopyToClipboard";
 import { Icon } from "$app/components/Icons";
 import { LoadingSpinner } from "$app/components/LoadingSpinner";
@@ -346,9 +346,9 @@ const UtmLinkActions = ({ link, children }: { link: SavedUtmLink; children: Reac
 
     <Popover aria-label="Open action menu">
       <PopoverTrigger>
-        <Button>
+        <div className={buttonVariants()}>
           <Icon name="three-dots" />
-        </Button>
+        </div>
       </PopoverTrigger>
       <PopoverContent className="border-0 p-0 shadow-none">{children}</PopoverContent>
     </Popover>

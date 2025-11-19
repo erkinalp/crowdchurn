@@ -3,7 +3,7 @@ import { createCast } from "ts-safe-cast";
 
 import { register } from "$app/utils/serverComponentUtil";
 
-import { Button } from "$app/components/Button";
+import { Button, buttonVariants } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
 import { Popover, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 import { Separator } from "$app/components/Separator";
@@ -17,14 +17,14 @@ export const SearchPopover = ({ card_types }: Props) => {
     <Popover aria-label="Toggle Search">
       <PopoverTrigger>
         <WithTooltip tip="Search" position="bottom">
-          <div className="button">
+          <div className={buttonVariants()}>
             <Icon name="solid-search" />
           </div>
         </WithTooltip>
       </PopoverTrigger>
       <PopoverContent>
         <div className="grid w-96 max-w-full gap-3">
-          <form action={Routes.admin_search_users_path()} method="get" className="input-with-button">
+          <form action={Routes.admin_search_users_path()} method="get" className="flex gap-2">
             <div className="input">
               <Icon name="person" />
               <input
@@ -39,7 +39,7 @@ export const SearchPopover = ({ card_types }: Props) => {
               <Icon name="solid-search" />
             </Button>
           </form>
-          <form action={Routes.admin_search_purchases_path()} method="get" className="input-with-button">
+          <form action={Routes.admin_search_purchases_path()} method="get" className="flex gap-2">
             <div className="input">
               <Icon name="solid-currency-dollar" />
               <input
@@ -53,7 +53,7 @@ export const SearchPopover = ({ card_types }: Props) => {
               <Icon name="solid-search" />
             </Button>
           </form>
-          <form action={Routes.admin_affiliates_path()} method="get" className="input-with-button">
+          <form action={Routes.admin_affiliates_path()} method="get" className="flex gap-2">
             <div className="input">
               <Icon name="people-fill" />
               <input

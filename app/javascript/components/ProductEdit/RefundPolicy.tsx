@@ -58,9 +58,7 @@ export const RefundPolicySelector = ({
             <label htmlFor={`${uid}-max-refund-period-in-days`}>Refund period</label>
             {refundPolicies.length > 0 ? (
               <Popover>
-                <PopoverTrigger>
-                  <div className="link">Copy from other products</div>
-                </PopoverTrigger>
+                <PopoverTrigger className="underline">Copy from other products</PopoverTrigger>
                 <PopoverContent>
                   <div className="flex w-80 max-w-full flex-col gap-4 font-normal">
                     <Select
