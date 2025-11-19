@@ -24,7 +24,7 @@ export const AdminSuspendForTosForm = ({
     method="POST"
     confirmMessage={confirm_message}
     onSuccess={() => showAlert(success_message, "success")}
-    className="input-with-button"
+    className="flex gap-2"
   >
     {(isLoading) => (
       <>

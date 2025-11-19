@@ -21,7 +21,7 @@ export const AdminSetCustomFeeForm = ({
   >
     {(isLoading) => (
       <fieldset>
-        <div className="input-with-button" style={{ alignItems: "start" }}>
+        <div className="flex items-start gap-2">
           <input
             name="custom_fee_percent"
             type="number"
