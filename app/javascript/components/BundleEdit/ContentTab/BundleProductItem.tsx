@@ -93,7 +93,7 @@ export const BundleProductItem = ({
                           discount={null}
                           hidePrices
                         />
-                        <PopoverClose>
+                        <PopoverClose asChild>
                           <Button
                             color="accent"
                             onClick={() => {
