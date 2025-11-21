@@ -124,6 +124,7 @@ const extractParams = (rawParams: URLSearchParams): QueryParams => {
 };
 
 const year = new Date().getFullYear();
+const BLACK_FRIDAY_CODE = "BLACKFRIDAY2025";
 
 export type DiscountsPageProps = {
   offer_codes: OfferCode[];
@@ -326,28 +327,30 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
       }
     >
       <section className="p-4 md:p-8">
-        <div role="status" className="mb-8 border !border-pink bg-pink/20 px-4 py-3 md:px-8">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
-            <div className="flex flex-1 flex-row items-center gap-2 md:gap-4">
-              <img src={blackFridayIllustration} alt="Black Friday" className="h-12 w-12 shrink-0" />
-              <div className="flex-1 text-sm md:text-base">
-                <span className="font-bold">Black Friday is here!</span> Be part of it on Discover. Join Black Friday
-                Deals to create your discount and get featured.
+        {!offerCodes.some((offerCode) => offerCode.code === BLACK_FRIDAY_CODE) ? (
+          <div role="status" className="mb-8 border !border-pink bg-pink/20 px-4 py-3 md:px-8">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
+              <div className="flex flex-1 flex-row items-center gap-2 md:gap-4">
+                <img src={blackFridayIllustration} alt="Black Friday" className="h-12 w-12 shrink-0" />
+                <div className="flex-1 text-sm md:text-base">
+                  <span className="font-bold">Black Friday is here!</span> Be part of it on Discover. Join Black Friday
+                  Deals to create your discount and get featured.
+                </div>
               </div>
+              <Button
+                color="primary"
+                className="mt-2 shrink-0 md:mt-0"
+                onClick={() => {
+                  setIsBlackFridayMode(true);
+                  setSelectedOfferCodeId(null);
+                  setView("create");
+                }}
+              >
+                Join Black Friday Deals
+              </Button>
             </div>
-            <Button
-              color="primary"
-              className="mt-2 shrink-0 md:mt-0"
-              onClick={() => {
-                setIsBlackFridayMode(true);
-                setSelectedOfferCodeId(null);
-                setView("create");
-              }}
-            >
-              Join Black Friday Deals
-            </Button>
           </div>
-        </div>
+        ) : null}
         {offerCodes.length > 0 ? (
           <section className="flex flex-col gap-4">
             <table aria-live="polite" aria-busy={isLoading}>
@@ -726,7 +729,7 @@ const Form = ({
 }) => {
   const [name, setName] = React.useState<{ value: string; error?: boolean }>({ value: offerCode?.name ?? "" });
   const [code, setCode] = React.useState<{ value: string; error?: boolean }>({
-    value: isBlackFridayMode ? "BLACKFRIDAY2025" : offerCode?.code || generateCode(),
+    value: isBlackFridayMode ? BLACK_FRIDAY_CODE : offerCode?.code || generateCode(),
   });
 
   const [discount, setDiscount] = React.useState<InputtedDiscount>(
