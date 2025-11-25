@@ -27,6 +27,7 @@ class Checkout::DiscountsPresenter
         }
       end,
       show_black_friday_banner: Feature.active?(:black_friday_seller_banner),
+      black_friday_code: SearchProducts::BLACK_FRIDAY_CODE,
     }
   end
 

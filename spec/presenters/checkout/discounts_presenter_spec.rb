@@ -129,6 +129,7 @@ describe Checkout::DiscountsPresenter do
                    },
                  ],
                  show_black_friday_banner: false,
+                 black_friday_code: "BLACKFRIDAY2025",
                })
     end
   end

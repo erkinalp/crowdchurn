@@ -124,8 +124,6 @@ const extractParams = (rawParams: URLSearchParams): QueryParams => {
 };
 
 const year = new Date().getFullYear();
-// TODO: expose this from the backend
-const BLACK_FRIDAY_CODE = "BLACKFRIDAY2025";
 
 export type DiscountsPageProps = {
   offer_codes: OfferCode[];
@@ -133,6 +131,7 @@ export type DiscountsPageProps = {
   products: Product[];
   pagination: PaginationProps;
   show_black_friday_banner: boolean;
+  black_friday_code: string;
 };
 
 const DiscountsPage = ({
@@ -141,6 +140,7 @@ const DiscountsPage = ({
   products,
   pagination: initialPagination,
   show_black_friday_banner,
+  black_friday_code,
 }: DiscountsPageProps) => {
   const loggedInUser = useLoggedInUser();
   const [{ offerCodes, pagination }, setState] = React.useState<{
@@ -335,7 +335,7 @@ const DiscountsPage = ({
       }
     >
       <section className="p-4 md:p-8">
-        {show_black_friday_banner && !offerCodes.some((offerCode) => offerCode.code === BLACK_FRIDAY_CODE) ? (
+        {show_black_friday_banner && !offerCodes.some((offerCode) => offerCode.code === black_friday_code) ? (
           <div role="status" className="mb-8 border !border-pink bg-pink/20 px-4 py-3 md:px-8">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
               <div className="flex flex-1 flex-row items-center gap-2 md:gap-4">
@@ -631,6 +631,7 @@ const DiscountsPage = ({
     </Layout>
   ) : view === "edit" ? (
     <Form
+      black_friday_code={black_friday_code}
       title="Edit discount"
       submitLabel={isLoading ? "Saving changes..." : "Save changes"}
       readOnlyCode
@@ -670,6 +671,7 @@ const DiscountsPage = ({
     />
   ) : (
     <Form
+      black_friday_code={black_friday_code}
       title="Create discount"
       submitLabel={isLoading ? "Adding discount..." : "Add discount"}
       offerCode={selectedOfferCode ? { ...selectedOfferCode, code: "" } : undefined}
@@ -723,6 +725,7 @@ const Form = ({
   save,
   products,
   isLoading,
+  black_friday_code,
   isBlackFridayMode = false,
 }: {
   title: string;
@@ -733,11 +736,12 @@ const Form = ({
   save: (offerCode: Omit<OfferCode, "id" | "can_update">) => void;
   products: Product[];
   isLoading: boolean;
+  black_friday_code: string;
   isBlackFridayMode?: boolean;
 }) => {
   const [name, setName] = React.useState<{ value: string; error?: boolean }>({ value: offerCode?.name ?? "" });
   const [code, setCode] = React.useState<{ value: string; error?: boolean }>({
-    value: isBlackFridayMode ? BLACK_FRIDAY_CODE : offerCode?.code || generateCode(),
+    value: isBlackFridayMode ? black_friday_code : offerCode?.code || generateCode(),
   });
 
   const [discount, setDiscount] = React.useState<InputtedDiscount>(
