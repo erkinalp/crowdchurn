@@ -746,7 +746,8 @@ const Form = ({
   isBlackFridayMode?: boolean;
 }) => {
   const [name, setName] = React.useState<{ value: string; error?: boolean }>({
-    value: isBlackFridayMode ? black_friday_code_name : offerCode?.name ?? "" });
+    value: isBlackFridayMode ? black_friday_code_name : (offerCode?.name ?? ""),
+  });
   const [code, setCode] = React.useState<{ value: string; error?: boolean }>({
     value: isBlackFridayMode ? black_friday_code : offerCode?.code || generateCode(),
   });
