@@ -327,7 +327,7 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
         </>
       }
     >
-      { /* TODO: Black Friday mode, we need a different feature flag in order to remove this when Black Friday is over, but we do want it to be visible before Blackfriday so sellers have time to prepare */ }
+      {/* TODO: Black Friday mode, we need a different feature flag in order to remove this when Black Friday is over, but we do want it to be visible before Blackfriday so sellers have time to prepare */}
       <section className="p-4 md:p-8">
         {!offerCodes.some((offerCode) => offerCode.code === BLACK_FRIDAY_CODE) ? (
           <div role="status" className="mb-8 border !border-pink bg-pink/20 px-4 py-3 md:px-8">
