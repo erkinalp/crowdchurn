@@ -4,7 +4,6 @@ import { createCast, is } from "ts-safe-cast";
 
 import { getRecommendedProducts } from "$app/data/discover";
 import { SearchResults, SearchRequest } from "$app/data/search";
-import { useScrollToElement } from "$app/hooks/useScrollToElement";
 import { CardProduct } from "$app/parsers/product";
 import { last } from "$app/utils/array";
 import { CurrencyCode, formatPriceCentsWithCurrencySymbol } from "$app/utils/currency";
@@ -135,7 +134,6 @@ const addInitialOffset = (params: SearchRequest) =>
 
 const Discover = (props: Props) => {
   const location = useOriginalLocation();
-  const resultsRef = useScrollToElement(props.is_black_friday_page && props.show_black_friday_hero);
 
   const defaultSortOrder = props.curated_product_ids.length > 0 ? "curated" : undefined;
   const parseUrlParams = (href: string) => {
@@ -302,7 +300,7 @@ const Discover = (props: Props) => {
             title={isCuratedProducts ? "Recommended" : "Featured products"}
           />
         ) : null}
-        <section ref={resultsRef} className="flex flex-col gap-4">
+        <section className="flex flex-col gap-4">
           <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--spacer-2)", flexWrap: "wrap" }}>
             <h2>
               {state.params.query || hasOfferCode
