@@ -59,7 +59,11 @@ class DiscoverController < ApplicationController
       show_black_friday_hero: black_friday_feature_active?,
       is_black_friday_page: params[:offer_code] == SearchProducts::BLACK_FRIDAY_CODE,
       black_friday_button_html: render_to_string(partial: "home/shared/button", locals: { text: "Get Black Friday deals", url: blackfriday_path, variant: "pink", size: "default" }, layout: false),
-      black_friday_stats: black_friday_feature_active? ? BlackFridayStatsService.fetch_stats : nil,
+      black_friday_stats: black_friday_feature_active? ? {
+        active_deals_count: 0,
+        revenue_cents: 0,
+        average_discount_percentage: 0,
+      } : nil,
     }
   end
 

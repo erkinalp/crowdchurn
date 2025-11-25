@@ -102,25 +102,37 @@ const BlackFridayBanner = ({
   <div className="flex h-full shrink-0 items-center gap-x-4 [&>*]:flex-shrink-0">
     <span className="mx-2 inline-block text-lg">✦</span>
     <span className="flex items-center text-xl font-medium text-black">BLACK FRIDAY IS LIVE</span>
-    <span className="mx-2 inline-block text-lg">✦</span>
-    <span className="flex items-center text-xl font-medium text-black">
-      <span className="mr-1.5 font-bold">{stats.active_deals_count.toLocaleString()}</span>ACTIVE DEALS
-    </span>
+    {stats.active_deals_count > 0 && (
+      <>
+        <span className="mx-2 inline-block text-lg">✦</span>
+        <span className="flex items-center text-xl font-medium text-black">
+          <span className="mr-1.5 font-bold">{stats.active_deals_count.toLocaleString()}</span>ACTIVE DEALS
+        </span>
+      </>
+    )}
     <span className="mx-2 inline-block text-lg">✦</span>
     <span className="flex items-center text-xl font-medium text-black">CREATOR-MADE PRODUCTS</span>
-    <span className="mx-2 inline-block text-lg">✦</span>
-    <span className="flex items-center text-xl font-medium text-black">
-      <span className="mr-1.5 font-bold">
-        {formatPriceCentsWithCurrencySymbol(currencyCode, stats.revenue_cents, { symbolFormat: "short" })}
-      </span>
-      IN SALES SO FAR
-    </span>
+    {stats.revenue_cents > 0 && (
+      <>
+        <span className="mx-2 inline-block text-lg">✦</span>
+        <span className="flex items-center text-xl font-medium text-black">
+          <span className="mr-1.5 font-bold">
+            {formatPriceCentsWithCurrencySymbol(currencyCode, stats.revenue_cents, { symbolFormat: "short" })}
+          </span>
+          IN SALES SO FAR
+        </span>
+      </>
+    )}
     <span className="mx-2 inline-block text-lg">✦</span>
     <span className="flex items-center text-xl font-medium text-black">BIG SAVINGS</span>
-    <span className="mx-2 inline-block text-lg">✦</span>
-    <span className="flex items-center text-xl font-medium text-black">
-      <span className="mr-1.5 font-bold">{stats.average_discount_percentage}%</span>AVERAGE DISCOUNT
-    </span>
+    {stats.average_discount_percentage > 0 && (
+      <>
+        <span className="mx-2 inline-block text-lg">✦</span>
+        <span className="flex items-center text-xl font-medium text-black">
+          <span className="mr-1.5 font-bold">{stats.average_discount_percentage}%</span>AVERAGE DISCOUNT
+        </span>
+      </>
+    )}
   </div>
 );
 
