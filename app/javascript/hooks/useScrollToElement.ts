@@ -52,10 +52,9 @@ export function useScrollToElement<T extends HTMLElement = HTMLElement>(
       // Use double requestAnimationFrame to ensure the page is fully rendered and painted
       // First RAF: scheduled after the current frame's DOM updates
       // Second RAF: scheduled after the browser has painted those updates
-      let rafId1: number;
       let rafId2: number;
 
-      rafId1 = requestAnimationFrame(() => {
+      const rafId1 = requestAnimationFrame(() => {
         rafId2 = requestAnimationFrame(() => {
           elementRef.current?.scrollIntoView(options);
         });
