@@ -33,16 +33,19 @@ import { PriceInput } from "$app/components/PriceInput";
 import { Search } from "$app/components/Search";
 import { Select, Option } from "$app/components/Select";
 import { showAlert } from "$app/components/server-components/Alert";
+import { Skeleton } from "$app/components/Skeleton";
 import { TypeSafeOptionSelect } from "$app/components/TypeSafeOptionSelect";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import Placeholder from "$app/components/ui/Placeholder";
 import { Sheet, SheetHeader } from "$app/components/ui/Sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$app/components/ui/Table";
 import { useDebouncedCallback } from "$app/components/useDebouncedCallback";
 import { useGlobalEventListener } from "$app/components/useGlobalEventListener";
 import { useOriginalLocation } from "$app/components/useOriginalLocation";
 import { useUserAgentInfo } from "$app/components/UserAgent";
 import { useSortingTableDriver, Sort } from "$app/components/useSortingTableDriver";
 
+import blackFridayIllustration from "$assets/images/illustrations/black_friday.svg";
 import placeholder from "$assets/images/placeholders/discounts.png";
 
 type Product = {
@@ -131,9 +134,20 @@ export type DiscountsPageProps = {
   pages: Page[];
   products: Product[];
   pagination: PaginationProps;
+  show_black_friday_banner: boolean;
+  black_friday_code: string;
+  black_friday_code_name: string;
 };
 
-const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagination }: DiscountsPageProps) => {
+const DiscountsPage = ({
+  offer_codes,
+  pages,
+  products,
+  pagination: initialPagination,
+  show_black_friday_banner,
+  black_friday_code,
+  black_friday_code_name,
+}: DiscountsPageProps) => {
   const loggedInUser = useLoggedInUser();
   const [{ offerCodes, pagination }, setState] = React.useState<{
     offerCodes: OfferCode[];
@@ -163,6 +177,7 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
   }, [offerCodes]);
 
   const [view, setView] = React.useState<"list" | "create" | "edit">("list");
+  const [isBlackFridayMode, setIsBlackFridayMode] = React.useState(false);
 
   const [selectedOfferCodeId, setSelectedOfferCodeId] = React.useState<string | null>(null);
   const selectedOfferCode = offerCodes.find(({ id }) => id === selectedOfferCodeId);
@@ -290,6 +305,7 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
           <Button
             color="accent"
             onClick={() => {
+              setIsBlackFridayMode(false);
               setSelectedOfferCodeId(null);
               setView("create");
             }}
@@ -301,19 +317,44 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
       }
     >
       <section className="p-4 md:p-8">
+        {show_black_friday_banner && !offerCodes.some((offerCode) => offerCode.code === black_friday_code) ? (
+          <div role="status" className="mb-8 border !border-pink bg-pink/20 px-4 py-3 md:px-8">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-4">
+              <div className="flex flex-1 flex-row items-center gap-2 md:gap-4">
+                <img src={blackFridayIllustration} alt="Black Friday" className="h-12 w-12 shrink-0" />
+                <div className="flex-1 text-sm md:text-base">
+                  <span className="font-bold">Black Friday is here!</span> Be part of it on Discover. Join Black Friday
+                  Deals to create your discount and get featured.
+                </div>
+              </div>
+              <Button
+                color="primary"
+                className="mt-2 shrink-0 md:mt-0"
+                onClick={() => {
+                  setIsBlackFridayMode(true);
+                  setSelectedOfferCodeId(null);
+                  setView("create");
+                }}
+              >
+                Join Black Friday Deals
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {offerCodes.length > 0 ? (
           <section className="flex flex-col gap-4">
-            <table aria-live="polite" aria-busy={isLoading}>
-              <thead>
-                <tr>
-                  <th {...thProps("name")}>Discount</th>
-                  <th {...thProps("revenue")}>Revenue</th>
-                  <th {...thProps("uses")}>Uses</th>
-                  <th {...thProps("term")}>Term</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table aria-live="polite" className={cx(isLoading && "pointer-events-none opacity-50")}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead {...thProps("name")}>Discount</TableHead>
+                  <TableHead {...thProps("revenue")}>Revenue</TableHead>
+                  <TableHead {...thProps("uses")}>Uses</TableHead>
+                  <TableHead {...thProps("term")}>Term</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {offerCodes.map((offerCode) => {
                   const validAt = offerCode.valid_at ? new Date(offerCode.valid_at) : null;
                   const expiresAt = offerCode.expires_at ? new Date(offerCode.expires_at) : null;
@@ -321,12 +362,12 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
                   const statistics = offerCodeStatistics[offerCode.id];
 
                   return (
-                    <tr
+                    <TableRow
                       key={offerCode.id}
-                      aria-selected={offerCode.id === selectedOfferCodeId}
+                      selected={offerCode.id === selectedOfferCodeId}
                       onClick={() => setSelectedOfferCodeId(offerCode.id)}
                     >
-                      <td>
+                      <TableCell hideLabel>
                         <div className="grid gap-2">
                           <div>
                             <div className="pill small mr-2" aria-label="Offer code">
@@ -338,22 +379,21 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
                             {formatAmount(offerCode)} off of {formatProducts(offerCode)}
                           </small>
                         </div>
-                      </td>
-                      {statistics != null ? (
-                        <>
-                          <td className="whitespace-nowrap">{formatRevenue(statistics.revenue_cents)}</td>
-                          <td className="whitespace-nowrap">{formatUses(statistics.uses.total, offerCode.limit)}</td>
-                        </>
-                      ) : (
-                        <>
-                          <td aria-busy />
-                          <td aria-busy />
-                        </>
-                      )}
-                      <td>{`${validAt ? `${formatDate(validAt)} - ` : ""}${
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap" aria-busy={!statistics}>
+                        {statistics ? formatRevenue(statistics.revenue_cents) : <Skeleton className="w-16" />}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap" aria-busy={!statistics}>
+                        {statistics ? (
+                          formatUses(statistics.uses.total, offerCode.limit)
+                        ) : (
+                          <Skeleton className="w-16" />
+                        )}
+                      </TableCell>
+                      <TableCell>{`${validAt ? `${formatDate(validAt)} - ` : ""}${
                         expiresAt ? formatDate(expiresAt) : "No end date"
-                      }`}</td>
-                      <td className="whitespace-nowrap">
+                      }`}</TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <div className="grid grid-cols-[min-content_1fr] gap-2">
                           {validAt && currentDate < validAt ? (
                             <>Scheduled</>
@@ -363,9 +403,9 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
                             <>Live</>
                           )}
                         </div>
-                      </td>
-                      <td>
-                        <div className="actions" onClick={(e) => e.stopPropagation()}>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-3 lg:justify-end">
                           <Button
                             aria-label="Edit"
                             disabled={!offerCode.can_update || isLoading}
@@ -426,12 +466,12 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
                             </PopoverContent>
                           </Popover>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             {pagination.pages > 1 ? (
               <Pagination
                 onChangePage={(newPage) => loadDiscounts({ page: newPage, query: searchQuery, sort })}
@@ -577,6 +617,8 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
     </Layout>
   ) : view === "edit" ? (
     <Form
+      black_friday_code={black_friday_code}
+      black_friday_code_name={black_friday_code_name}
       title="Edit discount"
       submitLabel={isLoading ? "Saving changes..." : "Save changes"}
       readOnlyCode
@@ -616,10 +658,16 @@ const DiscountsPage = ({ offer_codes, pages, products, pagination: initialPagina
     />
   ) : (
     <Form
+      black_friday_code={black_friday_code}
+      black_friday_code_name={black_friday_code_name}
       title="Create discount"
       submitLabel={isLoading ? "Adding discount..." : "Add discount"}
       offerCode={selectedOfferCode ? { ...selectedOfferCode, code: "" } : undefined}
-      cancel={() => setView("list")}
+      isBlackFridayMode={isBlackFridayMode}
+      cancel={() => {
+        setIsBlackFridayMode(false);
+        setView("list");
+      }}
       save={asyncVoid(async (offerCode) => {
         try {
           setIsLoading(true);
@@ -665,6 +713,9 @@ const Form = ({
   save,
   products,
   isLoading,
+  black_friday_code,
+  black_friday_code_name,
+  isBlackFridayMode = false,
 }: {
   title: string;
   offerCode?: OfferCode | undefined;
@@ -674,10 +725,15 @@ const Form = ({
   save: (offerCode: Omit<OfferCode, "id" | "can_update">) => void;
   products: Product[];
   isLoading: boolean;
+  black_friday_code: string;
+  black_friday_code_name: string;
+  isBlackFridayMode?: boolean;
 }) => {
-  const [name, setName] = React.useState<{ value: string; error?: boolean }>({ value: offerCode?.name ?? "" });
+  const [name, setName] = React.useState<{ value: string; error?: boolean }>({
+    value: isBlackFridayMode ? black_friday_code_name : (offerCode?.name ?? ""),
+  });
   const [code, setCode] = React.useState<{ value: string; error?: boolean }>({
-    value: offerCode?.code || generateCode(),
+    value: isBlackFridayMode ? black_friday_code : offerCode?.code || generateCode(),
   });
 
   const [discount, setDiscount] = React.useState<InputtedDiscount>(
@@ -846,18 +902,27 @@ const Form = ({
                 id={`${uid}code`}
                 value={code.value}
                 ref={codeFieldRef}
-                onChange={(evt) => setCode({ value: evt.target.value })}
+                onChange={(evt) => {
+                  setCode({ value: evt.target.value });
+                }}
                 aria-invalid={code.error}
-                readOnly={readOnlyCode}
+                readOnly={readOnlyCode || isBlackFridayMode}
               />
               <Button
-                onClick={() => setCode({ value: generateCode() })}
+                onClick={() => {
+                  setCode({ value: generateCode() });
+                }}
                 aria-label="Generate new discount"
-                disabled={readOnlyCode}
+                disabled={readOnlyCode || isBlackFridayMode}
               >
                 <Icon name="outline-refresh" />
               </Button>
             </div>
+            {isBlackFridayMode ? (
+              <div role="alert" className="info" style={{ marginTop: "var(--spacer-2)" }}>
+                By using this discount, your product will be featured in Black Friday Deals on Discover.
+              </div>
+            ) : null}
           </fieldset>
           <fieldset className={cx({ danger: selectedProductIds.error })}>
             <legend>
