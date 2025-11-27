@@ -69,7 +69,10 @@ describe BlackFridayStatsService do
     end
 
     it "stores the results in cache" do
+      expect(described_class).to receive(:calculate_stats).once.and_call_original
       result = described_class.fetch_stats
+      described_class.fetch_stats # verify that calculate_stats is called only once
+
       expect(Rails.cache.read("black_friday_stats")).to eq(result)
     end
 
