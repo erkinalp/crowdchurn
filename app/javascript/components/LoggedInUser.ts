@@ -65,6 +65,9 @@ type Policies = {
   community: {
     index: boolean;
   };
+  churn: {
+    index: boolean;
+  };
 };
 
 export type LoggedInUser = {

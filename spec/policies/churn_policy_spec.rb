@@ -19,7 +19,7 @@ describe ChurnPolicy do
     Feature.activate_user(:churn_analytics_enabled, seller)
   end
 
-  permissions :index? do
+  permissions :show? do
     it "grants access to owner" do
       seller_context = SellerContext.new(user: seller, seller:)
       expect(subject).to permit(seller_context, :churn)

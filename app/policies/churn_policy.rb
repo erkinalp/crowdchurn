@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ChurnPolicy < ApplicationPolicy
-  def index?
+  def show?
     Feature.active?(:churn_analytics_enabled, seller) &&
     (
       user.role_admin_for?(seller) ||
