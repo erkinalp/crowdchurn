@@ -5,8 +5,8 @@ $alert-icons: (
   info: "info-circle-fill",
 );
 
-[role="alert"]:not(.tailwind-override-icons),
-[role="status"]:not(.tailwind-override, .tailwind-override-icons):not(.jw-text-alt) {
+[role="alert"],
+[role="status"]:not(.tailwind-override):not(.jw-text-alt) {
   display: grid;
   grid-template-columns: 1fr;
   align-items: start;

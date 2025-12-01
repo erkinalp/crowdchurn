@@ -6,20 +6,17 @@ import { classNames } from "$app/utils/classNames";
 
 import { Icon } from "$app/components/Icons";
 
-const alertVariants = cva(
-  "tailwind-override-icons grid items-start gap-2 rounded border border-border p-3 grid-cols-[auto_1fr]",
-  {
-    variants: {
-      variant: {
-        success: "border-success bg-success/20",
-        danger: "border-danger bg-danger/20",
-        warning: "border-warning bg-warning/20",
-        info: "border-info bg-info/20",
-        pink: "border-pink bg-pink/20",
-      },
+const alertVariants = cva("grid items-start gap-2 rounded border border-border p-3 grid-cols-[auto_1fr]", {
+  variants: {
+    variant: {
+      success: "border-success bg-success/20",
+      danger: "border-danger bg-danger/20",
+      warning: "border-warning bg-warning/20",
+      info: "border-info bg-info/20",
+      pink: "border-pink bg-pink/20",
     },
   },
-);
+});
 
 const iconNames: Record<NonNullable<VariantProps<typeof alertVariants>["variant"]>, IconName> = {
   success: "solid-check-circle",
