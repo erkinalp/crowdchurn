@@ -89,4 +89,73 @@ describe "Admin::LinksController Scenario", type: :system, js: true do
       end
     end
   end
+
+  describe "mass refund for fraud" do
+    let!(:purchase1) { create(:purchase, link: product) }
+    let!(:purchase2) { create(:purchase, link: product) }
+
+    it "allows selecting purchases and refunding for fraud" do
+      visit admin_link_path(product.unique_permalink)
+
+      toggle_disclosure("Purchases")
+      wait_for_ajax
+
+      expect(page).to have_text("Select purchases to refund for fraud")
+      expect(page).to have_button("Refund for Fraud", disabled: true)
+
+      checkboxes = all("input[type='checkbox']")
+      checkboxes.first.check
+      wait_for_ajax
+
+      expect(page).to have_text("1 purchase selected")
+      expect(page).to have_button("Refund for Fraud", disabled: false)
+      expect(page).to have_button("Clear selection")
+    end
+
+    it "allows selecting all purchases" do
+      visit admin_link_path(product.unique_permalink)
+
+      toggle_disclosure("Purchases")
+      wait_for_ajax
+
+      click_on("Select all")
+      wait_for_ajax
+
+      expect(page).to have_text("2 purchases selected")
+      expect(page).to have_button("Clear selection")
+      expect(page).not_to have_button("Select all")
+    end
+
+    it "clears selection when clicking clear selection" do
+      visit admin_link_path(product.unique_permalink)
+
+      toggle_disclosure("Purchases")
+      wait_for_ajax
+
+      click_on("Select all")
+      wait_for_ajax
+      click_on("Clear selection")
+      wait_for_ajax
+
+      expect(page).to have_text("Select purchases to refund for fraud")
+      expect(page).to have_button("Refund for Fraud", disabled: true)
+    end
+
+    it "enqueues mass refund job when confirmed" do
+      visit admin_link_path(product.unique_permalink)
+
+      toggle_disclosure("Purchases")
+      wait_for_ajax
+
+      click_on("Select all")
+      wait_for_ajax
+
+      accept_confirm do
+        click_on("Refund for Fraud")
+      end
+      wait_for_ajax
+
+      expect(page).to have_alert(text: "Processing 2 fraud refunds")
+    end
+  end
 end

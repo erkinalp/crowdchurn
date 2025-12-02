@@ -10,10 +10,11 @@ type AdminProductPurchasesContentProps = {
   isLoading: boolean;
   hasMore: boolean;
   onLoadMore: () => void;
-  selectedPurchaseIds: Set<number>;
+  selectedPurchaseIds: number[];
   onToggleSelection: (purchaseId: number, selected: boolean) => void;
   onMassRefund: () => void;
   onClearSelection: () => void;
+  onSelectAll: () => void;
   isMassRefunding: boolean;
 };
 
@@ -26,6 +27,7 @@ const AdminProductPurchasesContent = ({
   onToggleSelection,
   onMassRefund,
   onClearSelection,
+  onSelectAll,
   isMassRefunding,
 }: AdminProductPurchasesContentProps) => {
   if (purchases.length === 0 && !isLoading)
@@ -35,7 +37,9 @@ const AdminProductPurchasesContent = ({
       </div>
     );
 
-  const selectedCount = selectedPurchaseIds.size;
+  const selectedCount = selectedPurchaseIds.length;
+  const selectablePurchases = purchases.filter((p) => p.stripe_refunded !== true);
+  const allSelectableSelected = selectablePurchases.every((p) => selectedPurchaseIds.includes(p.id));
 
   return (
     <div className="flex flex-col gap-4">
@@ -55,6 +59,11 @@ const AdminProductPurchasesContent = ({
             : "Select purchases to refund for fraud"}
         </div>
         <div className="button-group">
+          {!allSelectableSelected && selectablePurchases.length > 0 ? (
+            <Button small outline onClick={onSelectAll} disabled={isMassRefunding}>
+              Select all
+            </Button>
+          ) : null}
           {selectedCount > 0 ? (
             <Button small outline onClick={onClearSelection} disabled={isMassRefunding}>
               Clear selection
@@ -71,7 +80,7 @@ const AdminProductPurchasesContent = ({
           <AdminProductPurchase
             key={purchase.id}
             purchase={purchase}
-            isSelected={selectedPurchaseIds.has(purchase.id)}
+            isSelected={selectedPurchaseIds.includes(purchase.id)}
             onToggleSelection={onToggleSelection}
           />
         ))}
