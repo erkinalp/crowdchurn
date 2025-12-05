@@ -7,12 +7,30 @@ import Layout from "../inertia/layout.tsx";
 
 // Configure Inertia to send CSRF token with all requests
 router.on("before", (event) => {
+  if (!event?.detail?.visit) {
+    return;
+  }
+
   const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
   if (token) {
     event.detail.visit.headers = {
       ...event.detail.visit.headers,
       "X-CSRF-Token": token,
     };
+  }
+
+  // Track previous route for navigation (only for GET requests)
+  const method = event.detail.visit.method?.toLowerCase() || "get";
+  if (method === "get") {
+    const currentUrl = new URL(window.location.href);
+    const newUrl =
+      typeof event.detail.visit.url === "string"
+        ? new URL(event.detail.visit.url, window.location.origin)
+        : event.detail.visit.url;
+
+    if (currentUrl.href !== newUrl.href) {
+      sessionStorage.setItem("inertia_previous_route", currentUrl.pathname);
+    }
   }
 });
 

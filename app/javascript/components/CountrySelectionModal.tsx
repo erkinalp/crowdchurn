@@ -50,8 +50,8 @@ export const CountrySelectionModal = ({ country: initialCountry, countries }: Pr
       <Modal
         open
         onClose={() => {
-          const referrer = document.referrer;
-          if (referrer && new URL(referrer).origin === window.location.origin) {
+          const previousRoute = sessionStorage.getItem("inertia_previous_route");
+          if (previousRoute) {
             window.history.back();
           } else {
             router.get(Routes.dashboard_path());
