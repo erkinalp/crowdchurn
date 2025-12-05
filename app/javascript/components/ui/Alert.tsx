@@ -61,7 +61,6 @@ Alert.displayName = "Alert";
 
 export interface AlertIconProps extends React.HTMLProps<HTMLSpanElement> {
   children?: React.ReactNode;
-  asChild?: boolean;
 }
 
 export const AlertIcon = React.forwardRef<HTMLSpanElement, AlertIconProps>(({ children, className, ...props }, ref) => (
