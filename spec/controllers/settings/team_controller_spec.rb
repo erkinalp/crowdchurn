@@ -22,7 +22,7 @@ describe Settings::TeamController, type: :controller, inertia: true do
 
       expect(response).to be_successful
       expect(inertia.component).to eq("Settings/Team/Show")
-      settings_presenter = SettingsPresenter.new(pundit_user: controller.pundit_user)
+      SettingsPresenter.new(pundit_user: controller.pundit_user)
       team_presenter = Settings::TeamPresenter.new(pundit_user: controller.pundit_user)
       expected_props = {
         member_infos: team_presenter.member_infos.map(&:to_hash),

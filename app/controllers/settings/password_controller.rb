@@ -11,7 +11,7 @@ class Settings::PasswordController < Settings::BaseController
   end
 
   def update
-    added_password = false
+    false
 
     if @user.provider.present?
       unless @user.confirmed?
@@ -20,7 +20,7 @@ class Settings::PasswordController < Settings::BaseController
 
       @user.password = params["user"]["new_password"]
       @user.provider = nil
-      added_password = true
+      true
     else
       if params["user"].blank? || params["user"]["password"].blank? ||
          !@user.valid_password?(params["user"]["password"])
