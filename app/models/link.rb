@@ -92,7 +92,6 @@ class Link < ApplicationRecord
   has_many :alive_prices, -> { alive }, class_name: "Price"
   has_one :installment_plan, -> { alive }, class_name: "ProductInstallmentPlan"
   has_many :sales, class_name: "Purchase"
-  has_many :mass_refund_batches, foreign_key: :product_id
   has_many :orders, through: :sales, source: :order
   has_many :sold_calls, through: :sales, source: :call
   has_many :asset_previews
