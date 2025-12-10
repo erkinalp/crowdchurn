@@ -67,7 +67,6 @@ import UnsubscribeReviewReminders from "$app/components/server-components/Review
 import ReviewsPage from "$app/components/server-components/ReviewsPage";
 import SecureRedirectPage from "$app/components/server-components/SecureRedirectPage";
 import ApplicationEditPage from "$app/components/server-components/Settings/AdvancedPage/EditApplicationPage";
-import AuthorizedApplicationsSettingsPage from "$app/components/server-components/Settings/AuthorizedApplicationsPage";
 import SignupPage from "$app/components/server-components/SignupPage";
 import SubscribePage from "$app/components/server-components/SubscribePage";
 import SubscribePreview from "$app/components/server-components/SubscribePreview";
@@ -111,7 +110,6 @@ ReactOnRails.register({
   HelpCenterArticlesIndexPage,
   SupportHeader,
   AudiencePage,
-  AuthorizedApplicationsSettingsPage,
   BundleEditPage,
   CheckoutPage,
   CodeSnippet,
