@@ -16,7 +16,9 @@ class Settings::ProfileController < Settings::BaseController
     return redirect_to settings_profile_path, alert: "You have to confirm your email address before you can do that." unless current_seller.confirmed?
 
     if permitted_params[:profile_picture_blob_id].present?
-      redirect_to settings_profile_path, alert: "The logo is already removed. Please refresh the page and try again." if ActiveStorage::Blob.find_signed(permitted_params[:profile_picture_blob_id]).nil?
+      return redirect_to settings_profile_path,
+                         status: :see_other,
+                         alert: "The logo is already removed. Please refresh the page and try again."
       current_seller.avatar.attach permitted_params[:profile_picture_blob_id]
     elsif permitted_params.has_key?(:profile_picture_blob_id) && current_seller.avatar.attached?
       current_seller.avatar.purge
