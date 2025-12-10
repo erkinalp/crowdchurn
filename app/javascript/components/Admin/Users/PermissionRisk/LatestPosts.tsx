@@ -12,7 +12,7 @@ type LatestPostsProps = {
 };
 
 export type PostProps = {
-  id: number;
+  external_id: string;
   name: string;
   created_at: string;
 };
@@ -29,8 +29,8 @@ const LatestPostsContent = ({ posts, isLoading }: { posts: PostProps[]; isLoadin
   if (posts.length > 0)
     return (
       <div className="stack">
-        {posts.map(({ id, name, created_at }) => (
-          <Post key={id} id={id} name={name} created_at={created_at} />
+        {posts.map(({ external_id, name, created_at }) => (
+          <Post key={external_id} external_id={external_id} name={name} created_at={created_at} />
         ))}
       </div>
     );
@@ -50,7 +50,7 @@ const LastestPosts = ({ user }: LatestPostsProps) => {
     setIsLoading(true);
     const response = await request({
       method: "GET",
-      url: Routes.admin_user_latest_posts_path(user.id),
+      url: Routes.admin_user_latest_posts_path(user.external_id),
       accept: "json",
     });
     setPosts(cast<PostProps[]>(await response.json()));
