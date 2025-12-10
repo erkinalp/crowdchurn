@@ -53,6 +53,7 @@ import PdfReaderPage from "$app/components/server-components/PdfReaderPage";
 import ProductPage from "$app/components/server-components/Product";
 import ProductIframePage from "$app/components/server-components/Product/IframePage";
 import ProductEditPage from "$app/components/server-components/ProductEditPage";
+import Profile from "$app/components/server-components/Profile";
 import ProfileCoffeePage from "$app/components/server-components/Profile/CoffeePage";
 import ProfilePostPage from "$app/components/server-components/Profile/PostPage";
 import ProfileProductPage from "$app/components/server-components/Profile/ProductPage";
@@ -65,6 +66,8 @@ import SubscribeReviewReminders from "$app/components/server-components/ReviewRe
 import UnsubscribeReviewReminders from "$app/components/server-components/ReviewReminders/UnsubscribeReviewReminders";
 import ReviewsPage from "$app/components/server-components/ReviewsPage";
 import SecureRedirectPage from "$app/components/server-components/SecureRedirectPage";
+import ApplicationEditPage from "$app/components/server-components/Settings/AdvancedPage/EditApplicationPage";
+import AuthorizedApplicationsSettingsPage from "$app/components/server-components/Settings/AuthorizedApplicationsPage";
 import SignupPage from "$app/components/server-components/SignupPage";
 import SubscribePage from "$app/components/server-components/SubscribePage";
 import SubscribePreview from "$app/components/server-components/SubscribePreview";
@@ -104,9 +107,11 @@ ReactOnRails.register({
   AffiliatesPage,
   Alert,
   AdminAddCreditForm,
+  ApplicationEditPage,
   HelpCenterArticlesIndexPage,
   SupportHeader,
   AudiencePage,
+  AuthorizedApplicationsSettingsPage,
   BundleEditPage,
   CheckoutPage,
   CodeSnippet,
@@ -135,6 +140,7 @@ ReactOnRails.register({
   ProductIframePage,
   PurchaseProductPage,
   ProductPage,
+  Profile,
   ProfileCoffeePage,
   ProfilePostPage,
   ProfileProductPage,
