@@ -1052,7 +1052,9 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
       end
 
       it "fails if bank payouts are supported in seller's country" do
-        put :update, params: { payment_address: "sebastian@example.com" }
+        user.update!(payment_address: "")
+
+        put :update, xhr: true, params: { payment_address: "sebastian@example.com" }
 
         expect(response).to redirect_to(settings_payments_path)
         expect(response).to have_http_status :found
