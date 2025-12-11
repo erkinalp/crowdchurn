@@ -38,7 +38,7 @@ import { useProductEditContext } from "$app/components/ProductEdit/state";
 import { ToggleSettingRow } from "$app/components/SettingRow";
 import { Toggle } from "$app/components/Toggle";
 import { TypeSafeOptionSelect } from "$app/components/TypeSafeOptionSelect";
-import { Alert, AlertIcon } from "$app/components/ui/Alert";
+import { Alert } from "$app/components/ui/Alert";
 
 export const ProductTab = () => {
   const uid = React.useId();
@@ -87,17 +87,17 @@ export const ProductTab = () => {
         <form>
           <section className="p-4! md:p-8!">
             {showAiNotification ? (
-              <Alert role="status" className="grid grid-cols-[auto_1fr_auto] gap-4" variant="accent">
-                <AlertIcon className="self-center">
+              <Alert role="status" variant="accent">
+                <div className="flex items-center gap-4">
                   <Icon className="text-lg" name="sparkle" />
-                </AlertIcon>
-                <div>
-                  <strong>Your AI product is ready!</strong> Take a moment to check out the product and content tabs.
-                  Tweak things and make it your own—this is your time to shine!
+                  <div className="flex-1">
+                    <strong>Your AI product is ready!</strong> Take a moment to check out the product and content tabs.
+                    Tweak things and make it your own—this is your time to shine!
+                  </div>
+                  <button className="self-center underline" onClick={() => setShowAiNotification(false)}>
+                    close
+                  </button>
                 </div>
-                <button className="self-center underline" onClick={() => setShowAiNotification(false)}>
-                  close
-                </button>
               </Alert>
             ) : null}
             <BundleConversionNotice />

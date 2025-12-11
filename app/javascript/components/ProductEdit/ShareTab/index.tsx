@@ -15,7 +15,7 @@ import { TaxonomyEditor } from "$app/components/ProductEdit/ShareTab/TaxonomyEdi
 import { useProductEditContext } from "$app/components/ProductEdit/state";
 import { Toggle } from "$app/components/Toggle";
 import { TwitterShareButton } from "$app/components/TwitterShareButton";
-import { Alert, AlertIcon } from "$app/components/ui/Alert";
+import { Alert } from "$app/components/ui/Alert";
 import { useRunOnce } from "$app/components/useRunOnce";
 
 export const ShareTab = () => {
@@ -125,31 +125,31 @@ const DiscoverEligibilityPromo = () => {
 
   return (
     <Alert role="status">
-      <AlertIcon className="self-center">
+      <div className="flex items-center gap-2">
         <img src={hands} alt="" className="size-12" />
-      </AlertIcon>
-      <div className="flex flex-col gap-2">
-        <div>
-          To appear on Gumroad Discover, make sure to meet all the{" "}
-          <a href="/help/article/79-gumroad-discover" target="_blank" rel="noreferrer">
-            eligibility criteria
-          </a>
-          , which includes making at least one successful sale and completing the Risk Review process explained in
-          detail{" "}
-          <a href="/help/article/13-getting-paid" target="_blank" rel="noreferrer">
-            here
-          </a>
-          .
+        <div className="flex flex-col gap-2">
+          <div>
+            To appear on Gumroad Discover, make sure to meet all the{" "}
+            <a href="/help/article/79-gumroad-discover" target="_blank" rel="noreferrer">
+              eligibility criteria
+            </a>
+            , which includes making at least one successful sale and completing the Risk Review process explained in
+            detail{" "}
+            <a href="/help/article/13-getting-paid" target="_blank" rel="noreferrer">
+              here
+            </a>
+            .
+          </div>
+          <button
+            className="w-max underline"
+            onClick={() => {
+              localStorage.setItem("showDiscoverEligibilityPromo", "false");
+              setShow(false);
+            }}
+          >
+            Close
+          </button>
         </div>
-        <button
-          className="w-max underline"
-          onClick={() => {
-            localStorage.setItem("showDiscoverEligibilityPromo", "false");
-            setShow(false);
-          }}
-        >
-          Close
-        </button>
       </div>
     </Alert>
   );

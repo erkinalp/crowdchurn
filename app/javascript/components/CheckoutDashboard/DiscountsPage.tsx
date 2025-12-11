@@ -33,7 +33,7 @@ import { Select, Option } from "$app/components/Select";
 import { showAlert } from "$app/components/server-components/Alert";
 import { Skeleton } from "$app/components/Skeleton";
 import { TypeSafeOptionSelect } from "$app/components/TypeSafeOptionSelect";
-import { Alert, AlertIcon } from "$app/components/ui/Alert";
+import { Alert } from "$app/components/ui/Alert";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import Placeholder from "$app/components/ui/Placeholder";
 import { Sheet, SheetHeader } from "$app/components/ui/Sheet";
@@ -341,25 +341,25 @@ const DiscountsPage = ({
     >
       <section className="p-4 md:p-8">
         {show_black_friday_banner && !offerCodes.some((offerCode) => offerCode.code === black_friday_code) ? (
-          <Alert className="mb-8 grid-cols-[auto_1fr_auto] gap-y-4 md:gap-x-4" role="status" variant="accent">
-            <AlertIcon>
+          <Alert className="mb-8" role="status" variant="accent">
+            <div className="flex items-center gap-4">
               <img src={blackFridayIllustration} alt="Black Friday" className="size-12" />
-            </AlertIcon>
-            <div className="self-center text-sm md:text-base">
-              <span className="font-bold">Black Friday is here!</span> Be part of it on Discover. Join Black Friday
-              Deals to create your discount and get featured.
+              <div className="flex-1 text-sm md:text-base">
+                <span className="font-bold">Black Friday is here!</span> Be part of it on Discover. Join Black Friday
+                Deals to create your discount and get featured.
+              </div>
+              <Button
+                color="primary"
+                className="w-max"
+                onClick={() => {
+                  setIsBlackFridayMode(true);
+                  setSelectedOfferCodeId(null);
+                  setView("create");
+                }}
+              >
+                Join Black Friday Deals
+              </Button>
             </div>
-            <Button
-              color="primary"
-              className="col-span-3 md:col-span-1"
-              onClick={() => {
-                setIsBlackFridayMode(true);
-                setSelectedOfferCodeId(null);
-                setView("create");
-              }}
-            >
-              Join Black Friday Deals
-            </Button>
           </Alert>
         ) : null}
         {offerCodes.length > 0 ? (

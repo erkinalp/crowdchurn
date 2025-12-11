@@ -793,18 +793,14 @@ const CustomerDrawer = ({
       {commission ? <CommissionStatusPill commission={commission} /> : null}
       {customer.is_additional_contribution ? (
         <Alert role="status" variant="info">
-          <div>
-            <strong>Additional amount: </strong>
-            This is an additional contribution, added to a previous purchase of this product.
-          </div>
+          <strong>Additional amount: </strong>
+          This is an additional contribution, added to a previous purchase of this product.
         </Alert>
       ) : null}
       {customer.ppp ? (
         <Alert role="status" variant="info">
-          <div>
-            This customer received a purchasing power parity discount of <b>{customer.ppp.discount}</b> because they are
-            located in <b>{customer.ppp.country}</b>.
-          </div>
+          This customer received a purchasing power parity discount of <b>{customer.ppp.discount}</b> because they are
+          located in <b>{customer.ppp.country}</b>.
         </Alert>
       ) : null}
       {customer.giftee_email ? (
@@ -814,19 +810,14 @@ const CustomerDrawer = ({
       ) : null}
       {customer.is_preorder ? (
         <Alert role="status" variant="info">
-          <div>
-            <strong>Pre-order: </strong>
-            This is a pre-order authorization. The customer's card has not been charged yet.
-          </div>
+          <strong>Pre-order: </strong>
+          This is a pre-order authorization. The customer's card has not been charged yet.
         </Alert>
       ) : null}
       {customer.affiliate && customer.affiliate.type !== "Collaborator" ? (
         <Alert role="status" variant="info">
-          <div>
-            <strong>Affiliate: </strong>
-            An affiliate ({customer.affiliate.email}) helped you make this sale and received {customer.affiliate.amount}
-            .
-          </div>
+          <strong>Affiliate: </strong>
+          An affiliate ({customer.affiliate.email}) helped you make this sale and received {customer.affiliate.amount}.
         </Alert>
       ) : null}
       <EmailSection
@@ -1891,13 +1882,11 @@ const UtmLinkStack = ({ link, showHeader }: { link: Customer["utm_link"]; showHe
           </section>
           <div>
             <Alert className="flex-1 text-sm" role="status" variant="info">
-              <span>
-                This sale was driven by a{" "}
-                <a href={link.utm_url} target="_blank" rel="noreferrer">
-                  UTM link
-                </a>
-                .
-              </span>
+              This sale was driven by a{" "}
+              <a href={link.utm_url} target="_blank" rel="noreferrer">
+                UTM link
+              </a>
+              .
             </Alert>
           </div>
         </>
@@ -2214,12 +2203,10 @@ const RefundForm = ({
         </div>
         {showRefundFeeNotice ? (
           <Alert role="status" variant="info">
-            <p>
-              Going forward, Gumroad does not return any fees when a payment is refunded.{" "}
-              <a href="/help/article/47-how-to-refund-a-customer" target="_blank" rel="noreferrer">
-                Learn more
-              </a>
-            </p>
+            Going forward, Gumroad does not return any fees when a payment is refunded.{" "}
+            <a href="/help/article/47-how-to-refund-a-customer" target="_blank" rel="noreferrer">
+              Learn more
+            </a>
           </Alert>
         ) : null}
       </fieldset>

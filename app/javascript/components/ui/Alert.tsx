@@ -5,7 +5,7 @@ import { classNames } from "$app/utils/classNames";
 
 import { Icon } from "$app/components/Icons";
 
-const alertVariants = cva("grid items-start gap-2 rounded border border-border p-3 grid-cols-[auto_1fr]", {
+const alertVariants = cva("flex items-start gap-2 rounded border border-border p-3", {
   variants: {
     variant: {
       success: "border-success bg-success/20",
@@ -17,7 +17,9 @@ const alertVariants = cva("grid items-start gap-2 rounded border border-border p
   },
 });
 
-const iconNames: Record<Exclude<NonNullable<VariantProps<typeof alertVariants>["variant"]>, "accent">, IconName> = {
+type AlertVariant = NonNullable<VariantProps<typeof alertVariants>["variant"]>;
+
+const iconNames: Record<Exclude<AlertVariant, "accent">, IconName> = {
   success: "solid-check-circle",
   danger: "x-circle-fill",
   warning: "solid-shield-exclamation",
@@ -42,30 +44,13 @@ export interface AlertProps extends React.HTMLProps<HTMLDivElement> {
 }
 
 export const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
-  ({ className, children, role = "alert", variant, ...props }, ref) => {
-    const hasIcon = React.Children.toArray(children).some(
-      (child) => React.isValidElement(child) && child.type === AlertIcon,
-    );
-
-    return (
-      <div ref={ref} role={role} className={classNames(alertVariants({ variant }), className)} {...props}>
-        {!hasIcon && variant && variant !== "accent" ? (
-          <Icon name={iconNames[variant]} className={iconColorVariants({ variant })} aria-hidden="true" />
-        ) : null}
-        {children}
-      </div>
-    );
-  },
+  ({ className, children, role = "alert", variant, ...props }, ref) => (
+    <div ref={ref} role={role} className={classNames(alertVariants({ variant }), className)} {...props}>
+      {variant && variant !== "accent" ? (
+        <Icon name={iconNames[variant]} className={iconColorVariants({ variant })} aria-hidden="true" />
+      ) : null}
+      <div className="flex-1">{children}</div>
+    </div>
+  ),
 );
 Alert.displayName = "Alert";
-
-export interface AlertIconProps extends React.HTMLProps<HTMLSpanElement> {
-  children?: React.ReactNode;
-}
-
-export const AlertIcon = React.forwardRef<HTMLSpanElement, AlertIconProps>(({ children, className, ...props }, ref) => (
-  <span ref={ref} className={classNames(className)} {...props}>
-    {children}
-  </span>
-));
-AlertIcon.displayName = "AlertIcon";

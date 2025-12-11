@@ -21,7 +21,7 @@ import { Icon } from "$app/components/Icons";
 import { Popover } from "$app/components/Popover";
 import { showAlert } from "$app/components/server-components/Alert";
 import { TypeSafeOptionSelect } from "$app/components/TypeSafeOptionSelect";
-import { Alert, AlertIcon } from "$app/components/ui/Alert";
+import { Alert } from "$app/components/ui/Alert";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import { WithTooltip } from "$app/components/WithTooltip";
 
@@ -296,11 +296,9 @@ const NewProductPage = ({
 
               {ai_generation_enabled && aiPromoVisible ? (
                 <Alert className="gap-4 p-6" role="status" variant="accent">
-                  <AlertIcon className="self-center">
+                  <div className="flex items-center gap-4">
                     <img src={hands} alt="Hands" className="size-12" />
-                  </AlertIcon>
-                  <div className="grid grid-cols-[1fr_auto] gap-4">
-                    <div>
+                    <div className="flex-1">
                       <strong>New.</strong> You can create your product using AI now. Click the sparks button in the
                       header to get started.
                       <br />
