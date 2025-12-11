@@ -57,13 +57,7 @@ export default function WishlistsPage() {
       { wishlist: { discover_opted_out: optOut } },
       {
         preserveScroll: true,
-        onSuccess: () =>
-          showAlert(optOut ? "Opted out of Gumroad Discover." : "Wishlist is now discoverable!", "success"),
         onError: () => showAlert("Sorry, something went wrong. Please try again.", "error"),
-        onCancel: () =>
-          setWishlists(
-            wishlists.map((wishlist) => (wishlist.id === id ? { ...wishlist, discover_opted_out: !optOut } : wishlist)),
-          ),
       },
     );
   };
