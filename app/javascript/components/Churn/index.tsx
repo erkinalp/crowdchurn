@@ -130,7 +130,10 @@ const useChurnRangeSync = (
       data: { from: fromDate, to: toDate },
       preserveUrl: true,
       onFinish: () => setIsReloading(false),
-      onError: () => setIsReloading(false),
+      onError: () => {
+        inFlightRange.current = null;
+        setIsReloading(false);
+      },
     });
   }, [dateRange.from, dateRange.to, setIsReloading, toYMD]);
 };

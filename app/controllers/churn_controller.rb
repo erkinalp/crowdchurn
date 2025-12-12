@@ -3,9 +3,6 @@
 class ChurnController < Sellers::BaseController
   layout "inertia"
 
-  DEFAULT_END_DATE = Date.current
-  DEFAULT_START_DATE = DEFAULT_END_DATE - 30.days
-
   def show
     authorize :churn
 
@@ -13,8 +10,8 @@ class ChurnController < Sellers::BaseController
 
     service = CreatorAnalytics::Churn.new(seller: current_seller)
 
-    start_date = parse_date(params[:from]) || DEFAULT_START_DATE
-    end_date = parse_date(params[:to]) || DEFAULT_END_DATE
+    start_date = parse_date(params[:from]) || Date.current
+    end_date = parse_date(params[:to]) || 30.days.ago
 
     render(
       inertia: "Churn/Show",
