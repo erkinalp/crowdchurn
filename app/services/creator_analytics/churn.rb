@@ -49,6 +49,15 @@ class CreatorAnalytics::Churn
   #           total: { churn_rate: 2.25, churned_customers_count: 48, revenue_lost_cents: 915900 }
   #         }
   #       }
+  #       summary: {
+  #         total: { churn_rate: 2.25, churned_customers_count: 48, revenue_lost_cents: 915900, subscriber_base: 2135 },
+  #         by_product: {
+  #           "gm" => { churn_rate: 0.79, churned_customers_count: 3, revenue_lost_cents: 750000, subscriber_base: 380 },
+  #           "vd" => { churn_rate: 1.24, churned_customers_count: 6, revenue_lost_cents: 119400, subscriber_base: 485 },
+  #           "tmt" => { churn_rate: 3.13, churned_customers_count: 15, revenue_lost_cents: 22500, subscriber_base: 480 },
+  #           "zf" => { churn_rate: 3.03, churned_customers_count: 24, revenue_lost_cents: 24000, subscriber_base: 790 }
+  #         }
+  #       }
   #     },
   #     previous_period: {
   #       daily: {
@@ -71,6 +80,15 @@ class CreatorAnalytics::Churn
   #             "zf" => { churn_rate: 2.80, churned_customers_count: 22, revenue_lost_cents: 22000 }
   #           },
   #           total: { churn_rate: 2.05, churned_customers_count: 43, revenue_lost_cents: 833000 }
+  #         }
+  #       }
+  #       summary: {
+  #         total: { churn_rate: 2.05, churned_customers_count: 43, revenue_lost_cents: 833000, subscriber_base: 2095 },
+  #         by_product: {
+  #           "gm" => { churn_rate: 0.65, churned_customers_count: 2, revenue_lost_cents: 500000, subscriber_base: 310 },
+  #           "vd" => { churn_rate: 1.10, churned_customers_count: 5, revenue_lost_cents: 95000, subscriber_base: 455 },
+  #           "tmt" => { churn_rate: 2.95, churned_customers_count: 14, revenue_lost_cents: 21000, subscriber_base: 475 },
+  #           "zf" => { churn_rate: 2.80, churned_customers_count: 22, revenue_lost_cents: 22000, subscriber_base: 855 }
   #         }
   #       }
   #     }
@@ -156,6 +174,7 @@ class CreatorAnalytics::Churn
       version = $redis.get(RedisKey.seller_analytics_cache_version) || 0
       [
         "creator_analytics_churn",
+        "payload_v3",
         "v#{version}",
         "seller_#{seller.id}",
         seller.timezone,

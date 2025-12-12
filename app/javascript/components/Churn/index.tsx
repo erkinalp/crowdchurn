@@ -17,11 +17,17 @@ type RawChurnMetric = {
   churn_rate: number;
   churned_customers_count: number;
   revenue_lost_cents: number;
+  subscriber_base: number;
 };
 
 type RawChurnBucket = {
   by_product: Record<string, RawChurnMetric>;
   total: RawChurnMetric;
+};
+
+type RawChurnSummary = {
+  total: RawChurnMetric;
+  by_product: Record<string, RawChurnMetric>;
 };
 
 type ChartPointWithBase = ChurnChartDataPoint & { base: number };
@@ -41,6 +47,7 @@ type PeriodMetadata = {
 type PeriodData = {
   daily: Record<string, RawChurnBucket>;
   monthly: Record<string, RawChurnBucket>;
+  summary: RawChurnSummary;
 };
 
 export type ChurnPayload = {
@@ -61,13 +68,6 @@ export type ChurnPayload = {
 
 export type ChurnProps = {
   churn: ChurnPayload;
-};
-
-const computeBase = (stats?: RawChurnMetric) => {
-  if (!stats) return 0;
-  if (stats.churn_rate <= 0) return stats.churned_customers_count;
-  const base = stats.churned_customers_count / (stats.churn_rate / 100);
-  return Number.isFinite(base) ? base : 0;
 };
 
 const buildBuckets = (buckets: Record<string, RawChurnBucket>) =>
@@ -184,22 +184,12 @@ const Churn = ({ churn }: ChurnProps) => {
     [churn.data.current_period.monthly],
   );
 
-  const previousDailyBuckets = React.useMemo(() => {
-    if (!churn.data.previous_period?.daily) return [];
-    return buildBuckets(churn.data.previous_period.daily);
-  }, [churn.data.previous_period]);
-
-  const previousMonthlyBuckets = React.useMemo(() => {
-    if (!churn.data.previous_period?.monthly) return [];
-    return buildBuckets(churn.data.previous_period.monthly);
-  }, [churn.data.previous_period]);
-
   const aggregateBucket = React.useCallback(
     (bucket: RawChurnBucket) => {
       const usingTotals = selectedPermalinks.length > 0 && selectedPermalinks.length === allPermalinks.length;
 
       if (usingTotals) {
-        const base = computeBase(bucket.total);
+        const base = bucket.total.subscriber_base;
         return {
           churnRate: bucket.total.churn_rate,
           churnedCustomers: bucket.total.churned_customers_count,
@@ -217,7 +207,7 @@ const Churn = ({ churn }: ChurnProps) => {
         if (!stats) return;
         churnedCustomers += stats.churned_customers_count;
         revenueLostCents += stats.revenue_lost_cents;
-        base += computeBase(stats);
+        base += stats.subscriber_base;
       });
 
       const churnRate = base > 0 ? (churnedCustomers / base) * 100 : 0;
@@ -256,44 +246,47 @@ const Churn = ({ churn }: ChurnProps) => {
     return buildChartData(buckets);
   }, [aggregateBy, buildChartData, currentDailyBuckets, currentMonthlyBuckets]);
 
-  const computeSummary = React.useCallback((buckets: ChartPointWithBase[]) => {
-    if (buckets.length === 0) {
-      return { churnRate: 0, churnedCustomers: 0, revenueLostCents: 0, base: 0 };
-    }
-
-    const totals = buckets.reduce(
-      (acc: { churnedCustomers: number; revenueLostCents: number; weightedRate: number; base: number }, point) => {
-        acc.churnedCustomers += point.churnedCustomers;
-        acc.revenueLostCents += point.revenueLostCents;
-        acc.weightedRate += point.churnRate * (point.base || 0);
-        acc.base += point.base || 0;
-        return acc;
-      },
-      { churnedCustomers: 0, revenueLostCents: 0, weightedRate: 0, base: 0 },
-    );
-
-    return {
-      churnRate: totals.base > 0 ? totals.weightedRate / totals.base : 0,
-      churnedCustomers: totals.churnedCustomers,
-      revenueLostCents: totals.revenueLostCents,
-      base: totals.base,
-    };
-  }, []);
-
   const summary = React.useMemo<ChurnSummary>(() => {
-    const currentSummary = computeSummary(chartData);
+    const computeSummaryForSelection = (summaryData: RawChurnSummary | null) => {
+      if (!summaryData) return { churnRate: 0, churnedCustomers: 0, revenueLostCents: 0, base: 0 };
+      if (selectedPermalinks.length === 0) return { churnRate: 0, churnedCustomers: 0, revenueLostCents: 0, base: 0 };
+      if (selectedPermalinks.length === allPermalinks.length) {
+        return {
+          churnRate: summaryData.total.churn_rate,
+          churnedCustomers: summaryData.total.churned_customers_count,
+          revenueLostCents: summaryData.total.revenue_lost_cents,
+          base: summaryData.total.subscriber_base,
+        };
+      }
 
-    const previousBuckets = aggregateBy === "daily" ? previousDailyBuckets : previousMonthlyBuckets;
-    const previousChartData = buildChartData(previousBuckets);
-    const previousSummary = previousBuckets.length > 0 ? computeSummary(previousChartData) : null;
+      let churnedCustomers = 0;
+      let revenueLostCents = 0;
+      let base = 0;
+
+      selectedPermalinks.forEach((permalink) => {
+        const stats = summaryData.by_product[permalink];
+        if (!stats) return;
+        churnedCustomers += stats.churned_customers_count;
+        revenueLostCents += stats.revenue_lost_cents;
+        base += stats.subscriber_base;
+      });
+
+      const churnRate = base > 0 ? (churnedCustomers / base) * 100 : 0;
+
+      return { churnRate, churnedCustomers, revenueLostCents, base };
+    };
+
+    const currentSummary = computeSummaryForSelection(churn.data.current_period.summary);
+    const previousSummaryData = churn.data.previous_period?.summary ?? null;
+    const previousSummary = computeSummaryForSelection(previousSummaryData);
 
     return {
       churnRate: currentSummary.churnRate,
       churnedCustomers: currentSummary.churnedCustomers,
       revenueLostCents: currentSummary.revenueLostCents,
-      previousPeriodChurnRate: previousSummary && previousSummary.base > 0 ? previousSummary.churnRate : null,
+      previousPeriodChurnRate: previousSummary.base > 0 ? previousSummary.churnRate : null,
     };
-  }, [aggregateBy, buildChartData, chartData, computeSummary, previousDailyBuckets, previousMonthlyBuckets]);
+  }, [allPermalinks, churn.data.current_period.summary, churn.data.previous_period, selectedPermalinks]);
 
   const hasProducts = churn.metadata.products.length > 0;
 
