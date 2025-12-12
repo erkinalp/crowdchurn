@@ -66,7 +66,7 @@ type Policies = {
     index: boolean;
   };
   churn: {
-    index: boolean;
+    show: boolean;
   };
 };
 
