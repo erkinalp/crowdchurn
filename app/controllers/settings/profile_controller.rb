@@ -18,7 +18,6 @@ class Settings::ProfileController < Settings::BaseController
     if permitted_params[:profile_picture_blob_id].present?
       if ActiveStorage::Blob.find_signed(permitted_params[:profile_picture_blob_id]).nil?
         return redirect_to settings_profile_path,
-                           status: :see_other,
                            alert: "The logo is already removed. Please refresh the page and try again."
       end
       current_seller.avatar.attach permitted_params[:profile_picture_blob_id]
