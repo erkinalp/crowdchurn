@@ -46,9 +46,7 @@ import GumroadBlogIndexPage from "$app/components/server-components/GumroadBlog/
 import GumroadBlogPostPage from "$app/components/server-components/GumroadBlog/PostPage";
 import HelpCenterArticlesIndexPage from "$app/components/server-components/HelpCenter/ArticlesIndexPage";
 import LibraryPage from "$app/components/server-components/LibraryPage";
-import LoginPage from "$app/components/server-components/LoginPage";
 import Nav from "$app/components/server-components/Nav";
-import PasswordResetPage from "$app/components/server-components/PasswordResetPage";
 import PayoutCreditCard from "$app/components/server-components/PayoutPage/CreditCard";
 import PdfReaderPage from "$app/components/server-components/PdfReaderPage";
 import ProductPage from "$app/components/server-components/Product";
@@ -76,14 +74,12 @@ import PasswordSettingsPage from "$app/components/server-components/Settings/Pas
 import PaymentsSettingsPage from "$app/components/server-components/Settings/PaymentsPage";
 import TeamSettingsPage from "$app/components/server-components/Settings/TeamPage";
 import ThirdPartyAnalyticsSettingsPage from "$app/components/server-components/Settings/ThirdPartyAnalyticsPage";
-import SignupPage from "$app/components/server-components/SignupPage";
 import SubscribePage from "$app/components/server-components/SubscribePage";
 import SubscribePreview from "$app/components/server-components/SubscribePreview";
 import SubscriptionManager from "$app/components/server-components/SubscriptionManager";
 import SubscriptionManagerMagicLink from "$app/components/server-components/SubscriptionManagerMagicLink";
 import SupportHeader from "$app/components/server-components/support/Header";
 import TaxesCollectionModal from "$app/components/server-components/TaxesCollectionModal";
-import TwoFactorAuthenticationPage from "$app/components/server-components/TwoFactorAuthenticationPage";
 import UtmLinksPage from "$app/components/server-components/UtmLinksPage";
 import VideoStreamPlayer from "$app/components/server-components/VideoStreamPlayer";
 import WishlistPage from "$app/components/server-components/WishlistPage";
@@ -142,10 +138,8 @@ ReactOnRails.register({
   GumroadBlogIndexPage,
   GumroadBlogPostPage,
   LibraryPage,
-  LoginPage,
   MainSettingsPage,
   Nav,
-  PasswordResetPage,
   PasswordSettingsPage,
   PaymentsSettingsPage,
   PayoutCreditCard,
@@ -165,7 +159,6 @@ ReactOnRails.register({
   PublicLicenseKeyPage,
   ReviewsPage,
   SecureRedirectPage,
-  SignupPage,
   SubscribePage,
   SubscribePreview,
   SubscribeReviewReminders,
@@ -175,7 +168,6 @@ ReactOnRails.register({
   TaxesCollectionModal,
   TeamSettingsPage,
   ThirdPartyAnalyticsSettingsPage,
-  TwoFactorAuthenticationPage,
   VideoStreamPlayer,
   WishlistPage,
   WishlistsFollowingPage,

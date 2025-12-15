@@ -1,14 +1,18 @@
 # frozen_string_literal: true
 
 class SignupController < Devise::RegistrationsController
-  include OauthApplicationConfig, ValidateRecaptcha
+  include OauthApplicationConfig, ValidateRecaptcha, InertiaRendering
 
   before_action :verify_captcha_and_handle_existing_users, only: :create
   before_action :set_noindex_header, only: :new, if: -> { params[:next]&.start_with?("/oauth/authorize") }
 
+  layout "inertia", only: [:new]
+
   def new
-    @hide_layouts = true
-    @auth_presenter = AuthPresenter.new(params:, application: @application)
+    auth_presenter = AuthPresenter.new(params:, application: @application)
+    render inertia: "Auth/Signup", props: {
+      auth_props: auth_presenter.signup_props
+    }
   end
 
   def create
@@ -44,7 +48,7 @@ class SignupController < Devise::RegistrationsController
       # Do not require 2FA for newly signed up users
       remember_two_factor_auth
 
-      render json: { success: true, redirect_location: login_path_for(@user) }
+      redirect_to login_path_for(@user), status: :see_other
     else
       error_message = if !params[:user] || params[:user][:email].blank?
         "Please provide a valid email address."
@@ -54,10 +58,7 @@ class SignupController < Devise::RegistrationsController
         @user.errors.full_messages[0]
       end
 
-      render json: {
-        success: false,
-        error_message:
-      }
+      redirect_with_signup_error(error_message)
     end
   end
 
@@ -95,10 +96,7 @@ class SignupController < Devise::RegistrationsController
       if params[:user] && params[:user][:buyer_signup].blank?
         site_key = GlobalConfig.get("RECAPTCHA_SIGNUP_SITE_KEY")
         if !(Rails.env.development? && site_key.blank?) && !valid_recaptcha_response?(site_key: site_key)
-          return render json: {
-            success: false,
-            error_message: "Sorry, we could not verify the CAPTCHA. Please try again."
-          }
+          return redirect_with_signup_error("Sorry, we could not verify the CAPTCHA. Please try again.")
         end
       end
 
@@ -109,10 +107,14 @@ class SignupController < Devise::RegistrationsController
 
       if !user.deleted? && user.try(:valid_password?, params[:user][:password])
         sign_in_or_prepare_for_two_factor_auth(user)
-        render json: { success: true, redirect_location: login_path_for(user) }
+        redirect_to login_path_for(user), status: :see_other
       else
-        render json: { success: false, error_message: "An account already exists with this email." }
+        redirect_with_signup_error("An account already exists with this email.")
       end
+    end
+
+    def redirect_with_signup_error(message)
+      redirect_to signup_path, warning: message, status: :see_other
     end
 
     def build_user_with_params(user_params = nil)

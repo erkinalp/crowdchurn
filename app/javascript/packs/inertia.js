@@ -20,12 +20,18 @@ async function resolvePageComponent(name) {
   try {
     const module = await import(`../pages/${name}.tsx`);
     const page = module.default;
+    if (page.disableLayout) {
+      return page;
+    }
     page.layout ||= (page) => createElement(Layout, { children: page });
     return page;
   } catch {
     try {
       const module = await import(`../pages/${name}.jsx`);
       const page = module.default;
+      if (page.disableLayout) {
+        return page;
+      }
       page.layout ||= (page) => createElement(Layout, { children: page });
       return page;
     } catch {
