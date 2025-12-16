@@ -13,7 +13,7 @@ class Admin::UserPresenter::Card
       impersonatable: Admin::Impersonators::UserPolicy.new(pundit_user, user).create?,
 
       # Identification
-      id: user.id,
+      external_id: user.external_id,
 
       # Basic user fields
       name: user.name,

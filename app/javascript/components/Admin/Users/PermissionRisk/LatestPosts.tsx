@@ -49,7 +49,7 @@ const LastestPosts = ({ user }: LatestPostsProps) => {
     setIsLoading(true);
     const response = await request({
       method: "GET",
-      url: Routes.admin_user_latest_posts_path(user.id),
+      url: Routes.admin_user_latest_posts_path(user.external_id),
       accept: "json",
     });
     setPosts(cast<PostProps[]>(await response.json()));

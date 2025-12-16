@@ -1213,4 +1213,10 @@ class User < ApplicationRecord
     def to_email_domain(value)
       value.presence && Mail::Address.new(value).domain
     end
+
+    def self.id?(value)
+      raise ArgumentError, "value can't be blank" if value.blank?
+
+      value.to_i.to_s == value
+    end
 end

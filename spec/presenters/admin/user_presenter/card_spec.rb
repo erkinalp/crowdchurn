@@ -18,7 +18,7 @@ describe Admin::UserPresenter::Card do
 
     describe "fields" do
       it "returns the correct values" do
-        expect(props[:id]).to eq(user.id)
+        expect(props[:external_id]).to eq(user.external_id)
         expect(props[:name]).to eq(user.name)
         expect(props[:bio]).to eq(user.bio)
         expect(props[:avatar_url]).to eq(user.avatar_url)
