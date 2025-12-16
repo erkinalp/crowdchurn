@@ -39,19 +39,15 @@ const Layout = ({
     <div>
       <PageHeader title={title} actions={actions}>
         <Tabs>
-          <Tab href={`${Routes.emails_path()}/published`} isSelected={false}>
+          <Tab href={Routes.published_emails_path()} isSelected={false}>
             Published
           </Tab>
           {loggedInUser?.policies.installment.create ? (
-            <>
-              <Tab href={`${Routes.emails_path()}/scheduled`} isSelected={false}>
-                Scheduled
-              </Tab>
-              <Tab href={`${Routes.emails_path()}/drafts`} isSelected={false}>
-                Drafts
-              </Tab>
-            </>
+            <Tab href={Routes.scheduled_emails_path()} isSelected={false}>
+              Scheduled
+            </Tab>
           ) : null}
+          {/* TODO: Add Drafts tab back once Drafts page is migrated to Inertia */}
           <Tab href={Routes.followers_path()} isSelected>
             Subscribers
           </Tab>
