@@ -93,6 +93,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     const variant = outline ? "outline" : color === "danger" ? "destructive" : "default";
     const size = small ? "sm" : "default";
+
     return (
       <button
         className={classNames(
