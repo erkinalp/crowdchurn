@@ -83,9 +83,9 @@ class EmailsController < Sellers::BaseController
 
       if service.process
         if params[:save_action_name] == "save_and_preview_post"
-          redirect_to edit_email_path(service.installment.external_id, preview_post: true), notice: "Email saved successfully."
+          redirect_to edit_email_path(service.installment.external_id, preview_post: true), notice: "Email saved successfully.", status: :see_other
         else
-          redirect_to emails_path, notice: "Email saved successfully."
+          redirect_to emails_path, notice: "Email saved successfully.", status: :see_other
         end
       else
         if @installment
