@@ -18,7 +18,7 @@ export const buttonVariants = cva("button", {
     size: {
       default: "",
       sm: "small",
-      xs: "h-[30px] w-[60px] !p-0 !text-xs",
+      xs: "h-8 w-15 !p-0 !text-xs",
     },
     color: {
       primary: "primary",
