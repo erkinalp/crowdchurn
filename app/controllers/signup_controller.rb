@@ -46,7 +46,7 @@ class SignupController < Devise::RegistrationsController
       # Do not require 2FA for newly signed up users
       remember_two_factor_auth
 
-      redirect_to login_path_for(@user), allow_other_host: true
+      redirect_to login_path_for(@user), allow_other_host: true #
     else
       error_message = if !params[:user] || params[:user][:email].blank?
         "Please provide a valid email address."
@@ -105,7 +105,7 @@ class SignupController < Devise::RegistrationsController
 
       if !user.deleted? && user.try(:valid_password?, params[:user][:password])
         sign_in_or_prepare_for_two_factor_auth(user)
-        redirect_to login_path_for(user), allow_other_host: true
+        redirect_to login_path_for(user), allow_other_host: true #
       else
         redirect_with_signup_error("An account already exists with this email.")
       end

@@ -7,7 +7,7 @@ import { SocialAuth } from "$app/components/Authentication/SocialAuth";
 import { Button } from "$app/components/Button";
 import { PasswordInput } from "$app/components/PasswordInput";
 import { Separator } from "$app/components/Separator";
-import { useFlashError } from "$app/components/useFlashError";
+import { FlashError } from "$app/components/FlashError";
 import { useOriginalLocation } from "$app/components/useOriginalLocation";
 import { RecaptchaCancelledError, useRecaptcha } from "$app/components/useRecaptcha";
 import { formatPrice } from "$app/utils/price";
@@ -33,7 +33,6 @@ function SignupPage() {
   const url = new URL(useOriginalLocation());
   const next = url.searchParams.get("next");
   const recaptcha = useRecaptcha({ siteKey: recaptcha_site_key });
-  const flashError = useFlashError();
   const uid = React.useId();
 
   const form = useForm({
@@ -76,7 +75,7 @@ function SignupPage() {
           <span>or</span>
         </Separator>
         <section>
-          {flashError}
+          <FlashError />
           <fieldset>
             <legend>
               <label htmlFor={`${uid}-email`}>Email</label>

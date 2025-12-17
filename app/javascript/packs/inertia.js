@@ -16,6 +16,19 @@ router.on("before", (event) => {
   }
 });
 
+// Handle non-Inertia responses (e.g., redirects to non-Inertia pages after login)
+// This fires AFTER the server responds, so authentication is already complete
+router.on("invalid", (event) => {
+  event.preventDefault();
+
+  const response = event.detail.response;
+
+  const redirectedUrl = response.request.responseURL;
+  if (redirectedUrl) {
+    window.location.href = redirectedUrl;
+  }
+});
+
 async function resolvePageComponent(name) {
   try {
     const module = await import(`../pages/${name}.tsx`);

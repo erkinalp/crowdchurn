@@ -4,6 +4,7 @@ class LoginsController < Devise::SessionsController
   include OauthApplicationConfig, ValidateRecaptcha, InertiaRendering
 
   skip_before_action :check_suspended, only: %i[create destroy]
+  before_action :block_json_request, only: :new
   after_action :clear_dashboard_preference, only: :destroy
   before_action :reset_impersonated_user, only: :destroy
   before_action :set_noindex_header, only: :new, if: -> { params[:next]&.start_with?("/oauth/authorize") }
@@ -46,11 +47,19 @@ class LoginsController < Devise::SessionsController
         flash[:warning] = "Your password has previously appeared in a data breach as per haveibeenpwned.com and should never be used. We strongly recommend you change your password everywhere you have used it."
       end
 
-      redirect_to login_path_for(@user), allow_other_host: true
+      redirect_to login_path_for(@user), allow_other_host: true #
     end
   end
 
   private
+    def block_json_request
+      # Allow Inertia requests - they send JSON format but include X-Inertia header
+      return if request.headers["X-Inertia"].present?
+
+      # Block direct JSON requests (non-Inertia API calls)
+      head :not_acceptable if request.format.json?
+    end
+
     def redirect_with_login_error(message)
       redirect_to login_path, warning: message, status: :see_other
     end
