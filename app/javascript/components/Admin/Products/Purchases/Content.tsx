@@ -10,8 +10,8 @@ type AdminProductPurchasesContentProps = {
   isLoading: boolean;
   hasMore: boolean;
   onLoadMore: () => void;
-  selectedPurchaseIds: number[];
-  onToggleSelection: (purchaseId: number, selected: boolean) => void;
+  selectedPurchaseExternalIds: string[];
+  onToggleSelection: (purchaseId: string, selected: boolean) => void;
   onMassRefund: () => void;
   onClearSelection: () => void;
   onSelectAll: () => void;
@@ -23,7 +23,7 @@ const AdminProductPurchasesContent = ({
   isLoading,
   hasMore,
   onLoadMore,
-  selectedPurchaseIds,
+  selectedPurchaseExternalIds,
   onToggleSelection,
   onMassRefund,
   onClearSelection,
@@ -37,9 +37,9 @@ const AdminProductPurchasesContent = ({
       </div>
     );
 
-  const selectedCount = selectedPurchaseIds.length;
+  const selectedCount = selectedPurchaseExternalIds.length;
   const selectablePurchases = purchases.filter((p) => p.stripe_refunded !== true);
-  const allSelectableSelected = selectablePurchases.every((p) => selectedPurchaseIds.includes(p.id));
+  const allSelectableSelected = selectablePurchases.every((p) => selectedPurchaseExternalIds.includes(p.external_id));
 
   return (
     <div className="flex flex-col gap-4">
@@ -80,7 +80,7 @@ const AdminProductPurchasesContent = ({
           <AdminProductPurchase
             key={purchase.external_id}
             purchase={purchase}
-            isSelected={selectedPurchaseIds.includes(purchase.id)}
+            isSelected={selectedPurchaseExternalIds.includes(purchase.external_id)}
             onToggleSelection={onToggleSelection}
           />
         ))}

@@ -20,7 +20,7 @@ export type ProductPurchase = {
 type AdminProductPurchaseProps = {
   purchase: ProductPurchase;
   isSelected: boolean;
-  onToggleSelection: (purchaseId: number, selected: boolean) => void;
+  onToggleSelection: (purchaseId: string, selected: boolean) => void;
 };
 
 const AdminProductPurchase = ({ purchase, isSelected, onToggleSelection }: AdminProductPurchaseProps) => {
@@ -47,9 +47,9 @@ const AdminProductPurchase = ({ purchase, isSelected, onToggleSelection }: Admin
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
         <input
           type="checkbox"
-          aria-label={`Select purchase ${id}`}
+          aria-label={`Select purchase ${external_id}`}
           checked={isSelected}
-          onChange={(event) => onToggleSelection(id, event.target.checked)}
+          onChange={(event) => onToggleSelection(external_id, event.target.checked)}
           disabled={!isSelectable}
           title={isSelectable ? undefined : "Already refunded"}
         />

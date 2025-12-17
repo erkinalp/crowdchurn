@@ -91,12 +91,12 @@ describe Admin::Products::PurchasesController do
     it "enqueues the job with correct parameters" do
       expect(MassRefundForFraudJob).to receive(:perform_async).with(
         product.id,
-        [successful_purchase.id, failed_purchase.id],
+        [successful_purchase.external_id, failed_purchase.external_id],
         admin_user.id
       )
 
       post :mass_refund_for_fraud,
-           params: { product_id: product.id, purchase_ids: [successful_purchase.id, failed_purchase.id] },
+           params: { product_id: product.id, purchase_ids: [successful_purchase.external_id, failed_purchase.external_id] },
            format: :json
 
       body = response.parsed_body
@@ -116,7 +116,7 @@ describe Admin::Products::PurchasesController do
       other_purchase = create(:purchase)
 
       post :mass_refund_for_fraud,
-           params: { product_id: product.id, purchase_ids: [other_purchase.id] },
+           params: { product_id: product.id, purchase_ids: [other_purchase.external_id] },
            format: :json
 
       expect(response).to have_http_status(:unprocessable_entity)

@@ -4,14 +4,14 @@ class MassRefundForFraudJob
   include Sidekiq::Job
   sidekiq_options retry: 1, queue: :default, lock: :until_executed
 
-  def perform(product_id, purchase_ids, admin_user_id)
+  def perform(product_id, external_ids, admin_user_id)
     results = { success: 0, failed: 0, errors: {} }
 
-    purchase_ids.each do |purchase_id|
-      purchase = Purchase.find_by(id: purchase_id, link_id: product_id)
-      unless purchase
+    external_ids.each do |external_id|
+      purchase = Purchase.find_by_external_id(external_id)
+      unless purchase && purchase.link_id == product_id
         results[:failed] += 1
-        results[:errors][purchase_id] = "Purchase not found"
+        results[:errors][external_id] = "Purchase not found"
         next
       end
 
@@ -20,8 +20,8 @@ class MassRefundForFraudJob
         results[:success] += 1
       rescue StandardError => e
         results[:failed] += 1
-        results[:errors][purchase_id] = e.message
-        Rails.logger.error("Mass fraud refund failed for purchase #{purchase_id}: #{e.class}: #{e.message}")
+        results[:errors][external_id] = e.message
+        Rails.logger.error("Mass fraud refund failed for purchase #{external_id}: #{e.class}: #{e.message}")
       end
     end
 

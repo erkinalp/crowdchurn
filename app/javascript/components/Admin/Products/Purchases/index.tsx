@@ -22,7 +22,7 @@ type AdminProductPurchasesProps = {
 
 const AdminProductPurchases = ({ productId, isAffiliateUser = false, userId }: AdminProductPurchasesProps) => {
   const [open, setOpen] = React.useState(false);
-  const [selectedPurchaseIds, setSelectedPurchaseIds] = React.useState<number[]>([]);
+  const [selectedPurchaseExternalIds, setSelectedPurchaseExternalIds] = React.useState<string[]>([]);
   const [isMassRefunding, setIsMassRefunding] = React.useState(false);
 
   const url =
@@ -47,27 +47,31 @@ const AdminProductPurchases = ({ productId, isAffiliateUser = false, userId }: A
 
   React.useEffect(() => {
     if (!open) {
-      setSelectedPurchaseIds([]);
+      setSelectedPurchaseExternalIds([]);
     }
   }, [open]);
 
   React.useEffect(() => {
-    setSelectedPurchaseIds((prev) => prev.filter((id) => purchases.some((purchase) => purchase.id === id)));
+    setSelectedPurchaseExternalIds((prev) =>
+      prev.filter((id) => purchases.some((purchase) => purchase.external_id === id)),
+    );
   }, [purchases]);
 
-  const togglePurchaseSelection = React.useCallback((purchaseId: number, selected: boolean) => {
-    setSelectedPurchaseIds((prev) => (selected ? [...prev, purchaseId] : prev.filter((id) => id !== purchaseId)));
+  const togglePurchaseSelection = React.useCallback((purchaseId: string, selected: boolean) => {
+    setSelectedPurchaseExternalIds((prev) =>
+      selected ? [...prev, purchaseId] : prev.filter((id) => id !== purchaseId),
+    );
   }, []);
 
-  const clearSelection = React.useCallback(() => setSelectedPurchaseIds([]), []);
+  const clearSelection = React.useCallback(() => setSelectedPurchaseExternalIds([]), []);
 
   const selectAll = React.useCallback(
-    () => setSelectedPurchaseIds(purchases.filter((p) => p.stripe_refunded !== true).map((p) => p.id)),
+    () => setSelectedPurchaseExternalIds(purchases.filter((p) => p.stripe_refunded !== true).map((p) => p.external_id)),
     [purchases],
   );
 
   const handleMassRefund = React.useCallback(async () => {
-    const selectionCount = selectedPurchaseIds.length;
+    const selectionCount = selectedPurchaseExternalIds.length;
     if (selectionCount === 0 || isMassRefunding) return;
     const confirmMessage = `Are you sure you want to refund ${selectionCount} ${
       selectionCount === 1 ? "purchase" : "purchases"
@@ -88,7 +92,7 @@ const AdminProductPurchases = ({ productId, isAffiliateUser = false, userId }: A
         accept: "json",
         data: {
           authenticity_token: csrfToken,
-          purchase_ids: selectedPurchaseIds,
+          purchase_ids: selectedPurchaseExternalIds,
         },
       });
 
@@ -98,14 +102,14 @@ const AdminProductPurchases = ({ productId, isAffiliateUser = false, userId }: A
       }
 
       showAlert(body.message ?? "Mass fraud refund started.", "success");
-      setSelectedPurchaseIds([]);
+      setSelectedPurchaseExternalIds([]);
     } catch (error) {
       assertResponseError(error);
       showAlert(error.message, "error");
     } finally {
       setIsMassRefunding(false);
     }
-  }, [isMassRefunding, productId, selectedPurchaseIds]);
+  }, [isMassRefunding, productId, selectedPurchaseExternalIds]);
 
   return (
     <>
@@ -119,7 +123,7 @@ const AdminProductPurchases = ({ productId, isAffiliateUser = false, userId }: A
           isLoading={isLoading}
           hasMore={hasMore}
           onLoadMore={() => void fetchNextPage()}
-          selectedPurchaseIds={selectedPurchaseIds}
+          selectedPurchaseExternalIds={selectedPurchaseExternalIds}
           onToggleSelection={togglePurchaseSelection}
           onMassRefund={() => {
             void handleMassRefund();
