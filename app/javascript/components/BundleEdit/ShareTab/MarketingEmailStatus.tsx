@@ -1,7 +1,6 @@
 import * as React from "react";
 
 import { formatPriceCentsWithCurrencySymbol } from "$app/utils/currency";
-import { paramsToQueryString } from "$app/utils/url";
 
 import { computeStandalonePrice, useBundleEditContext } from "$app/components/BundleEdit/state";
 import { NavigationButtonInertia } from "$app/components/NavigationButton";
