@@ -237,6 +237,7 @@ describe("Bundle edit page", type: :system, js: true) do
 
         within_cart_item "Product 1" do
           expect(page).to have_text("Qty: 1")
+
           select_disclosure "Configure" do
             fill_in "Quantity", with: 2
             click_on "Apply"
