@@ -197,7 +197,6 @@ describe WishlistPresenter do
         can_edit: false,
         checkout_enabled: true,
         discover_opted_out: nil,
-        layout: nil,
         items: [
           {
             id: wishlist.wishlist_products.first.external_id,
