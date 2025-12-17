@@ -35,7 +35,7 @@ export const CartItem = ({
 export const CartItemMedia = ({ className, children, ...props }: BaseProps) => (
   <figure
     className={classNames(
-      "tailwind-override relative aspect-square h-16 flex-none overflow-hidden rounded-sm border bg-[url('~images/placeholders/product-cover.png')] bg-cover bg-center sm:h-32",
+      "tailwind-override relative aspect-square h-16 flex-none overflow-hidden rounded-sm border bg-[url('~images/placeholders/product-cover.png')] bg-cover bg-center sm:h-30",
       className,
     )}
     {...props}
