@@ -19,16 +19,14 @@ class BalanceController < Sellers::BaseController
       next_payout_period_data: seller_stats[:next_payout_period_data],
       processing_payout_periods_data: seller_stats[:processing_payout_periods_data],
       seller: current_seller,
-      pagination:,
       past_payouts:
     )
-    payout_props = payout_presenter.props
 
     render inertia: "Payouts/Index",
            props: {
-             payout_presenter: payout_props.except(:past_payout_period_data, :pagination),
-             past_payout_period_data: InertiaRails.merge { payout_props[:past_payout_period_data] },
-             pagination: payout_props[:pagination]
+             payout_presenter: payout_presenter.payout_props,
+             past_payout_period_data: InertiaRails.merge { payout_presenter.past_payout_period_data },
+             pagination:
            }
   end
 

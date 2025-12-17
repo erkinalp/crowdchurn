@@ -4,17 +4,16 @@ class PayoutsPresenter
   include CurrencyHelper
   include PayoutsHelper
 
-  attr_reader :next_payout_period_data, :processing_payout_periods_data, :seller, :past_payouts, :pagination
+  attr_reader :next_payout_period_data, :processing_payout_periods_data, :seller, :past_payouts
 
-  def initialize(next_payout_period_data:, processing_payout_periods_data:, seller:, past_payouts:, pagination:)
+  def initialize(next_payout_period_data:, processing_payout_periods_data:, seller:, past_payouts:)
     @next_payout_period_data = next_payout_period_data
     @processing_payout_periods_data = processing_payout_periods_data
     @seller = seller
     @past_payouts = past_payouts
-    @pagination = pagination
   end
 
-  def props
+  def payout_props
     {
       next_payout_period_data: next_payout_period_data&.merge(
         has_stripe_connect: seller.stripe_connect_account.present?
@@ -25,7 +24,6 @@ class PayoutsPresenter
       payouts_status: seller.payouts_status,
       payouts_paused_by: seller.payouts_paused_by_source,
       payouts_paused_for_reason: seller.payouts_paused_for_reason,
-      past_payout_period_data: past_payouts.map { payout_period_data(seller, _1) },
       instant_payout: seller.instant_payouts_supported? ? {
         payable_amount_cents: seller.instantly_payable_unpaid_balance_cents,
         payable_balances: seller.instantly_payable_unpaid_balances.sort_by(&:date).reverse.map do |balance|
@@ -41,8 +39,11 @@ class PayoutsPresenter
         account_number: seller.active_bank_account.account_number_visual,
       } : nil,
       show_instant_payouts_notice: seller.eligible_for_instant_payouts? && !seller.active_bank_account&.supports_instant_payouts?,
-      pagination:,
       tax_center_enabled: Feature.active?(:tax_center, seller)
     }
+  end
+
+  def past_payout_period_data
+    past_payouts.map { payout_period_data(seller, _1) }
   end
 end

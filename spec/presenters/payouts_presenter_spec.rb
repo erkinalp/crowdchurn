@@ -4,7 +4,7 @@ describe PayoutsPresenter do
   include PayoutsHelper
   include CurrencyHelper
 
-  describe "#props" do
+  describe "#payout_props" do
     it "does not return current period payouts data if user is not payable" do
       user = create(:user, user_risk_state: "compliant")
       product = create(:product, user:, price_cents: 9_99)
@@ -16,11 +16,10 @@ describe PayoutsPresenter do
         next_payout_period_data: balance[:next_payout_period_data],
         processing_payout_periods_data: balance[:processing_payout_periods_data],
         seller: user,
-        past_payouts: [],
-        pagination: {}
+        past_payouts: []
       )
 
-      expect(instance.props).to eq(
+      expect(instance.payout_props).to eq(
         {
           next_payout_period_data: {
             status: "not_payable",
@@ -34,10 +33,8 @@ describe PayoutsPresenter do
           payouts_status: "payable",
           payouts_paused_by: nil,
           payouts_paused_for_reason: nil,
-          past_payout_period_data: [],
           instant_payout: nil,
           show_instant_payouts_notice: false,
-          pagination: {},
           tax_center_enabled: false
         }
       )
@@ -55,8 +52,7 @@ describe PayoutsPresenter do
           next_payout_period_data: balance[:next_payout_period_data],
           processing_payout_periods_data: balance[:processing_payout_periods_data],
           seller: user,
-          past_payouts: [],
-          pagination: {}
+          past_payouts: []
         )
         allow_any_instance_of(User).to receive(:instant_payouts_supported?).and_return(true)
         allow_any_instance_of(User).to receive(:instantly_payable_unpaid_balance_cents).and_return(1000)
@@ -66,7 +62,7 @@ describe PayoutsPresenter do
         allow_any_instance_of(User).to receive_message_chain(:active_bank_account, :routing_number).and_return("123456789")
         allow_any_instance_of(User).to receive_message_chain(:active_bank_account, :account_number_visual).and_return("****1234")
 
-        expect(instance.props).to eq(
+        expect(instance.payout_props).to eq(
           {
             next_payout_period_data: {
               should_be_shown_currencies_always: false,
@@ -102,7 +98,6 @@ describe PayoutsPresenter do
             payouts_status: "payable",
             payouts_paused_by: nil,
             payouts_paused_for_reason: nil,
-            past_payout_period_data: [],
             instant_payout: {
               payable_amount_cents: 1000,
               payable_balances: [
@@ -118,7 +113,6 @@ describe PayoutsPresenter do
               account_number: "****1234"
             },
             show_instant_payouts_notice: false,
-            pagination: {},
             tax_center_enabled: false
           }
         )
@@ -136,11 +130,10 @@ describe PayoutsPresenter do
           next_payout_period_data: balance[:next_payout_period_data],
           processing_payout_periods_data: balance[:processing_payout_periods_data],
           seller: user,
-          past_payouts: [],
-          pagination: {}
+          past_payouts: []
         )
 
-        expect(instance.props).to eq(
+        expect(instance.payout_props).to eq(
           {
             next_payout_period_data: {
               status: "payable",
@@ -177,10 +170,8 @@ describe PayoutsPresenter do
             payouts_status: "payable",
             payouts_paused_by: nil,
             payouts_paused_for_reason: nil,
-            past_payout_period_data: [],
             instant_payout: nil,
             show_instant_payouts_notice: false,
-            pagination: {},
             tax_center_enabled: false
           }
         )
@@ -194,10 +185,9 @@ describe PayoutsPresenter do
         next_payout_period_data: balance[:next_payout_period_data],
         processing_payout_periods_data: balance[:processing_payout_periods_data],
         seller: user,
-        past_payouts: [],
-        pagination: {}
+        past_payouts: []
       )
-      expect(instance.props[:next_payout_period_data]).to include(has_stripe_connect: false)
+      expect(instance.payout_props[:next_payout_period_data]).to include(has_stripe_connect: false)
     end
 
     it "returns has_stripe_connect set to true if the user is stripe connect" do
@@ -215,10 +205,9 @@ describe PayoutsPresenter do
         next_payout_period_data: balance[:next_payout_period_data],
         processing_payout_periods_data: balance[:processing_payout_periods_data],
         seller: user,
-        past_payouts: [],
-        pagination: {}
+        past_payouts: []
       )
-      expect(instance.props[:next_payout_period_data]).to include(has_stripe_connect: true)
+      expect(instance.payout_props[:next_payout_period_data]).to include(has_stripe_connect: true)
     end
 
     context "when seller's payouts are paused" do
@@ -233,12 +222,11 @@ describe PayoutsPresenter do
           next_payout_period_data: balance[:next_payout_period_data],
           processing_payout_periods_data: balance[:processing_payout_periods_data],
           seller: user,
-          past_payouts: [],
-          pagination: {}
+          past_payouts: []
         )
-        expect(instance.props[:payouts_status]).to eq("paused")
-        expect(instance.props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_ADMIN)
-        expect(instance.props[:payouts_paused_for_reason]).to eq(nil)
+        expect(instance.payout_props[:payouts_status]).to eq("paused")
+        expect(instance.payout_props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_ADMIN)
+        expect(instance.payout_props[:payouts_paused_for_reason]).to eq(nil)
 
         user.update!(payouts_paused_internally: true, payouts_paused_by: User.last.id)
         user.comments.create!(
@@ -246,24 +234,24 @@ describe PayoutsPresenter do
           content: "Chargeback rate too high.",
           comment_type: Comment::COMMENT_TYPE_PAYOUTS_PAUSED
         )
-        expect(instance.props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_ADMIN)
-        expect(instance.props[:payouts_paused_for_reason]).to eq("Chargeback rate too high.")
+        expect(instance.payout_props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_ADMIN)
+        expect(instance.payout_props[:payouts_paused_for_reason]).to eq("Chargeback rate too high.")
 
         user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
-        expect(instance.props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_STRIPE)
-        expect(instance.props[:payouts_paused_for_reason]).to eq(nil)
+        expect(instance.payout_props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_STRIPE)
+        expect(instance.payout_props[:payouts_paused_for_reason]).to eq(nil)
 
         user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_SYSTEM)
-        expect(instance.props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_SYSTEM)
-        expect(instance.props[:payouts_paused_for_reason]).to eq(nil)
+        expect(instance.payout_props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_SYSTEM)
+        expect(instance.payout_props[:payouts_paused_for_reason]).to eq(nil)
 
         user.update!(payouts_paused_internally: false, payouts_paused_by_user: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_USER)
-        expect(instance.props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_USER)
-        expect(instance.props[:payouts_paused_for_reason]).to eq(nil)
+        expect(instance.payout_props[:payouts_paused_by]).to eq(User::PAYOUT_PAUSE_SOURCE_USER)
+        expect(instance.payout_props[:payouts_paused_for_reason]).to eq(nil)
 
         user.update!(payouts_paused_internally: false, payouts_paused_by_user: false, payouts_paused_by: nil)
-        expect(instance.props[:payouts_paused_by]).to eq(nil)
-        expect(instance.props[:payouts_paused_for_reason]).to eq(nil)
+        expect(instance.payout_props[:payouts_paused_by]).to eq(nil)
+        expect(instance.payout_props[:payouts_paused_for_reason]).to eq(nil)
       end
     end
   end
