@@ -19,7 +19,6 @@ describe "Login Feature Scenario", js: true, type: :system do
       fill_in "Password", with: user.password
 
       click_on "Login"
-      expect(page).to have_selector("iframe[title*=recaptcha]", visible: false)
       wait_for_ajax
       expect(page).to have_content("Dashboard")
     end

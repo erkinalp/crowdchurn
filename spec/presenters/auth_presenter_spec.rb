@@ -8,6 +8,7 @@ describe AuthPresenter do
   let(:presenter) { described_class.new(params:, application:) }
 
   before do
+    allow(GlobalConfig).to receive(:get).and_call_original
     allow(GlobalConfig).to receive(:get).with("RECAPTCHA_LOGIN_SITE_KEY").and_return("recaptcha_login_site_key")
     allow(GlobalConfig).to receive(:get).with("RECAPTCHA_SIGNUP_SITE_KEY").and_return("recaptcha_signup_site_key")
   end
