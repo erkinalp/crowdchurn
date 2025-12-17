@@ -11,11 +11,11 @@ import { showAlert } from "$app/components/server-components/Alert";
 const AdminProductPurchases = ({
   product_id,
   is_affiliate_user,
-  user_id,
+  user_external_id,
 }: {
   product_id: number;
   is_affiliate_user: boolean;
-  user_id: number | null;
+  user_external_id: string | null;
 }) => {
   const [purchases, setPurchases] = React.useState<ProductPurchase[] | null>(null);
   const [currentPage, setCurrentPage] = React.useState(0);
@@ -32,7 +32,7 @@ const AdminProductPurchases = ({
         currentPage + 1,
         purchasesPerPage,
         is_affiliate_user,
-        user_id,
+        user_external_id,
       );
       setPurchases((prev) => [...(prev ?? []), ...result.purchases]);
       setCurrentPage(result.page || 0);
@@ -73,9 +73,9 @@ const AdminProductPurchases = ({
                         <li>
                           (refunded
                           {purchase.refunded_by.map((refunder) => (
-                            <React.Fragment key={refunder.id}>
+                            <React.Fragment key={refunder.external_id}>
                               {" "}
-                              by <a href={Routes.admin_user_path(refunder.id)}>{refunder.email}</a>
+                              by <a href={Routes.admin_user_path(refunder.external_id)}>{refunder.email}</a>
                             </React.Fragment>
                           ))}
                           )

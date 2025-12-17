@@ -9,15 +9,15 @@ import { type ProductPurchase } from "./Purchase";
 type AdminProductPurchasesProps = {
   productId: number;
   isAffiliateUser?: boolean;
-  userId: number | null;
+  userExternalId: string | null;
 };
 
-const AdminProductPurchases = ({ productId, isAffiliateUser = false, userId }: AdminProductPurchasesProps) => {
+const AdminProductPurchases = ({ productId, isAffiliateUser = false, userExternalId }: AdminProductPurchasesProps) => {
   const [open, setOpen] = React.useState(false);
 
   const url =
-    userId && isAffiliateUser
-      ? Routes.admin_affiliate_product_purchases_path(userId, productId, { format: "json" })
+    userExternalId && isAffiliateUser
+      ? Routes.admin_affiliate_product_purchases_path(userExternalId, productId, { format: "json" })
       : Routes.admin_product_purchases_path(productId, { format: "json" });
 
   const {
