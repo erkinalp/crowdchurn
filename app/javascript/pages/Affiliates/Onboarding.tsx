@@ -7,9 +7,9 @@ import { SelfServeAffiliateProduct } from "$app/data/affiliates";
 import { isUrlValid } from "$app/utils/url";
 
 import { Button } from "$app/components/Button";
-import { NavigationButtonInertia } from "$app/components/NavigationButton";
 import { CopyToClipboard } from "$app/components/CopyToClipboard";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
+import { NavigationButtonInertia } from "$app/components/NavigationButton";
 import { NumberInput } from "$app/components/NumberInput";
 import { showAlert } from "$app/components/server-components/Alert";
 import { ToggleSettingRow } from "$app/components/SettingRow";
@@ -66,7 +66,9 @@ export default function AffiliatesOnboarding() {
     disable_global_affiliate: props.disable_global_affiliate,
   });
 
-  const enableAffiliateLink = data.products.some(({ enabled, fee_percent }) => enabled && isValidFeePercent(fee_percent));
+  const enableAffiliateLink = data.products.some(
+    ({ enabled, fee_percent }) => enabled && isValidFeePercent(fee_percent),
+  );
 
   const affiliateRequestUrl = Routes.custom_domain_new_affiliate_request_url({ host: props.creator_subdomain });
 

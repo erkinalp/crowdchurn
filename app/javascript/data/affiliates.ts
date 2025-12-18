@@ -71,7 +71,6 @@ export type PagedAffiliatesData = {
   affiliates_disabled_reason: string | null;
 };
 
-
 export async function submitAffiliateSignupForm(data: AffiliateSignupFormData) {
   const response = await request({
     method: "PATCH",

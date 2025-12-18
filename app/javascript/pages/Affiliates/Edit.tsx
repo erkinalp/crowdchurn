@@ -7,8 +7,8 @@ import { isUrlValid } from "$app/utils/url";
 
 import { Button } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
-import { NavigationButtonInertia } from "$app/components/NavigationButton";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
+import { NavigationButtonInertia } from "$app/components/NavigationButton";
 import { NumberInput } from "$app/components/NumberInput";
 import { showAlert } from "$app/components/server-components/Alert";
 import { PageHeader } from "$app/components/ui/PageHeader";
@@ -69,13 +69,14 @@ export default function AffiliatesEdit() {
 
   const toggleAllProducts = (checked: boolean) => {
     if (checked) {
-      setData(
-        "affiliate",
-        {
-          ...data.affiliate,
-          products: data.affiliate.products.map((p) => ({ ...p, enabled: true, fee_percent: data.affiliate.fee_percent })),
-        },
-      );
+      setData("affiliate", {
+        ...data.affiliate,
+        products: data.affiliate.products.map((p) => ({
+          ...p,
+          enabled: true,
+          fee_percent: data.affiliate.fee_percent,
+        })),
+      });
     } else {
       setData("affiliate", {
         ...data.affiliate,
@@ -88,7 +89,10 @@ export default function AffiliatesEdit() {
     e.preventDefault();
     clearErrors();
 
-    if (applyToAllProducts && (!data.affiliate.fee_percent || data.affiliate.fee_percent < 1 || data.affiliate.fee_percent > 90)) {
+    if (
+      applyToAllProducts &&
+      (!data.affiliate.fee_percent || data.affiliate.fee_percent < 1 || data.affiliate.fee_percent > 90)
+    ) {
       setError("affiliate.fee_percent", "Commission must be between 1% and 90%");
       showAlert("Commission must be between 1% and 90%", "error");
       return;
@@ -109,7 +113,11 @@ export default function AffiliatesEdit() {
       return;
     }
 
-    if (data.affiliate.destination_url && data.affiliate.destination_url !== "" && !isUrlValid(data.affiliate.destination_url)) {
+    if (
+      data.affiliate.destination_url &&
+      data.affiliate.destination_url !== "" &&
+      !isUrlValid(data.affiliate.destination_url)
+    ) {
       setError("affiliate.destination_url", "Please enter a valid URL");
       showAlert("Please enter a valid URL", "error");
       return;
@@ -151,12 +159,7 @@ export default function AffiliatesEdit() {
             <legend>
               <label htmlFor={`${uid}email`}>Email</label>
             </legend>
-            <input
-              type="email"
-              id={`${uid}email`}
-              value={props.affiliate.email}
-              disabled
-            />
+            <input type="email" id={`${uid}email`} value={props.affiliate.email} disabled />
           </fieldset>
           <Table>
             <TableHeader>
@@ -249,7 +252,9 @@ export default function AffiliatesEdit() {
                       onChange={(value) =>
                         setData("affiliate", {
                           ...data.affiliate,
-                          products: data.affiliate.products.map((p) => (p.id === product.id ? { ...p, fee_percent: value } : p)),
+                          products: data.affiliate.products.map((p) =>
+                            p.id === product.id ? { ...p, fee_percent: value } : p,
+                          ),
                         })
                       }
                       value={product.fee_percent}
