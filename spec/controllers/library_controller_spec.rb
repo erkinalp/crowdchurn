@@ -6,7 +6,6 @@ require "shared_examples/authorize_called"
 require "inertia_rails/rspec"
 
 describe LibraryController, :vcr, type: :controller, inertia: true do
-
   it_behaves_like "inherits from Sellers::BaseController"
 
   let(:user) { create(:user) }

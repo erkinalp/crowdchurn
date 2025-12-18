@@ -5,7 +5,6 @@ require "shared_examples/authorize_called"
 require "inertia_rails/rspec"
 
 describe WishlistsController, type: :controller, inertia: true do
-
   let(:user) { create(:user) }
   let(:wishlist) { create(:wishlist, user:) }
 

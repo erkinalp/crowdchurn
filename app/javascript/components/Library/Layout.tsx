@@ -1,5 +1,5 @@
-import * as React from "react";
 import { Link } from "@inertiajs/react";
+import * as React from "react";
 
 import { PageHeader } from "$app/components/ui/PageHeader";
 import { Tabs, Tab } from "$app/components/ui/Tabs";

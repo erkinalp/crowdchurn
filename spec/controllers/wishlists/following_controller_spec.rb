@@ -5,7 +5,6 @@ require "shared_examples/authorize_called"
 require "inertia_rails/rspec"
 
 describe Wishlists::FollowingController, type: :controller, inertia: true do
-
   let(:user) { create(:user) }
 
   describe "GET index" do

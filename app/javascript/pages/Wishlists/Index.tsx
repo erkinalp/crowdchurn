@@ -96,7 +96,7 @@ export default function WishlistsPage() {
                   <TableCell>
                     <Toggle
                       value={!wishlist.discover_opted_out}
-                      onChange={(checked) => void updateDiscoverOptOut(wishlist.id, !checked)}
+                      onChange={(checked) => updateDiscoverOptOut(wishlist.id, !checked)}
                       ariaLabel="Discoverable"
                     />
                   </TableCell>
