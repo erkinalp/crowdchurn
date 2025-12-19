@@ -4,6 +4,11 @@ class CustomerSurchargeController < ApplicationController
   include CurrencyHelper
 
   def calculate_all
+    Rails.logger.info "=" * 80
+    Rails.logger.info "CustomerSurchargeController#calculate_all CALLED"
+    Rails.logger.info "Params: #{params.inspect}"
+    Rails.logger.info "=" * 80
+
     products = params.require(:products)
     vat_id_valid = false
     has_vat_id_input = false

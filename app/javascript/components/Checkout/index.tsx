@@ -484,12 +484,12 @@ const CartItemComponent = ({
             <CartItemList className="overflow-hidden">
               {item.product.bundle_products.map((bundleProduct) => (
                 <CartItem key={bundleProduct.product_id} isBundleItem>
-                  <CartItemMedia isBundleItem>
+                  <CartItemMedia className="h-20 w-20 rounded-none border-none">
                     <a href={item.product.url}>
                       <Thumbnail url={item.product.thumbnail_url} nativeType={item.product.native_type} />
                     </a>
-                    <CartItemQuantity className="sr-only">{bundleProduct.quantity || item.quantity}</CartItemQuantity>
                   </CartItemMedia>
+                  <span className="sr-only">Qty: {bundleProduct.quantity || item.quantity}</span>
                   <CartItemMain className="h-20 justify-center self-stretch border-l border-border p-4">
                     <CartItemTitle className="line-clamp-1">{bundleProduct.name}</CartItemTitle>
                     {bundleProduct.variant ? (
@@ -507,12 +507,14 @@ const CartItemComponent = ({
         ) : null
       }
     >
-      <CartItemMedia>
-        <a href={item.product.url}>
-          <Thumbnail url={item.product.thumbnail_url} nativeType={item.product.native_type} />
-        </a>
+      <div className="relative inline-flex">
+        <CartItemMedia className="h-16 w-16 sm:h-30 sm:w-30">
+          <a href={item.product.url}>
+            <Thumbnail url={item.product.thumbnail_url} nativeType={item.product.native_type} />
+          </a>
+        </CartItemMedia>
         <CartItemQuantity>{item.quantity}</CartItemQuantity>
-      </CartItemMedia>
+      </div>
 
       <CartItemMain>
         <CartItemTitle>

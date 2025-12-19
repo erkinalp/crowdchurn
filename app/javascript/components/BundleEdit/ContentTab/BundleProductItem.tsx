@@ -40,16 +40,14 @@ export const BundleProductItem = ({
   });
 
   return (
-    <CartItem key={bundleProduct.id}>
-      <CartItemMedia>
+    <CartItem key={bundleProduct.id} isBundleItem className="group/bundle">
+      <CartItemMedia className="h-20 w-20 overflow-hidden rounded-tl-none rounded-tr-none rounded-br-none rounded-bl-none border-none group-first/bundle:rounded-tl-[3px] group-last/bundle:rounded-bl-[3px]">
         <Thumbnail url={bundleProduct.thumbnail_url} nativeType={bundleProduct.native_type} />
       </CartItemMedia>
-      <CartItemMain>
+      <CartItemMain className="h-20 justify-center self-stretch border-l border-border p-4">
         <CartItemTitle>{bundleProduct.name}</CartItemTitle>
         <CartItemFooter>
-          <span>
-            <strong>Qty:</strong> {bundleProduct.quantity}
-          </span>
+          <span className="sr-only">Qty: {bundleProduct.quantity}</span>
           {selectedVariant ? (
             <span>
               <strong>{variantLabel(bundleProduct.native_type)}:</strong> {selectedVariant.name}
@@ -57,7 +55,7 @@ export const BundleProductItem = ({
           ) : null}
         </CartItemFooter>
       </CartItemMain>
-      <CartItemEnd className="mt-auto flex-row gap-4">
+      <CartItemEnd className="mt-auto flex-row gap-4 p-4">
         {bundleProduct.is_quantity_enabled || bundleProduct.variants ? (
           <Popover trigger={<div className="link">Configure</div>} open={editPopoverOpen} onToggle={setEditPopoverOpen}>
             <div className="flex w-96 flex-col gap-4">

@@ -36,27 +36,17 @@ export const CartItem = ({
   );
 };
 
-export const CartItemMedia = ({
-  className,
-  children,
-  isBundleItem,
-  ...props
-}: BaseProps & { isBundleItem?: boolean }) => {
-  const sizeClasses = isBundleItem ? "h-20 w-20" : "h-16 w-16 sm:h-30 sm:w-30";
-  const borderClasses = isBundleItem ? "" : "rounded-sm border border-border";
-  return (
-    <figure className={classNames("tailwind-override relative", sizeClasses, className)} {...props}>
-      <div
-        className={classNames(
-          "h-full w-full overflow-hidden bg-(image:--product-cover-placeholder) bg-cover bg-center",
-          borderClasses,
-        )}
-      >
-        {children}
-      </div>
-    </figure>
-  );
-};
+export const CartItemMedia = ({ className, children, ...props }: BaseProps) => (
+  <figure
+    className={classNames(
+      "tailwind-override h-fit w-14 overflow-hidden rounded-sm border border-border bg-(image:--product-cover-placeholder) bg-cover bg-center",
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </figure>
+);
 
 export const CartItemQuantity = ({ className, children, ...props }: BaseProps & { label?: string }) => (
   <div
