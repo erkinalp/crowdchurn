@@ -183,10 +183,7 @@ const ProductEditPage = (props: Props) => {
     setSaving(false);
   };
 
-  const filesById = React.useMemo(
-    () => new Map(product.files.map((file) => [file.id, file])),
-    [product.files],
-  );
+  const filesById = React.useMemo(() => new Map(product.files.map((file) => [file.id, file])), [product.files]);
 
   const contextValue = React.useMemo(
     () => ({

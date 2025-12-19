@@ -46,7 +46,7 @@ export const useFilesInGroup = (node: ProseMirrorNode | null, filesById: Map<str
     if (!node) return { files: [], hasStreamable: false };
     const filesInGroup: FileEntry[] = [];
     node.content.forEach((c) => {
-      const file = filesById.get(c.attrs.id);
+      const file = filesById.get(cast<string>(c.attrs.id));
       if (file) filesInGroup.push(file);
     });
     return { files: filesInGroup, hasStreamable: filesInGroup.some((file) => file.is_streamable) };
