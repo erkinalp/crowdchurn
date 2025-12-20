@@ -422,10 +422,9 @@ const DiscountsPage = ({
                             onOpenChange={(open) => {
                               setPopoverOfferCodeId(open ? offerCode.id : null);
                             }}
-                            aria-label="Open discount action menu"
                           >
                             <PopoverTrigger asChild>
-                              <Button>
+                              <Button aria-label="Open discount action menu" onClick={(e) => e.stopPropagation()}>
                                 <Icon name="three-dots" />
                               </Button>
                             </PopoverTrigger>

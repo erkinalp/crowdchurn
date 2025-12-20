@@ -141,11 +141,14 @@ describe("Product Edit Scenario", type: :system, js: true) do
     select_disclosure "Insert" do
       click_on "Upsell"
     end
-    select_combo_box_option search: "Sample product", from: "Product"
-    check "Add a discount to the offered product"
-    choose "Fixed amount"
-    fill_in "Fixed amount", with: "1"
-    click_on "Insert"
+
+    within_modal do
+      select_combo_box_option search: "Sample product", from: "Product"
+      check "Add a discount to the offered product"
+      choose "Fixed amount"
+      fill_in "Fixed amount", with: "1"
+      click_on "Insert"
+    end
 
     within("[aria-label='Description']") do
       within_section "Sample product", section_element: :article do
