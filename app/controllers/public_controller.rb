@@ -60,7 +60,6 @@ class PublicController < ApplicationController
 
   def ping
     @title = "Ping"
-    @on_ping_page = true
 
     render inertia: "Public/Ping"
   end
