@@ -310,7 +310,7 @@ RSpec.configure do |config|
   # checkout page fetches Braintree client token for PayPal button rendering.
   # but we don't use paypal in system tests for checkout, so we don't need to generate a real token.
   config.before(:each, type: :system, js: true) do
-    allow(Braintree::ClientToken).to receive(:generate).and_return("braintree_client_token")
+    allow(Braintree::ClientToken).to receive(:generate).and_return("dummy_braintree_client_token")
   end
 
   config.before(:each) do
