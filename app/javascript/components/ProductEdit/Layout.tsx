@@ -18,6 +18,7 @@ import { PreviewSidebar, WithPreviewSidebar } from "$app/components/PreviewSideb
 import { useImageUploadSettings } from "$app/components/RichTextEditor";
 import { showAlert } from "$app/components/server-components/Alert";
 import { SubtitleFile } from "$app/components/SubtitleList/Row";
+import { Alert } from "$app/components/ui/Alert";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import { Tabs, Tab } from "$app/components/ui/Tabs";
 import { useRefToLatest } from "$app/components/useRefToLatest";
@@ -89,7 +90,7 @@ const NotifyAboutProductUpdatesAlert = () => {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <div role="alert" className="info">
+      <Alert variant="info">
         <div className="flex flex-col gap-4">
           Changes saved! Would you like to notify your customers about those changes?
           <div className="flex gap-2">
@@ -114,7 +115,7 @@ const NotifyAboutProductUpdatesAlert = () => {
             </NavigationButtonInertia>
           </div>
         </div>
-      </div>
+      </Alert>
     </div>
   );
 };

@@ -4,6 +4,7 @@ import { formatPriceCentsWithCurrencySymbol } from "$app/utils/currency";
 
 import { computeStandalonePrice, useBundleEditContext } from "$app/components/BundleEdit/state";
 import { NavigationButtonInertia } from "$app/components/NavigationButton";
+import { Alert } from "$app/components/ui/Alert";
 
 export const MarketingEmailStatus = () => {
   const { bundle, uniquePermalink, currencyType } = useBundleEditContext();
@@ -26,7 +27,7 @@ export const MarketingEmailStatus = () => {
   };
 
   return (
-    <div role="status" className="info">
+    <Alert role="status" variant="info">
       <div className="flex flex-col gap-4">
         <strong>
           Your product bundle is ready. Would you like to send an email about this offer to existing customers?
@@ -53,6 +54,6 @@ export const MarketingEmailStatus = () => {
           Draft and send
         </NavigationButtonInertia>
       </div>
-    </div>
+    </Alert>
   );
 };
