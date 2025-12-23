@@ -1,6 +1,5 @@
-import cx from "classnames";
 import React from "react";
-import { RouterProvider, createBrowserRouter, RouteObject, Link, json, useLocation } from "react-router-dom";
+import { RouterProvider, createBrowserRouter, RouteObject, json } from "react-router-dom";
 import { StaticRouterProvider } from "react-router-dom/server";
 
 import { getEditInstallment, getNewInstallment } from "$app/data/installments";
@@ -12,28 +11,6 @@ import { EmailForm } from "$app/components/server-components/EmailsPage/EmailFor
 export const emailTabPath = (tab: "published" | "scheduled" | "drafts" | "subscribers") => `/emails/${tab}`;
 export const newEmailPath = "/emails/new";
 export const editEmailPath = (id: string) => `/emails/${id}/edit`;
-
-export const NewEmailButton = ({ copyFrom }: { copyFrom?: string }) => {
-  const { pathname: from } = useLocation();
-  return (
-    <Link
-      className={cx("button", { accent: !copyFrom })}
-      to={copyFrom ? `${newEmailPath}?copy_from=${copyFrom}` : newEmailPath}
-      state={{ from }}
-    >
-      {copyFrom ? "Duplicate" : "New email"}
-    </Link>
-  );
-};
-
-export const EditEmailButton = ({ id }: { id: string }) => {
-  const { pathname: from } = useLocation();
-  return (
-    <Link className="button" to={editEmailPath(id)} state={{ from }}>
-      Edit
-    </Link>
-  );
-};
 
 // NOTE: published, scheduled, and drafts routes are now handled by Inertia (see app/javascript/pages/Emails/)
 // Only new and edit routes remain on react-router

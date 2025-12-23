@@ -159,8 +159,8 @@ export default function EmailsScheduled() {
                   ) : null}
                 </div>
                 <div className="grid grid-flow-col gap-4">
-                  <NewEmailButton copyFrom={selectedInstallment.external_id} from="/emails/scheduled" />
-                  <EditEmailButton id={selectedInstallment.external_id} from="/emails/scheduled" />
+                  <NewEmailButton copyFrom={selectedInstallment.external_id} />
+                  <EditEmailButton id={selectedInstallment.external_id} />
                   <Button color="danger" onClick={() => setInstallmentToDelete(selectedInstallment)}>
                     Delete
                   </Button>

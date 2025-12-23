@@ -3,7 +3,7 @@ import { Content, Editor, JSONContent } from "@tiptap/core";
 import cx from "classnames";
 import { addHours, format, startOfDay, startOfHour } from "date-fns";
 import React from "react";
-import { Location, useLoaderData, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLoaderData, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { cast } from "ts-safe-cast";
 
 import {
@@ -201,7 +201,7 @@ export const EmailForm = () => {
   }>({ count: 0, total: 0, loading: false });
   const activeRecipientCountRequest = React.useRef<{ cancel: () => void } | null>(null);
   const [searchParams] = useSearchParams();
-  const routerLocation = cast<Location<{ from?: string | undefined } | null>>(useLocation());
+  const routerLocation = useLocation();
   const [bought, setBought] = React.useState<string[]>(() => {
     if (!installment) return [];
     return installment.installment_type === "variant" && installment.variant_external_id
@@ -607,10 +607,12 @@ export const EmailForm = () => {
                 : "Email created!",
           "success",
         );
-        navigate(editEmailPath(response.installment_id), {
-          replace: true,
-          state: { from: routerLocation.state?.from ?? searchParams.get("from") },
-        });
+        // Preserve the 'from' query param in the URL so cancel navigation works correctly
+        const fromParam = searchParams.get("from");
+        const editUrl = fromParam
+          ? `${editEmailPath(response.installment_id)}?from=${encodeURIComponent(fromParam)}`
+          : editEmailPath(response.installment_id);
+        navigate(editUrl, { replace: true });
       }
     } catch (e) {
       assertResponseError(e);
@@ -625,8 +627,7 @@ export const EmailForm = () => {
     files.some((file) => isFileUploading(file) || file.subtitle_files.some(isFileUploading));
 
   const fromParam = searchParams.get("from");
-  const cancelPath =
-    routerLocation.state?.from ?? fromParam ?? emailTabPath(context.has_scheduled_emails ? "scheduled" : "published");
+  const cancelPath = fromParam ?? emailTabPath(context.has_scheduled_emails ? "scheduled" : "published");
 
   return (
     <div>

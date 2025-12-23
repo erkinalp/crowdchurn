@@ -99,12 +99,12 @@ export const EmailsLayout = ({ selectedTab, children, hasPosts, query, onQueryCh
   );
 };
 
-// Pass current path as 'from' query param so the form can redirect back after cancel
-export const NewEmailButton = ({ copyFrom, from }: { copyFrom?: string; from?: string } = {}) => {
+// Auto-detect current path for 'from' query param so the form can redirect back after cancel
+export const NewEmailButton = ({ copyFrom }: { copyFrom?: string } = {}) => {
   const params = new URLSearchParams();
   if (copyFrom) params.set("copy_from", copyFrom);
-  if (from) params.set("from", from);
-  const href = `/emails/new${params.toString() ? `?${params.toString()}` : ""}`;
+  params.set("from", window.location.pathname);
+  const href = `/emails/new?${params.toString()}`;
 
   return (
     <a className={cx("button", { accent: !copyFrom })} href={href}>
@@ -113,8 +113,8 @@ export const NewEmailButton = ({ copyFrom, from }: { copyFrom?: string; from?: s
   );
 };
 
-export const EditEmailButton = ({ id, from }: { id: string; from?: string }) => {
-  const href = from ? `/emails/${id}/edit?from=${encodeURIComponent(from)}` : `/emails/${id}/edit`;
+export const EditEmailButton = ({ id }: { id: string }) => {
+  const href = `/emails/${id}/edit?from=${encodeURIComponent(window.location.pathname)}`;
   return (
     <a className="button" href={href}>
       Edit
