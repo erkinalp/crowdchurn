@@ -1,4 +1,5 @@
 import React from "react";
+
 import { NewEmailButton } from "$app/components/EmailsPage/Layout";
 import Placeholder from "$app/components/ui/Placeholder";
 

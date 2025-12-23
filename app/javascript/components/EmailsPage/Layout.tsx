@@ -1,5 +1,5 @@
-import cx from "classnames";
 import { Link } from "@inertiajs/react";
+import cx from "classnames";
 import React from "react";
 
 import { Icon } from "$app/components/Icons";
