@@ -186,12 +186,11 @@ const ProductEditPage = (props: Props) => {
 
   const contextValue = React.useMemo(
     () => ({
-      ...createContextValue(props),
+      ...createContextValue({ ...props, product }),
       setCurrencyType,
       currencyType,
       existingFiles,
       setExistingFiles,
-      product,
       updateProduct,
       save,
       saving,

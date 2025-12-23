@@ -53,7 +53,7 @@ export const getDraggedFileEmbed = (editor: Editor) => {
 };
 
 const FileEmbedNodeView = ({ node, editor, getPos, updateAttributes }: NodeViewProps) => {
-  const { id, updateProduct, filesById } = useProductEditContext();
+  const { id, product, updateProduct, filesById } = useProductEditContext();
   const uid = React.useId();
   const ref = React.useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = React.useState(false);
@@ -170,7 +170,8 @@ const FileEmbedNodeView = ({ node, editor, getPos, updateAttributes }: NodeViewP
   if (!fileExists) return;
   const updateFile = (data: Partial<FileEntry>) =>
     updateProduct(() => {
-      Object.assign(file, data);
+      const existing = product.files.find((existing) => existing.id === file.id);
+      if (existing) Object.assign(existing, data);
     });
   const isComplete = !(
     (file.status.type === "unsaved" && file.status.uploadStatus.type === "uploading") ||
