@@ -160,8 +160,7 @@ export const getTotalPriceFromProducts = (state: State) => state.products.reduce
 export function isTippingEnabled(state: State) {
   return (
     state.products.every((product) => product.hasTippingEnabled) &&
-    !state.products.every((product) => product.nativeType === "coffee") &&
-    getTotalPriceFromProducts(state) > 0
+    !state.products.every((product) => product.nativeType === "coffee")
   );
 }
 
