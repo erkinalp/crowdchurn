@@ -30,9 +30,18 @@ class Api::Internal::InstallmentsController < Api::Internal::BaseController
     def save_installment
       service = SaveInstallmentService.new(seller: current_seller, params:, installment: @installment, preview_email_recipient: impersonating_user || logged_in_user)
       if service.process
+        set_flash_for_installment_save(service.installment)
         render json: { installment_id: service.installment.external_id, full_url: service.installment.full_url }
       else
         render json: { message: service.error }, status: :unprocessable_entity
+      end
+    end
+
+    def set_flash_for_installment_save(installment)
+      if params[:publish]
+        flash[:notice] = installment.shown_on_profile? ? "Email successfully published!" : "Email successfully sent!"
+      elsif params[:to_be_published_at].present?
+        flash[:notice] = "Email successfully scheduled!"
       end
     end
 

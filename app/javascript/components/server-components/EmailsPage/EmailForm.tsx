@@ -586,29 +586,27 @@ export const EmailForm = () => {
       const response = installment?.external_id
         ? await updateInstallment(installment.external_id, payload)
         : await createInstallment(payload);
-      showAlert(
-        action === "save_and_preview_email"
-          ? "A preview has been sent to your email."
-          : action === "save_and_preview_post"
-            ? "Preview link opened."
-            : action === "save_and_schedule"
-              ? "Email successfully scheduled!"
-              : action === "save_and_publish"
-                ? `Email successfully ${channel.profile ? "published" : "sent"}!`
-                : installment?.external_id
-                  ? "Changes saved!"
-                  : "Email created!",
-        "success",
-      );
       if (action === "save_and_preview_post") {
         window.open(response.full_url, "_blank");
       }
 
       if (action === "save_and_schedule") {
+        // Redirect to Inertia page - flash is set by the server
         window.location.href = emailTabPath("scheduled");
       } else if (action === "save_and_publish") {
+        // Redirect to Inertia page - flash is set by the server
         window.location.href = emailTabPath("published");
       } else {
+        showAlert(
+          action === "save_and_preview_email"
+            ? "A preview has been sent to your email."
+            : action === "save_and_preview_post"
+              ? "Preview link opened."
+              : installment?.external_id
+                ? "Changes saved!"
+                : "Email created!",
+          "success",
+        );
         navigate(editEmailPath(response.installment_id), {
           replace: true,
           state: { from: routerLocation.state?.from },
