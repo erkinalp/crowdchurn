@@ -1,18 +1,11 @@
 import { Slot } from "@radix-ui/react-slot";
 import * as React from "react";
 
+import { assertDefined } from "$app/utils/assert";
 import { classNames } from "$app/utils/classNames";
 
-type CartItemContextValue = {
-  isBundleItem: boolean;
-};
-
-const CartItemContext = React.createContext<CartItemContextValue | null>(null);
-
-const useCartItemContext = () => {
-  const context = React.useContext(CartItemContext);
-  return context ?? { isBundleItem: false };
-};
+const CartItemContext = React.createContext<{ isBundleItem: boolean } | null>(null);
+const useCartItemContext = () => assertDefined(React.useContext(CartItemContext));
 
 type BaseProps = {
   children: React.ReactNode;
@@ -40,7 +33,11 @@ export const CartItem = ({
 
   return (
     <CartItemContext.Provider value={contextValue}>
-      <Comp role="listitem" className={classNames("border-border not-first:border-t", className)} {...props}>
+      <Comp
+        role="listitem"
+        className={classNames("border-border not-first:border-t", className, isBundleItem && "group/bundle")}
+        {...props}
+      >
         <>
           <section className={classNames("flex flex-row", rowGapClasses, paddingClasses)}>{children}</section>
           {extra ? <section className="flex flex-col gap-4 border-border p-4 pt-0">{extra}</section> : null}

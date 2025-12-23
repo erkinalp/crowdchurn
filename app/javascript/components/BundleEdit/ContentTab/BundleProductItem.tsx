@@ -40,7 +40,7 @@ export const BundleProductItem = ({
   });
 
   return (
-    <CartItem key={bundleProduct.id} isBundleItem className="group/bundle">
+    <CartItem key={bundleProduct.id} isBundleItem>
       <CartItemMedia className="h-20 w-20">
         <Thumbnail url={bundleProduct.thumbnail_url} nativeType={bundleProduct.native_type} />
       </CartItemMedia>

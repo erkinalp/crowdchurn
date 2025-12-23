@@ -400,7 +400,7 @@ export const Product = ({
                   symbolFormat: "long",
                 });
                 return (
-                  <CartItem key={bundleProduct.id} isBundleItem className="group/bundle">
+                  <CartItem key={bundleProduct.id} isBundleItem>
                     <CartItemMedia className="h-28 w-28">
                       <Thumbnail url={bundleProduct.thumbnail_url} nativeType={bundleProduct.native_type} />
                     </CartItemMedia>
