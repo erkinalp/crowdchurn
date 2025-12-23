@@ -15,12 +15,27 @@ describe PaginatedInstallmentsPresenter do
       stub_const("#{described_class}::PER_PAGE", 1)
     end
 
+    # Helper to extract data from InertiaRails::ScrollProp for testing
+    def extract_scroll_prop_data(scroll_prop)
+      scroll_prop.instance_variable_get(:@block).call
+    end
+
+    def extract_scroll_prop_metadata(scroll_prop)
+      scroll_prop.instance_variable_get(:@metadata)
+    end
+
     context "when 'page' option is not specified" do
       it "returns paginated installments for the first page" do
         result = presenter.props
 
-        expect(result[:pagination]).to eq(page: 1, count: 2, next: 2)
-        expect(result[:installments].sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment2).props)
+        expect(result[:installments]).to be_a(InertiaRails::ScrollProp)
+
+        installments_data = extract_scroll_prop_data(result[:installments])
+        expect(installments_data.sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment2).props)
+
+        metadata = extract_scroll_prop_metadata(result[:installments])
+        expect(metadata.page).to eq(1)
+        expect(metadata.next).to eq(2)
       end
     end
 
@@ -30,8 +45,14 @@ describe PaginatedInstallmentsPresenter do
       it "returns paginated installments for the specified page" do
         result = presenter.props
 
-        expect(result[:pagination]).to eq(page: 2, count: 2, next: nil)
-        expect(result[:installments].sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment1).props)
+        expect(result[:installments]).to be_a(InertiaRails::ScrollProp)
+
+        installments_data = extract_scroll_prop_data(result[:installments])
+        expect(installments_data.sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment1).props)
+
+        metadata = extract_scroll_prop_metadata(result[:installments])
+        expect(metadata.page).to eq(2)
+        expect(metadata.next).to be_nil
       end
     end
 
@@ -41,8 +62,14 @@ describe PaginatedInstallmentsPresenter do
       it "returns an empty page" do
         result = presenter.props
 
-        expect(result[:pagination]).to eq(page: 3, count: 2, next: nil)
-        expect(result[:installments]).to be_empty
+        expect(result[:installments]).to be_a(InertiaRails::ScrollProp)
+
+        installments_data = extract_scroll_prop_data(result[:installments])
+        expect(installments_data).to be_empty
+
+        metadata = extract_scroll_prop_metadata(result[:installments])
+        expect(metadata.page).to eq(3)
+        expect(metadata.next).to be_nil
       end
     end
 
@@ -62,12 +89,18 @@ describe PaginatedInstallmentsPresenter do
       it "returns scheduled installments ordered by 'to_be_published_at' earliest first" do
         result = presenter.props
 
-        expect(result[:pagination]).to eq(page: 1, count: 3, next: nil)
-        expect(result[:installments]).to eq([
-                                              InstallmentPresenter.new(seller:, installment: scheduled_installment2).props,
-                                              InstallmentPresenter.new(seller:, installment: scheduled_installment3).props,
-                                              InstallmentPresenter.new(seller:, installment: scheduled_installment1).props,
-                                            ])
+        expect(result[:installments]).to be_a(InertiaRails::ScrollProp)
+
+        installments_data = extract_scroll_prop_data(result[:installments])
+        expect(installments_data).to eq([
+                                          InstallmentPresenter.new(seller:, installment: scheduled_installment2).props,
+                                          InstallmentPresenter.new(seller:, installment: scheduled_installment3).props,
+                                          InstallmentPresenter.new(seller:, installment: scheduled_installment1).props,
+                                        ])
+
+        metadata = extract_scroll_prop_metadata(result[:installments])
+        expect(metadata.page).to eq(1)
+        expect(metadata.next).to be_nil
       end
     end
 
@@ -102,8 +135,14 @@ describe PaginatedInstallmentsPresenter do
 
         result = presenter.props
 
-        expect(result[:pagination]).to eq(page: 1, count: 2, next: 2)
-        expect(result[:installments].sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment3).props)
+        expect(result[:installments]).to be_a(InertiaRails::ScrollProp)
+
+        installments_data = extract_scroll_prop_data(result[:installments])
+        expect(installments_data.sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment3).props)
+
+        metadata = extract_scroll_prop_metadata(result[:installments])
+        expect(metadata[:current_page]).to eq(1)
+        expect(metadata[:next_page]).to eq(2)
       end
 
       context "when 'page' option is specified" do
@@ -124,8 +163,14 @@ describe PaginatedInstallmentsPresenter do
 
           result = presenter.props
 
-          expect(result[:pagination]).to eq(page: 2, count: 2, next: nil)
-          expect(result[:installments].sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment1).props)
+          expect(result[:installments]).to be_a(InertiaRails::ScrollProp)
+
+          installments_data = extract_scroll_prop_data(result[:installments])
+          expect(installments_data.sole).to eq(InstallmentPresenter.new(seller:, installment: published_installment1).props)
+
+          metadata = extract_scroll_prop_metadata(result[:installments])
+          expect(metadata[:current_page]).to eq(2)
+          expect(metadata[:next_page]).to be_nil
         end
       end
     end

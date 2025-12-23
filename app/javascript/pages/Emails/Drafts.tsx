@@ -1,9 +1,10 @@
-import { usePage } from "@inertiajs/react";
+import { InfiniteScroll, router, usePage } from "@inertiajs/react";
 import { formatDistanceToNow } from "date-fns";
 import React from "react";
 import { cast } from "ts-safe-cast";
 
-import { DraftInstallment, getAudienceCount, Pagination } from "$app/data/installments";
+import { DraftInstallment, getAudienceCount } from "$app/data/installments";
+import { useDebouncedSearch } from "$app/hooks/useDebouncedSearch";
 import { assertDefined } from "$app/utils/assert";
 import { formatStatNumber } from "$app/utils/formatStatNumber";
 import { asyncVoid } from "$app/utils/promise";
@@ -20,9 +21,6 @@ import { Sheet, SheetHeader } from "$app/components/ui/Sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$app/components/ui/Table";
 import { useUserAgentInfo } from "$app/components/UserAgent";
 
-import { useDebouncedSearch } from "$app/hooks/useDebouncedSearch";
-import { usePaginatedAccumulation } from "$app/hooks/usePaginatedAccumulation";
-
 import draftsPlaceholder from "$assets/images/placeholders/draft_posts.png";
 
 type AudienceCounts = Map<string, number | "loading" | "failed">;
@@ -38,24 +36,18 @@ const audienceCountValue = (audienceCounts: AudienceCounts, installmentId: strin
 
 type PageProps = {
   installments: DraftInstallment[];
-  pagination: Pagination;
 };
 
 export default function EmailsDrafts() {
-  const { installments, pagination } = cast<PageProps>(usePage().props);
+  const { installments } = cast<PageProps>(usePage().props);
   const currentSeller = assertDefined(useCurrentSeller(), "currentSeller is required");
   const userAgentInfo = useUserAgentInfo();
 
-  const { query, setQuery } = useDebouncedSearch();
-  const {
-    allItems: allInstallments,
-    setAllItems: setAllInstallments,
-    handleLoadMore,
-  } = usePaginatedAccumulation(installments, pagination, query);
+  const { query, setQuery, debouncedQuery } = useDebouncedSearch();
 
   const [audienceCounts, setAudienceCounts] = React.useState<AudienceCounts>(new Map());
   React.useEffect(() => {
-    allInstallments.forEach(
+    installments.forEach(
       asyncVoid(async ({ external_id }) => {
         if (audienceCounts.has(external_id)) return;
         setAudienceCounts((prev) => new Map(prev).set(external_id, "loading"));
@@ -68,52 +60,49 @@ export default function EmailsDrafts() {
         }
       }),
     );
-  }, [allInstallments]);
+  }, [installments]);
 
   const [selectedInstallment, setSelectedInstallment] = React.useState<DraftInstallment | null>(null);
   const [installmentToDelete, setInstallmentToDelete] = React.useState<DraftInstallment | null>(null);
 
   return (
-    <EmailsLayout selectedTab="drafts" hasPosts={!!allInstallments.length} query={query} onQueryChange={setQuery}>
+    <EmailsLayout selectedTab="drafts" hasPosts={!!installments.length} query={query} onQueryChange={setQuery}>
       <div className="space-y-4 p-4 md:p-8">
-        {allInstallments.length > 0 ? (
+        {installments.length > 0 ? (
           <>
-            <Table aria-live="polite" aria-label="Drafts">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Sent to</TableHead>
-                  <TableHead>Audience</TableHead>
-                  <TableHead>Last edited</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {allInstallments.map((installment) => (
-                  <TableRow
-                    key={installment.external_id}
-                    selected={installment.external_id === selectedInstallment?.external_id}
-                    onClick={() => setSelectedInstallment(installment)}
-                  >
-                    <TableCell>{installment.name}</TableCell>
-                    <TableCell>{installment.recipient_description}</TableCell>
-                    <TableCell
-                      aria-busy={audienceCountValue(audienceCounts, installment.external_id) === null}
-                      className="whitespace-nowrap"
-                    >
-                      {audienceCountValue(audienceCounts, installment.external_id)}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {formatDistanceToNow(installment.updated_at)} ago
-                    </TableCell>
+            <InfiniteScroll data="installments" key={debouncedQuery} preserveUrl>
+              <Table aria-live="polite" aria-label="Drafts">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Subject</TableHead>
+                    <TableHead>Sent to</TableHead>
+                    <TableHead>Audience</TableHead>
+                    <TableHead>Last edited</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {pagination.next ? (
-              <Button color="primary" onClick={handleLoadMore}>
-                Load more
-              </Button>
-            ) : null}
+                </TableHeader>
+                <TableBody>
+                  {installments.map((installment) => (
+                    <TableRow
+                      key={installment.external_id}
+                      selected={installment.external_id === selectedInstallment?.external_id}
+                      onClick={() => setSelectedInstallment(installment)}
+                    >
+                      <TableCell>{installment.name}</TableCell>
+                      <TableCell>{installment.recipient_description}</TableCell>
+                      <TableCell
+                        aria-busy={audienceCountValue(audienceCounts, installment.external_id) === null}
+                        className="whitespace-nowrap"
+                      >
+                        {audienceCountValue(audienceCounts, installment.external_id)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {formatDistanceToNow(installment.updated_at)} ago
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </InfiniteScroll>
             {selectedInstallment ? (
               <Sheet open onOpenChange={() => setSelectedInstallment(null)}>
                 <SheetHeader>{selectedInstallment.name}</SheetHeader>
@@ -161,7 +150,9 @@ export default function EmailsDrafts() {
               onClose={() => setInstallmentToDelete(null)}
               onSuccess={(deleted) => {
                 setSelectedInstallment(null);
-                setAllInstallments((prev) => prev.filter((i) => i.external_id !== deleted.external_id));
+                router.replaceProp("installments", (current: DraftInstallment[]) =>
+                  current.filter((i) => i.external_id !== deleted.external_id),
+                );
               }}
             />
           </>

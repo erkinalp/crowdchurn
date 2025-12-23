@@ -1,8 +1,9 @@
-import { usePage } from "@inertiajs/react";
+import { InfiniteScroll, router, usePage } from "@inertiajs/react";
 import React from "react";
 import { cast } from "ts-safe-cast";
 
-import { getAudienceCount, Pagination, ScheduledInstallment } from "$app/data/installments";
+import { getAudienceCount, ScheduledInstallment } from "$app/data/installments";
+import { useDebouncedSearch } from "$app/hooks/useDebouncedSearch";
 import { assertDefined } from "$app/utils/assert";
 import { formatStatNumber } from "$app/utils/formatStatNumber";
 import { asyncVoid } from "$app/utils/promise";
@@ -19,9 +20,6 @@ import { Sheet, SheetHeader } from "$app/components/ui/Sheet";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "$app/components/ui/Table";
 import { useUserAgentInfo } from "$app/components/UserAgent";
 
-import { useDebouncedSearch } from "$app/hooks/useDebouncedSearch";
-import { usePaginatedAccumulation } from "$app/hooks/usePaginatedAccumulation";
-
 import scheduledPlaceholder from "$assets/images/placeholders/scheduled_posts.png";
 
 type AudienceCounts = Map<string, number | "loading" | "failed">;
@@ -37,25 +35,18 @@ const audienceCountValue = (audienceCounts: AudienceCounts, installmentId: strin
 
 type PageProps = {
   installments: ScheduledInstallment[];
-  pagination: Pagination;
 };
 
 export default function EmailsScheduled() {
-  const pageProps = cast<PageProps>(usePage().props);
-  const { installments, pagination } = pageProps;
+  const { installments } = cast<PageProps>(usePage().props);
   const currentSeller = assertDefined(useCurrentSeller(), "currentSeller is required");
   const userAgentInfo = useUserAgentInfo();
 
-  const { query, setQuery } = useDebouncedSearch();
-  const {
-    allItems: allInstallments,
-    setAllItems: setAllInstallments,
-    handleLoadMore,
-  } = usePaginatedAccumulation(installments, pagination, query);
+  const { query, setQuery, debouncedQuery } = useDebouncedSearch();
 
   const installmentsByDate = React.useMemo(
     () =>
-      allInstallments.reduce<Record<string, ScheduledInstallment[]>>((acc, installment) => {
+      installments.reduce<Record<string, ScheduledInstallment[]>>((acc, installment) => {
         const date = new Date(installment.to_be_published_at).toLocaleDateString(userAgentInfo.locale, {
           month: "short",
           day: "numeric",
@@ -66,12 +57,12 @@ export default function EmailsScheduled() {
         acc[date].push(installment);
         return acc;
       }, {}),
-    [allInstallments, userAgentInfo.locale, currentSeller.timeZone.name],
+    [installments, userAgentInfo.locale, currentSeller.timeZone.name],
   );
 
   const [audienceCounts, setAudienceCounts] = React.useState<AudienceCounts>(new Map());
   React.useEffect(() => {
-    allInstallments.forEach(
+    installments.forEach(
       asyncVoid(async ({ external_id }) => {
         if (audienceCounts.has(external_id)) return;
         setAudienceCounts((prev) => new Map(prev).set(external_id, "loading"));
@@ -84,7 +75,7 @@ export default function EmailsScheduled() {
         }
       }),
     );
-  }, [allInstallments]);
+  }, [installments]);
 
   const [selectedInstallment, setSelectedInstallment] = React.useState<ScheduledInstallment | null>(null);
   const [installmentToDelete, setInstallmentToDelete] = React.useState<ScheduledInstallment | null>(null);
@@ -92,51 +83,48 @@ export default function EmailsScheduled() {
   return (
     <EmailsLayout selectedTab="scheduled" hasPosts={!!installments.length} query={query} onQueryChange={setQuery}>
       <div className="space-y-4 p-4 md:p-8">
-        {allInstallments.length > 0 ? (
+        {installments.length > 0 ? (
           <>
-            {Object.keys(installmentsByDate).map((date) => (
-              <Table key={date} aria-live="polite" className="mb-16">
-                <TableCaption>Scheduled for {date}</TableCaption>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Sent to</TableHead>
-                    <TableHead>Audience</TableHead>
-                    <TableHead>Delivery Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {installmentsByDate[date]?.map((installment) => (
-                    <TableRow
-                      key={installment.external_id}
-                      selected={installment.external_id === selectedInstallment?.external_id}
-                      onClick={() => setSelectedInstallment(installment)}
-                    >
-                      <TableCell>{installment.name}</TableCell>
-                      <TableCell>{installment.recipient_description}</TableCell>
-                      <TableCell
-                        aria-busy={audienceCountValue(audienceCounts, installment.external_id) === null}
-                        className="whitespace-nowrap"
-                      >
-                        {audienceCountValue(audienceCounts, installment.external_id)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {new Date(installment.to_be_published_at).toLocaleTimeString(userAgentInfo.locale, {
-                          hour: "numeric",
-                          minute: "numeric",
-                          timeZone: currentSeller.timeZone.name,
-                        })}
-                      </TableCell>
+            <InfiniteScroll data="installments" key={debouncedQuery} preserveUrl>
+              {Object.keys(installmentsByDate).map((date) => (
+                <Table key={date} aria-live="polite" className="mb-16">
+                  <TableCaption>Scheduled for {date}</TableCaption>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Sent to</TableHead>
+                      <TableHead>Audience</TableHead>
+                      <TableHead>Delivery Time</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ))}
-            {pagination.next ? (
-              <Button color="primary" onClick={handleLoadMore}>
-                Load more
-              </Button>
-            ) : null}
+                  </TableHeader>
+                  <TableBody>
+                    {installmentsByDate[date]?.map((installment: ScheduledInstallment) => (
+                      <TableRow
+                        key={installment.external_id}
+                        selected={installment.external_id === selectedInstallment?.external_id}
+                        onClick={() => setSelectedInstallment(installment)}
+                      >
+                        <TableCell>{installment.name}</TableCell>
+                        <TableCell>{installment.recipient_description}</TableCell>
+                        <TableCell
+                          aria-busy={audienceCountValue(audienceCounts, installment.external_id) === null}
+                          className="whitespace-nowrap"
+                        >
+                          {audienceCountValue(audienceCounts, installment.external_id)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {new Date(installment.to_be_published_at).toLocaleTimeString(userAgentInfo.locale, {
+                            hour: "numeric",
+                            minute: "numeric",
+                            timeZone: currentSeller.timeZone.name,
+                          })}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ))}
+            </InfiniteScroll>
             {selectedInstallment ? (
               <Sheet open onOpenChange={() => setSelectedInstallment(null)}>
                 <SheetHeader>{selectedInstallment.name}</SheetHeader>
@@ -184,7 +172,9 @@ export default function EmailsScheduled() {
               onClose={() => setInstallmentToDelete(null)}
               onSuccess={(deleted) => {
                 setSelectedInstallment(null);
-                setAllInstallments((prev) => prev.filter((i) => i.external_id !== deleted.external_id));
+                router.replaceProp("installments", (current: ScheduledInstallment[]) =>
+                  current.filter((i) => i.external_id !== deleted.external_id),
+                );
               }}
             />
           </>

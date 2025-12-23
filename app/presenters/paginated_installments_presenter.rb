@@ -23,8 +23,7 @@ class PaginatedInstallmentsPresenter
       installments = installments.includes(:installment_rule) if type != Installment::PUBLISHED
       installments = installments.ordered_updates(seller, type).public_send(type)
       installments = installments.unscope(:order).order("installment_rules.to_be_published_at ASC") if type == Installment::SCHEDULED
-      pagination, installments = pagy(installments, page:, limit: PER_PAGE, overflow: :empty_page)
-      pagiation_metadata = { page: pagination.page, count: pagination.count, next: pagination.next }
+      pagination, installments = pagy_countless(installments, page:, limit: PER_PAGE, overflow: :empty_page)
     else
       offset = (page - 1) * PER_PAGE
       search_options = {
@@ -44,12 +43,18 @@ class PaginatedInstallmentsPresenter
       includes_list << :installment_rule if type != Installment::PUBLISHED
       installments = es_search.records.includes(*includes_list).load
       can_paginate_further = es_search.results.total > (offset + PER_PAGE)
-      pagiation_metadata = { page:, count: es_search.results.total, next: can_paginate_further ? page + 1 : nil }
+      pagination = {
+        page_name: "page",
+        current_page: page,
+        previous_page: page > 1 ? page - 1 : nil,
+        next_page: can_paginate_further ? page + 1 : nil
+      }
     end
 
+    installments_data = installments.map { InstallmentPresenter.new(seller:, installment: _1).props }
+
     {
-      installments: installments.map { InstallmentPresenter.new(seller:, installment: _1).props },
-      pagination: pagiation_metadata,
+      installments: InertiaRails.scroll(pagination) { installments_data },
     }
   end
 

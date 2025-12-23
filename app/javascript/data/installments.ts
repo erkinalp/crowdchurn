@@ -63,12 +63,6 @@ export type DraftInstallment = SavedInstallment & {
   recipient_description: string | null;
 };
 
-export type Pagination = {
-  page: number;
-  count: number;
-  next: number | null;
-};
-
 export type AudienceType = "everyone" | "customers" | "followers" | "affiliates";
 
 export type InstallmentFormContext = {
@@ -85,66 +79,6 @@ export type InstallmentFormContext = {
   user_id: string;
   allow_comments_by_default: boolean;
 };
-
-export function getPublishedInstallments({ page, query }: { page: number; query: string }) {
-  const abort = new AbortController();
-  const response = request({
-    method: "GET",
-    accept: "json",
-    url: Routes.internal_installments_path({ params: { type: "published", page, query } }),
-    abortSignal: abort.signal,
-  })
-    .then((res) => {
-      if (!res.ok) throw new ResponseError();
-      return res.json();
-    })
-    .then((json) => cast<{ installments: PublishedInstallment[]; pagination: Pagination }>(json));
-
-  return {
-    response,
-    cancel: () => abort.abort(),
-  };
-}
-
-export function getScheduledInstallments({ page, query }: { page: number; query: string }) {
-  const abort = new AbortController();
-  const response = request({
-    method: "GET",
-    accept: "json",
-    url: Routes.internal_installments_path({ params: { type: "scheduled", page, query } }),
-    abortSignal: abort.signal,
-  })
-    .then((res) => {
-      if (!res.ok) throw new ResponseError();
-      return res.json();
-    })
-    .then((json) => cast<{ installments: ScheduledInstallment[]; pagination: Pagination }>(json));
-
-  return {
-    response,
-    cancel: () => abort.abort(),
-  };
-}
-
-export function getDraftInstallments({ page, query }: { page: number; query: string }) {
-  const abort = new AbortController();
-  const response = request({
-    method: "GET",
-    accept: "json",
-    url: Routes.internal_installments_path({ params: { type: "draft", page, query } }),
-    abortSignal: abort.signal,
-  })
-    .then((res) => {
-      if (!res.ok) throw new ResponseError();
-      return res.json();
-    })
-    .then((json) => cast<{ installments: DraftInstallment[]; pagination: Pagination }>(json));
-
-  return {
-    response,
-    cancel: () => abort.abort(),
-  };
-}
 
 export async function getAudienceCount(externalId: string) {
   const response = await request({
