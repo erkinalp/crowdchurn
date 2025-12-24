@@ -50,7 +50,7 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
     authorize([:settings, :authorized_applications, @application])
 
     settings_presenter = SettingsPresenter.new(pundit_user:)
-    render inertia: "Settings/Advanced/Application/Edit",
+    render inertia: "Oauth/Applications/Edit",
            props: settings_presenter.application_props(@application)
   end
 

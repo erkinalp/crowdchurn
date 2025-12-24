@@ -11,8 +11,6 @@ class Settings::PasswordController < Settings::BaseController
   end
 
   def update
-    false
-
     if @user.provider.present?
       unless @user.confirmed?
         return redirect_to settings_password_path, alert: "You have to confirm your email address before you can do that."
@@ -20,7 +18,6 @@ class Settings::PasswordController < Settings::BaseController
 
       @user.password = params["user"]["new_password"]
       @user.provider = nil
-      true
     else
       if params["user"].blank? || params["user"]["password"].blank? ||
          !@user.valid_password?(params["user"]["password"])

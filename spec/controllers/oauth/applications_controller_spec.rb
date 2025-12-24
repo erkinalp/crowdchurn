@@ -112,7 +112,7 @@ describe Oauth::ApplicationsController, type: :controller, inertia: true do
 
       expect(response).to be_successful
       expect(assigns(:application)).to eq(app)
-      expect(inertia.component).to eq("Settings/Advanced/Application/Edit")
+      expect(inertia.component).to eq("Oauth/Applications/Edit")
       pundit_user = SellerContext.new(user: user_with_role_for_seller, seller:)
       expected_props = SettingsPresenter.new(pundit_user:).application_props(app)
       actual_props = inertia.props.slice(*expected_props.keys)
