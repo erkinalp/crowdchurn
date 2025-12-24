@@ -2,8 +2,6 @@ import { cast } from "ts-safe-cast";
 
 import { request, ResponseError } from "$app/utils/request";
 
-export type SortKey = "affiliate_user_name" | "products" | "fee_percent" | "volume_cents";
-
 export type SelfServeAffiliateProduct = {
   id: number;
   enabled: boolean;
