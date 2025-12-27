@@ -79,7 +79,7 @@ Place the following notice at the foot of the page where you have used the mark:
 
 ### Use of trademarks in text
 
-Always use trademarks in their exact form with the correct spelling, neither abbreviated, hyphenated, or combined with any other word or words.
+Always use trademarks in their exact form with the correct spelling, neither abbreviated, hyphenated, or combined with any other word or words, unless absolutely required by your language's grammar.
 
 Unacceptable: Gumroad, Inc.-DB
 
@@ -87,7 +87,7 @@ Don't pluralize a trademark.
 
 Unacceptable: I have seventeen Gumroad, Inc.s running in my lab.
 
-Always use a trademark as an adjective modifying a noun.
+Always use a trademark as an adjective modifying a noun, unless absolutely required by your language's grammar.
 
 Unacceptable: This is a Gumroad, Inc.
 Acceptable: This is a Gumroad, Inc. software application.
