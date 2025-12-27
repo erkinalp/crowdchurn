@@ -16,4 +16,14 @@ class PostVariant < ApplicationRecord
   def control?
     is_control
   end
+
+  def as_json(_options = {})
+    {
+      "id" => external_id,
+      "name" => name,
+      "message" => message,
+      "is_control" => is_control,
+      "created_at" => created_at
+    }
+  end
 end

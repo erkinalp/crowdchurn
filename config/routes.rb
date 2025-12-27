@@ -54,10 +54,17 @@ Rails.application.routes.draw do
         end
         resources :skus, only: [:index]
         resources :subscribers, only: [:index]
+        resources :installments, only: [] do
+          resources :post_variants, only: [:index, :show, :create, :update, :destroy]
+        end
         member do
           put "disable"
           put "enable"
         end
+      end
+      resources :post_variants, only: [] do
+        resources :distribution_rules, only: [:index, :create, :update, :destroy], controller: "variant_distribution_rules"
+        resources :assignments, only: [:index], controller: "variant_assignments"
       end
       resources :sales, only: [:index, :show] do
         member do
