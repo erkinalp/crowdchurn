@@ -54,6 +54,13 @@ Rails.application.routes.draw do
         end
         resources :skus, only: [:index]
         resources :subscribers, only: [:index]
+        resources :posts, only: [:index, :show] do
+          resources :post_variants, only: [:index, :create, :show, :update, :destroy] do
+            resources :distribution_rules, only: [:index, :create, :show, :update, :destroy]
+            resources :variant_assignments, only: [:index], path: "assignments"
+          end
+          resources :comments, only: [:index, :create, :show, :update, :destroy], controller: "post_comments"
+        end
         member do
           put "disable"
           put "enable"
