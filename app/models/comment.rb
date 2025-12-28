@@ -22,6 +22,7 @@ class Comment < ApplicationRecord
   MAX_ALLOWED_DEPTH = 4 # Depth of a root comment starts with 0.
 
   attr_json_data_accessor :was_alive_before_marking_subtree_deleted
+  attr_json_data_accessor :variant_ids
 
   has_ancestry cache_depth: true
   has_paper_trail
@@ -50,6 +51,18 @@ class Comment < ApplicationRecord
   scope :for_variant, ->(post_variant_id) { where(post_variant_id:) }
   scope :visible_to_variant, ->(post_variant_id) { where(post_variant_id: [nil, post_variant_id]) }
   scope :unscoped_variant, -> { where(post_variant_id: nil) }
+  scope :for_variants, ->(variant_ids) { where(post_variant_id: variant_ids) }
+
+  def scoped_variant_ids
+    return [] if post_variant_id.nil? && variant_ids.blank?
+    return [post_variant_id] if variant_ids.blank?
+
+    variant_ids
+  end
+
+  def scoped_to_variants?
+    post_variant_id.present? || variant_ids.present?
+  end
 
   def mark_subtree_deleted!
     transaction do

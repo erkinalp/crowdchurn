@@ -12,11 +12,16 @@ class Api::V2::PostCommentsController < Api::V2::BaseController
   def index
     comments = @post.comments.alive
 
-    if params[:variant_id].present?
-      post_variant = @post.post_variants.find_by_external_id(params[:variant_id])
-      return error_with_object(:post_variant, nil) if post_variant.nil?
+    if creator?
+      if params[:variant_id].present?
+        post_variant = @post.post_variants.find_by_external_id(params[:variant_id])
+        return error_with_object(:post_variant, nil) if post_variant.nil?
 
-      comments = comments.for_variant(post_variant.id)
+        comments = comments.for_variant(post_variant.id)
+      end
+    else
+      assigned_variant = subscriber_assigned_variant
+      comments = comments.visible_to_variant(assigned_variant&.id)
     end
 
     comments = comments.order(created_at: :desc)
@@ -48,11 +53,28 @@ class Api::V2::PostCommentsController < Api::V2::BaseController
     comment.author_name = current_resource_owner.display_name
     comment.comment_type = Comment::COMMENT_TYPE_USER_SUBMITTED
 
-    if params[:variant_id].present?
-      post_variant = @post.post_variants.find_by_external_id(params[:variant_id])
-      return error_with_object(:post_variant, nil) if post_variant.nil?
+    if creator?
+      if params[:variant_ids].present?
+        variant_ids = resolve_variant_ids(params[:variant_ids])
+        return if variant_ids.nil?
 
-      comment.post_variant_id = post_variant.id
+        if variant_ids.size == 1
+          comment.post_variant_id = variant_ids.first
+        else
+          comment.variant_ids = variant_ids.map { |v| v.is_a?(PostVariant) ? v.external_id : v }
+          comment.post_variant_id = variant_ids.first.is_a?(PostVariant) ? variant_ids.first.id : variant_ids.first
+        end
+      elsif params[:variant_id].present?
+        post_variant = @post.post_variants.find_by_external_id(params[:variant_id])
+        return error_with_object(:post_variant, nil) if post_variant.nil?
+
+        comment.post_variant_id = post_variant.id
+      end
+    else
+      assigned_variant = subscriber_assigned_variant
+      if assigned_variant.present?
+        comment.post_variant_id = assigned_variant.id
+      end
     end
 
     if comment.save
@@ -108,11 +130,16 @@ class Api::V2::PostCommentsController < Api::V2::BaseController
         updated_at: comment.updated_at.iso8601
       }
 
-      if comment.post_variant.present?
+      if comment.variant_ids.present?
+        json[:variant_ids] = comment.variant_ids
+        variants = @post.post_variants.where(external_id: comment.variant_ids)
+        json[:variants] = variants.map { |v| { id: v.external_id, name: v.name } }
+      elsif comment.post_variant.present?
         json[:variant] = {
           id: comment.post_variant.external_id,
           name: comment.post_variant.name
         }
+        json[:variant_ids] = [comment.post_variant.external_id]
       end
 
       json
@@ -124,5 +151,36 @@ class Api::V2::PostCommentsController < Api::V2::BaseController
 
     def error_with_comment(comment = nil)
       error_with_object(:comment, comment)
+    end
+
+    def creator?
+      @product.user_id == current_resource_owner.id
+    end
+
+    def subscriber_assigned_variant
+      subscription = current_resource_owner.subscriptions.find_by(link_id: @product.id)
+      return nil unless subscription
+
+      assignment = VariantAssignment.joins(:post_variant)
+                                    .where(subscription_id: subscription.id)
+                                    .where(post_variants: { installment_id: @post.id })
+                                    .first
+      assignment&.post_variant
+    end
+
+    def resolve_variant_ids(variant_ids_param)
+      variant_ids_array = variant_ids_param.is_a?(Array) ? variant_ids_param : [variant_ids_param]
+      resolved_variants = []
+
+      variant_ids_array.each do |variant_id|
+        post_variant = @post.post_variants.find_by_external_id(variant_id)
+        if post_variant.nil?
+          error_with_object(:post_variant, nil)
+          return nil
+        end
+        resolved_variants << post_variant
+      end
+
+      resolved_variants.map(&:id)
     end
 end

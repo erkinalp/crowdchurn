@@ -48,6 +48,11 @@ export type PostComment = {
     id: string;
     name: string;
   };
+  variant_ids?: string[];
+  variants?: {
+    id: string;
+    name: string;
+  }[];
 };
 
 export type PaginationInfo = {
@@ -279,7 +284,7 @@ export async function getPostComments(
 export async function createPostComment(
   productId: string,
   postId: string,
-  data: { content: string; parent_id?: string; variant_id?: string },
+  data: { content: string; parent_id?: string; variant_id?: string; variant_ids?: string[] },
 ): Promise<PostComment> {
   const url = `${API_BASE}/products/${productId}/posts/${postId}/comments`;
   const response = await request({ method: "POST", accept: "json", url, data });
