@@ -7,6 +7,7 @@ class PostVariant < ApplicationRecord
   has_many :variant_distribution_rules, dependent: :destroy
   has_many :variant_assignments, dependent: :destroy
   has_many :base_variants, through: :variant_distribution_rules
+  has_many :comments, dependent: :nullify
 
   validates :name, presence: true
   validates :message, presence: true
