@@ -22,6 +22,7 @@ class Comment < ApplicationRecord
   MAX_ALLOWED_DEPTH = 4 # Depth of a root comment starts with 0.
 
   attr_json_data_accessor :was_alive_before_marking_subtree_deleted
+  attr_json_data_accessor :variant_ids
 
   has_ancestry cache_depth: true
   has_paper_trail
@@ -29,6 +30,7 @@ class Comment < ApplicationRecord
   belongs_to :commentable, polymorphic: true, optional: true
   belongs_to :author, class_name: "User", optional: true
   belongs_to :purchase, optional: true
+  belongs_to :post_variant, optional: true
 
   validates_presence_of :commentable_id, :commentable_type, :comment_type, :content
   validates :content, length: { maximum: 10_000 }
@@ -46,6 +48,33 @@ class Comment < ApplicationRecord
   scope :with_type_payouts_paused, -> { where(comment_type: COMMENT_TYPE_PAYOUTS_PAUSED) }
   scope :with_type_payouts_resumed, -> { where(comment_type: COMMENT_TYPE_PAYOUTS_RESUMED) }
   scope :with_type_flagged, -> { where(comment_type: COMMENT_TYPE_FLAGGED) }
+  scope :for_variant, ->(post_variant_id) { where(post_variant_id:) }
+  scope :visible_to_variant, ->(post_variant_id, variant_external_id = nil) {
+    base_scope = where(post_variant_id: [nil, post_variant_id])
+    if variant_external_id.present?
+      base_scope.or(where("json_data->'variant_ids' @> ?", [variant_external_id].to_json))
+    else
+      base_scope
+    end
+  }
+  scope :unscoped_variant, -> { where(post_variant_id: nil) }
+  scope :for_variants, ->(variant_ids) { where(post_variant_id: variant_ids) }
+  scope :visible_to_variant_external_id, ->(variant_external_id) {
+    where(post_variant_id: nil)
+      .or(where(post_variant: PostVariant.where(external_id: variant_external_id)))
+      .or(where("json_data->'variant_ids' @> ?", [variant_external_id].to_json))
+  }
+
+  def scoped_variant_ids
+    return [] if post_variant_id.nil? && variant_ids.blank?
+    return [post_variant_id] if variant_ids.blank?
+
+    variant_ids
+  end
+
+  def scoped_to_variants?
+    post_variant_id.present? || variant_ids.present?
+  end
 
   def mark_subtree_deleted!
     transaction do

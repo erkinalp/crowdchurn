@@ -3,7 +3,7 @@
 class Order::CreateService
   include Order::ResponseHelpers
 
-  attr_accessor :params, :buyer, :order
+  attr_accessor :params, :buyer, :buyer_cookie, :order
 
   PARAM_TO_ATTRIBUTE_MAPPINGS = {
     friend: :friend_actions,
@@ -16,9 +16,10 @@ class Order::CreateService
 
   PARAMS_TO_REMOVE_IF_BLANK = [:full_name, :email].freeze
 
-  def initialize(params:, buyer: nil)
+  def initialize(params:, buyer: nil, buyer_cookie: nil)
     @params = params
     @buyer = buyer
+    @buyer_cookie = buyer_cookie
   end
 
   def perform
@@ -56,7 +57,8 @@ class Order::CreateService
         purchase, error = Purchase::CreateService.new(
           product:,
           params: purchase_params.merge(is_part_of_combined_charge: true),
-          buyer:
+          buyer:,
+          buyer_cookie:
         ).perform
 
         if error

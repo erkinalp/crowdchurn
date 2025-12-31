@@ -9,11 +9,12 @@ class CheckoutPresenter
   include PreorderHelper
   include CardParamsHelper
 
-  attr_reader :logged_in_user, :ip
+  attr_reader :logged_in_user, :ip, :buyer_cookie
 
-  def initialize(logged_in_user:, ip:)
+  def initialize(logged_in_user:, ip:, buyer_cookie: nil)
     @logged_in_user = logged_in_user
     @ip = ip
+    @buyer_cookie = buyer_cookie
   end
 
   def checkout_props(params:, browser_guid:)
@@ -284,6 +285,7 @@ class CheckoutPresenter
     end
 
     def product_common(product, recommended_by:)
+      variant_price = variant_price_override_cents(product)
       {
         permalink: product.unique_permalink,
         name: product.name,
@@ -294,7 +296,8 @@ class CheckoutPresenter
           id: product.user.external_id,
         } : nil,
         currency_code: product.price_currency_type.downcase,
-        price_cents: product.price_cents,
+        price_cents: variant_price || product.price_cents,
+        variant_price_cents: variant_price,
         supports_paypal: supports_paypal(product),
         custom_fields: product.custom_field_descriptors,
         exchange_rate: get_rate(product.price_currency_type).to_f / (is_currency_type_single_unit?(product.price_currency_type) ? 100 : 1),
@@ -308,6 +311,32 @@ class CheckoutPresenter
         is_multiseat_license: product.is_tiered_membership && product.is_multiseat_license,
         shippable_country_codes: product.is_physical ? product.shipping_destinations.alive.flat_map { |shipping_destination| shipping_destination.country_or_countries.keys } : [],
       }
+    end
+
+    # Returns the variant price override in cents if a variant with price_cents is assigned
+    # for A/B test pricing, otherwise returns nil (use default product price)
+    # Also records exposure for A/B test tracking since this is when the buyer sees the price
+    def variant_price_override_cents(product)
+      return nil unless buyer_cookie.present? || logged_in_user.present?
+
+      # Find first installment with multiple post_variants (A/B test) using a single query
+      # This avoids N+1 by using a subquery instead of iterating and calling has_ab_test? on each
+      installment = product.installments.alive.published
+        .joins(:post_variants)
+        .group("installments.id")
+        .having("COUNT(post_variants.id) > 1")
+        .first
+      return nil unless installment.present?
+
+      service = VariantPriceService.new(
+        product: product,
+        installment: installment,
+        user: logged_in_user,
+        buyer_cookie: buyer_cookie
+      )
+      # Use price_override_cents_with_exposure! to record that the buyer saw this variant
+      # This is the canonical "exposure" point for A/B test tracking
+      service.price_override_cents_with_exposure!
     end
 
     def supports_paypal(product)

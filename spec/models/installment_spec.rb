@@ -1123,4 +1123,208 @@ const b = 2;</code></pre>
       expect(installment.message_snippet).to eq("a " * 98 + "a...")
     end
   end
+
+  describe "A/B Testing" do
+    let(:creator) { create(:named_seller) }
+    let(:product) { create(:subscription_product, user: creator) }
+    let(:variant_category) { create(:variant_category, link: product) }
+    let(:tier_a) { create(:variant, variant_category: variant_category, name: "Tier A") }
+    let(:tier_b) { create(:variant, variant_category: variant_category, name: "Tier B") }
+    let(:post) { create(:published_installment, link: product, seller: creator) }
+
+    describe "#has_ab_test?" do
+      context "when post has no variants" do
+        it "returns false" do
+          expect(post.has_ab_test?).to be false
+        end
+      end
+
+      context "when post has one variant" do
+        before do
+          create(:post_variant, installment: post, name: "Single Variant")
+        end
+
+        it "returns false" do
+          expect(post.has_ab_test?).to be false
+        end
+      end
+
+      context "when post has multiple variants" do
+        before do
+          create(:post_variant, installment: post, name: "Variant A", is_control: true)
+          create(:post_variant, installment: post, name: "Variant B")
+        end
+
+        it "returns true" do
+          expect(post.has_ab_test?).to be true
+        end
+      end
+    end
+
+    describe "#variant_for_subscription" do
+      context "when post has no variants" do
+        let(:subscription) { create(:subscription, link: product) }
+
+        before do
+          create(:membership_purchase,
+                 link: product,
+                 subscription: subscription,
+                 is_original_subscription_purchase: true,
+                 variant_attributes: [tier_a])
+        end
+
+        it "returns nil" do
+          expect(post.variant_for_subscription(subscription)).to be_nil
+        end
+      end
+
+      context "when post has variants with distribution rules" do
+        let!(:variant_a) { create(:post_variant, installment: post, name: "Variant A", is_control: true) }
+        let!(:variant_b) { create(:post_variant, installment: post, name: "Variant B") }
+        let(:subscription) { create(:subscription, link: product) }
+
+        before do
+          create(:variant_distribution_rule, post_variant: variant_a, base_variant: tier_a, distribution_type: :unlimited)
+          create(:membership_purchase,
+                 link: product,
+                 subscription: subscription,
+                 is_original_subscription_purchase: true,
+                 variant_attributes: [tier_a])
+        end
+
+        it "returns a variant" do
+          result = post.variant_for_subscription(subscription)
+          expect(result).to be_present
+          expect([variant_a, variant_b]).to include(result)
+        end
+
+        it "creates a variant assignment" do
+          expect do
+            post.variant_for_subscription(subscription)
+          end.to change { VariantAssignment.count }.by(1)
+        end
+
+        it "returns the same variant on subsequent calls" do
+          first_result = post.variant_for_subscription(subscription)
+          second_result = post.variant_for_subscription(subscription)
+          expect(first_result).to eq(second_result)
+        end
+
+        it "does not create duplicate assignments" do
+          post.variant_for_subscription(subscription)
+          expect do
+            post.variant_for_subscription(subscription)
+          end.not_to change { VariantAssignment.count }
+        end
+      end
+
+      context "when subscription already has an assignment" do
+        let!(:variant_a) { create(:post_variant, installment: post, name: "Variant A", is_control: true) }
+        let(:subscription) { create(:subscription, link: product) }
+
+        before do
+          create(:membership_purchase,
+                 link: product,
+                 subscription: subscription,
+                 is_original_subscription_purchase: true,
+                 variant_attributes: [tier_a])
+          create(:variant_assignment, post_variant: variant_a, subscription: subscription)
+        end
+
+        it "returns the existing assignment's variant" do
+          expect(post.variant_for_subscription(subscription)).to eq(variant_a)
+        end
+      end
+
+      context "with tier-specific distribution rules" do
+        let!(:variant_a) { create(:post_variant, installment: post, name: "Variant A", is_control: true) }
+        let!(:variant_b) { create(:post_variant, installment: post, name: "Variant B") }
+
+        before do
+          create(:variant_distribution_rule, post_variant: variant_a, base_variant: tier_a, distribution_type: :unlimited)
+          create(:variant_distribution_rule, post_variant: variant_b, base_variant: tier_b, distribution_type: :unlimited)
+        end
+
+        it "assigns variant based on subscription tier" do
+          subscription_tier_a = create(:subscription, link: product)
+          create(:membership_purchase,
+                 link: product,
+                 subscription: subscription_tier_a,
+                 is_original_subscription_purchase: true,
+                 variant_attributes: [tier_a])
+
+          subscription_tier_b = create(:subscription, link: product)
+          create(:membership_purchase,
+                 link: product,
+                 subscription: subscription_tier_b,
+                 is_original_subscription_purchase: true,
+                 variant_attributes: [tier_b])
+
+          expect(post.variant_for_subscription(subscription_tier_a)).to eq(variant_a)
+          expect(post.variant_for_subscription(subscription_tier_b)).to eq(variant_b)
+        end
+      end
+
+      context "with count-based distribution" do
+        let!(:variant_a) { create(:post_variant, installment: post, name: "Variant A", is_control: true) }
+        let!(:variant_b) { create(:post_variant, installment: post, name: "Variant B") }
+
+        before do
+          create(:variant_distribution_rule, post_variant: variant_a, base_variant: tier_a, distribution_type: :count, distribution_value: 2)
+          create(:variant_distribution_rule, post_variant: variant_b, base_variant: tier_a, distribution_type: :unlimited)
+        end
+
+        it "respects count limits" do
+          subscriptions = 5.times.map do
+            subscription = create(:subscription, link: product)
+            create(:membership_purchase,
+                   link: product,
+                   subscription: subscription,
+                   is_original_subscription_purchase: true,
+                   variant_attributes: [tier_a])
+            subscription
+          end
+
+          subscriptions.each { |s| post.variant_for_subscription(s) }
+
+          variant_a_count = VariantAssignment.where(post_variant: variant_a).count
+          expect(variant_a_count).to be <= 2
+        end
+      end
+
+      context "with no matching distribution rules" do
+        let!(:variant_a) { create(:post_variant, installment: post, name: "Variant A", is_control: true) }
+        let!(:variant_b) { create(:post_variant, installment: post, name: "Variant B") }
+        let(:subscription) { create(:subscription, link: product) }
+
+        before do
+          create(:membership_purchase,
+                 link: product,
+                 subscription: subscription,
+                 is_original_subscription_purchase: true,
+                 variant_attributes: [tier_a])
+        end
+
+        it "falls back to control variant" do
+          result = post.variant_for_subscription(subscription)
+          expect(result).to eq(variant_a)
+        end
+      end
+    end
+
+    describe "post_variants association" do
+      it "has many post_variants" do
+        expect(post).to respond_to(:post_variants)
+      end
+
+      it "destroys post_variants when post is destroyed" do
+        create(:post_variant, installment: post, name: "Variant A")
+        create(:post_variant, installment: post, name: "Variant B")
+
+        expect do
+          post.destroy
+        end.to change { PostVariant.count }.by(-2)
+      end
+    end
+  end
 end

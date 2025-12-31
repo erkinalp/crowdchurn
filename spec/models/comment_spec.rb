@@ -233,4 +233,164 @@ describe Comment do
       expect(Comment.all.map(&:was_alive_before_marking_subtree_deleted).uniq).to match_array([nil])
     end
   end
+
+  describe "Variant Scoping" do
+    let(:creator) { create(:named_seller) }
+    let(:product) { create(:subscription_product, user: creator) }
+    let(:post) { create(:published_installment, link: product, seller: creator, allow_comments: true) }
+    let(:variant_a) { create(:post_variant, installment: post, name: "Variant A", is_control: true) }
+    let(:variant_b) { create(:post_variant, installment: post, name: "Variant B") }
+
+    describe "associations" do
+      it "belongs to post_variant" do
+        comment = build(:comment, commentable: post, post_variant: variant_a)
+        expect(comment).to respond_to(:post_variant)
+        expect(comment.post_variant).to eq(variant_a)
+      end
+
+      it "allows nil post_variant for unscoped comments" do
+        comment = build(:comment, commentable: post, post_variant: nil)
+        expect(comment).to be_valid
+        expect(comment.post_variant).to be_nil
+      end
+    end
+
+    describe ".for_variant scope" do
+      let!(:comment_variant_a) { create(:comment, commentable: post, post_variant: variant_a, content: "Comment for Variant A") }
+      let!(:comment_variant_b) { create(:comment, commentable: post, post_variant: variant_b, content: "Comment for Variant B") }
+      let!(:unscoped_comment) { create(:comment, commentable: post, post_variant: nil, content: "Unscoped comment") }
+
+      it "returns only comments for the specified variant" do
+        result = post.comments.for_variant(variant_a.id)
+        expect(result).to include(comment_variant_a)
+        expect(result).not_to include(comment_variant_b)
+        expect(result).not_to include(unscoped_comment)
+      end
+
+      it "returns empty when no comments exist for variant" do
+        variant_c = create(:post_variant, installment: post, name: "Variant C")
+        result = post.comments.for_variant(variant_c.id)
+        expect(result).to be_empty
+      end
+    end
+
+    describe ".visible_to_variant scope" do
+      let!(:comment_variant_a) { create(:comment, commentable: post, post_variant: variant_a, content: "Comment for Variant A") }
+      let!(:comment_variant_b) { create(:comment, commentable: post, post_variant: variant_b, content: "Comment for Variant B") }
+      let!(:unscoped_comment) { create(:comment, commentable: post, post_variant: nil, content: "Unscoped comment") }
+
+      it "returns comments for the specified variant and unscoped comments" do
+        result = post.comments.visible_to_variant(variant_a.id)
+        expect(result).to include(comment_variant_a)
+        expect(result).to include(unscoped_comment)
+        expect(result).not_to include(comment_variant_b)
+      end
+
+      it "returns only unscoped comments when variant has no specific comments" do
+        variant_c = create(:post_variant, installment: post, name: "Variant C")
+        result = post.comments.visible_to_variant(variant_c.id)
+        expect(result).to include(unscoped_comment)
+        expect(result).not_to include(comment_variant_a)
+        expect(result).not_to include(comment_variant_b)
+      end
+    end
+
+    describe ".unscoped_variant scope" do
+      let!(:comment_variant_a) { create(:comment, commentable: post, post_variant: variant_a, content: "Comment for Variant A") }
+      let!(:unscoped_comment) { create(:comment, commentable: post, post_variant: nil, content: "Unscoped comment") }
+
+      it "returns only comments without a variant" do
+        result = post.comments.unscoped_variant
+        expect(result).to include(unscoped_comment)
+        expect(result).not_to include(comment_variant_a)
+      end
+    end
+
+    describe "comment visibility rules" do
+      let(:variant_category) { create(:variant_category, link: product) }
+      let(:tier_a) { create(:variant, variant_category: variant_category, name: "Tier A") }
+      let(:tier_b) { create(:variant, variant_category: variant_category, name: "Tier B") }
+
+      let(:subscription_a1) { create(:subscription, link: product) }
+      let(:subscription_a2) { create(:subscription, link: product) }
+      let(:subscription_b) { create(:subscription, link: product) }
+
+      before do
+        create(:membership_purchase,
+               link: product,
+               subscription: subscription_a1,
+               is_original_subscription_purchase: true,
+               variant_attributes: [tier_a])
+        create(:membership_purchase,
+               link: product,
+               subscription: subscription_a2,
+               is_original_subscription_purchase: true,
+               variant_attributes: [tier_a])
+        create(:membership_purchase,
+               link: product,
+               subscription: subscription_b,
+               is_original_subscription_purchase: true,
+               variant_attributes: [tier_b])
+      end
+
+      context "subscribers with same variant" do
+        let!(:comment_from_a1) { create(:comment, commentable: post, post_variant: variant_a, content: "From subscriber A1") }
+
+        it "can see each other's comments" do
+          visible_to_a2 = post.comments.visible_to_variant(variant_a.id)
+          expect(visible_to_a2).to include(comment_from_a1)
+        end
+      end
+
+      context "subscribers with different variants" do
+        let!(:comment_from_a) { create(:comment, commentable: post, post_variant: variant_a, content: "From Variant A subscriber") }
+        let!(:comment_from_b) { create(:comment, commentable: post, post_variant: variant_b, content: "From Variant B subscriber") }
+
+        it "cannot see each other's variant-scoped comments" do
+          visible_to_a = post.comments.visible_to_variant(variant_a.id)
+          visible_to_b = post.comments.visible_to_variant(variant_b.id)
+
+          expect(visible_to_a).to include(comment_from_a)
+          expect(visible_to_a).not_to include(comment_from_b)
+
+          expect(visible_to_b).to include(comment_from_b)
+          expect(visible_to_b).not_to include(comment_from_a)
+        end
+      end
+
+      context "creator viewing comments" do
+        let!(:comment_variant_a) { create(:comment, commentable: post, post_variant: variant_a, content: "Variant A comment") }
+        let!(:comment_variant_b) { create(:comment, commentable: post, post_variant: variant_b, content: "Variant B comment") }
+        let!(:unscoped_comment) { create(:comment, commentable: post, post_variant: nil, content: "Unscoped comment") }
+
+        it "can see all comments regardless of variant" do
+          all_comments = post.comments.alive
+          expect(all_comments).to include(comment_variant_a, comment_variant_b, unscoped_comment)
+        end
+
+        it "can filter comments by specific variant" do
+          variant_a_comments = post.comments.for_variant(variant_a.id)
+          expect(variant_a_comments).to include(comment_variant_a)
+          expect(variant_a_comments).not_to include(comment_variant_b, unscoped_comment)
+        end
+      end
+    end
+
+    describe "backward compatibility" do
+      context "posts without A/B variants" do
+        let(:regular_post) { create(:published_installment, link: product, seller: creator, allow_comments: true) }
+        let!(:regular_comment) { create(:comment, commentable: regular_post, post_variant: nil, content: "Regular comment") }
+
+        it "comments work normally without variant scoping" do
+          expect(regular_comment.post_variant).to be_nil
+          expect(regular_post.comments.unscoped_variant).to include(regular_comment)
+        end
+
+        it "visible_to_variant returns all comments when passed nil" do
+          result = regular_post.comments.visible_to_variant(nil)
+          expect(result).to include(regular_comment)
+        end
+      end
+    end
+  end
 end

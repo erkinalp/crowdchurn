@@ -58,6 +58,7 @@ class Subscription < ApplicationRecord
   has_one :latest_applicable_plan_change, -> { alive.currently_applicable.order(created_at: :desc) }, class_name: "SubscriptionPlanChange"
   has_one :offer_code, through: :original_purchase
   has_many :subscription_events
+  has_many :variant_assignments, dependent: :destroy
 
   before_validation :assign_seller, on: :create
 

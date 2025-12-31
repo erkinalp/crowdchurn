@@ -26,6 +26,7 @@ export type Product = {
   thumbnail_url: string | null;
   currency_code: CurrencyCode;
   price_cents: number;
+  variant_price_cents: number | null;
   quantity_remaining: number | null;
   pwyw: { suggested_price_cents: number | null } | null;
   installment_plan: { number_of_installments: number } | null;

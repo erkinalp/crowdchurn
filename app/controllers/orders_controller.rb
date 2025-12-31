@@ -16,9 +16,11 @@ class OrdersController < ApplicationController
       }
     ).to_h
 
+    buyer_cookie = VariantPriceService.get_or_create_buyer_cookie(cookies)
     order, purchase_responses, offer_codes = Order::CreateService.new(
       buyer: logged_in_user,
-      params: order_params
+      params: order_params,
+      buyer_cookie: buyer_cookie
     ).perform
 
     charge_responses = Order::ChargeService.new(order:, params: order_params).perform

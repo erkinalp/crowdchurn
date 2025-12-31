@@ -72,6 +72,9 @@ class Purchase < ApplicationRecord
   attr_json_data_accessor :recommender_model_name
   attr_json_data_accessor :custom_fee_per_thousand
 
+  # Virtual attribute for A/B test price enforcement - set from controller
+  attr_accessor :buyer_cookie
+
   alias_attribute :total_transaction_cents_usd, :total_transaction_cents
 
   belongs_to :link, optional: true
@@ -247,6 +250,7 @@ class Purchase < ApplicationRecord
     after_transition any => [:successful, :not_charged, :gift_receiver_purchase_successful], :do => :trigger_iffy_moderation, if: lambda { |purchase|
       purchase.price_cents > 0 && !purchase.link.moderated_by_iffy
     }
+    after_transition any => [:successful, :not_charged, :gift_receiver_purchase_successful], :do => :record_ab_test_conversion!
 
     # normal purchase transitions:
 
@@ -836,7 +840,20 @@ class Purchase < ApplicationRecord
   def base_product_price_cents
     return price_for_recurrence.price_cents if price_for_recurrence.present?
 
+    # Check for A/B test variant price override for one-time purchases
+    variant_override = ab_test_price_override_cents
+    return variant_override if variant_override.present?
+
     is_rental ? link.rental_price_cents : link.price_cents
+  end
+
+  # Returns the A/B test variant price override in cents, or nil if not applicable.
+  # Only applies to one-time purchases (not recurring, preorder, rental, or plan changes).
+  # Memoized to avoid repeated queries during price calculation.
+  def ab_test_price_override_cents
+    return @ab_test_price_override_cents if defined?(@ab_test_price_override_cents)
+
+    @ab_test_price_override_cents = compute_ab_test_price_override_cents
   end
 
   def charged_using_gumroad_merchant_account?
@@ -2641,6 +2658,66 @@ class Purchase < ApplicationRecord
   end
 
   private
+    def compute_ab_test_price_override_cents
+      # Only apply to one-time purchases, not recurring/preorder/rental/plan changes
+      return nil if is_recurring_subscription_charge
+      return nil if is_preorder_charge?
+      return nil if is_rental
+      return nil if is_applying_plan_change
+      return nil unless link.present?
+
+      # Need buyer identity (user or cookie) to look up variant assignment
+      buyer_user = purchaser
+      return nil unless buyer_user.present? || buyer_cookie.present?
+
+      # Find first installment with A/B test variants for this product
+      installment = link.installments.alive.published
+        .joins(:post_variants)
+        .group("installments.id")
+        .having("COUNT(post_variants.id) > 1")
+        .first
+      return nil unless installment.present?
+
+      # Use VariantPriceService to get the assigned variant's price override
+      service = VariantPriceService.new(
+        product: link,
+        installment: installment,
+        user: buyer_user,
+        buyer_cookie: buyer_cookie
+      )
+      service.price_override_cents
+    end
+
+    # Record A/B test conversion when a purchase is successful
+    # Links the variant assignment to this purchase for conversion tracking
+    def record_ab_test_conversion!
+      return unless link.present?
+      return if is_recurring_subscription_charge
+      return if is_preorder_charge?
+
+      buyer_user = purchaser
+      return unless buyer_user.present? || buyer_cookie.present?
+
+      # Find first installment with A/B test variants for this product
+      installment = link.installments.alive.published
+        .joins(:post_variants)
+        .group("installments.id")
+        .having("COUNT(post_variants.id) > 1")
+        .first
+      return unless installment.present?
+
+      # Find the variant assignment for this buyer
+      assignment = VariantAssignment.find_assignment_for_buyer(
+        installment: installment,
+        user: buyer_user,
+        buyer_cookie: buyer_cookie
+      )
+      return unless assignment.present?
+
+      # Record the conversion (only if not already converted)
+      assignment.record_conversion!(self)
+    end
+
     def offer_amount_off(purchase_min_price)
       # For commissions, apply deposit purchase's offer code to its completion
       # purchase even if it has been soft deleted.

@@ -6,7 +6,8 @@ class CheckoutController < ApplicationController
   def index
     @hide_layouts = true
     @on_checkout_page = true
-    @checkout_presenter = CheckoutPresenter.new(logged_in_user:, ip: request.remote_ip)
+    buyer_cookie = VariantPriceService.get_or_create_buyer_cookie(cookies)
+    @checkout_presenter = CheckoutPresenter.new(logged_in_user:, ip: request.remote_ip, buyer_cookie:)
   end
 
   private

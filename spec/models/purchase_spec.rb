@@ -6527,4 +6527,119 @@ describe Purchase, :vcr do
       end
     end
   end
+
+  describe "#record_ab_test_conversion!" do
+    let(:seller) { create(:user) }
+    let(:product) { create(:product, user: seller) }
+    let(:buyer) { create(:user) }
+    let(:buyer_cookie) { SecureRandom.uuid }
+
+    context "when product has an A/B test" do
+      let!(:installment) { create(:installment, :published, link: product) }
+      let!(:variant_a) { create(:post_variant, installment: installment, name: "Variant A", is_control: true) }
+      let!(:variant_b) { create(:post_variant, installment: installment, name: "Variant B") }
+
+      context "when buyer has a variant assignment by user_id" do
+        let!(:assignment) { create(:variant_assignment, post_variant: variant_a, user_id: buyer.id, subscription: nil) }
+        let(:purchase) { create(:purchase, link: product, purchaser: buyer, purchase_state: "in_progress") }
+
+        it "records conversion on the variant assignment" do
+          expect(assignment.converted_at).to be_nil
+          expect(assignment.purchase_id).to be_nil
+
+          purchase.send(:record_ab_test_conversion!)
+          assignment.reload
+
+          expect(assignment.converted_at).to be_present
+          expect(assignment.purchase_id).to eq(purchase.id)
+        end
+
+        it "does not overwrite existing conversion" do
+          original_time = 1.day.ago
+          original_purchase = create(:purchase)
+          assignment.update!(converted_at: original_time, purchase_id: original_purchase.id)
+
+          purchase.send(:record_ab_test_conversion!)
+          assignment.reload
+
+          expect(assignment.converted_at).to eq(original_time)
+          expect(assignment.purchase_id).to eq(original_purchase.id)
+        end
+      end
+
+      context "when buyer has a variant assignment by buyer_cookie" do
+        let!(:assignment) { create(:variant_assignment, post_variant: variant_b, buyer_cookie: buyer_cookie, subscription: nil, user_id: nil) }
+        let(:purchase) { create(:purchase, link: product, purchaser: nil, buyer_cookie: buyer_cookie, purchase_state: "in_progress") }
+
+        it "records conversion on the variant assignment" do
+          expect(assignment.converted_at).to be_nil
+
+          purchase.send(:record_ab_test_conversion!)
+          assignment.reload
+
+          expect(assignment.converted_at).to be_present
+          expect(assignment.purchase_id).to eq(purchase.id)
+        end
+      end
+
+      context "when buyer has no variant assignment" do
+        let(:purchase) { create(:purchase, link: product, purchaser: buyer, purchase_state: "in_progress") }
+
+        it "does not raise an error" do
+          expect { purchase.send(:record_ab_test_conversion!) }.not_to raise_error
+        end
+      end
+    end
+
+    context "when product has no A/B test" do
+      let!(:installment) { create(:installment, :published, link: product) }
+      let(:purchase) { create(:purchase, link: product, purchaser: buyer, purchase_state: "in_progress") }
+
+      it "does not raise an error" do
+        expect { purchase.send(:record_ab_test_conversion!) }.not_to raise_error
+      end
+    end
+
+    context "when purchase has no link" do
+      let(:purchase) { build(:purchase, link: nil, purchaser: buyer) }
+
+      it "returns early without error" do
+        expect { purchase.send(:record_ab_test_conversion!) }.not_to raise_error
+      end
+    end
+
+    context "when purchase is a recurring subscription charge" do
+      let!(:installment) { create(:installment, :published, link: product) }
+      let!(:variant_a) { create(:post_variant, installment: installment, name: "Variant A", is_control: true) }
+      let!(:variant_b) { create(:post_variant, installment: installment, name: "Variant B") }
+      let!(:assignment) { create(:variant_assignment, post_variant: variant_a, user_id: buyer.id, subscription: nil) }
+      let(:subscription) { create(:subscription, link: product) }
+      let(:purchase) { create(:purchase, link: product, purchaser: buyer, subscription: subscription, is_original_subscription_purchase: false, purchase_state: "in_progress") }
+
+      it "does not record conversion" do
+        purchase.send(:record_ab_test_conversion!)
+        assignment.reload
+
+        expect(assignment.converted_at).to be_nil
+        expect(assignment.purchase_id).to be_nil
+      end
+    end
+
+    context "when purchase is a preorder charge" do
+      let!(:installment) { create(:installment, :published, link: product) }
+      let!(:variant_a) { create(:post_variant, installment: installment, name: "Variant A", is_control: true) }
+      let!(:variant_b) { create(:post_variant, installment: installment, name: "Variant B") }
+      let!(:assignment) { create(:variant_assignment, post_variant: variant_a, user_id: buyer.id, subscription: nil) }
+      let(:preorder) { create(:preorder) }
+      let(:purchase) { create(:purchase, link: product, purchaser: buyer, preorder: preorder, is_preorder_authorization: false, purchase_state: "in_progress") }
+
+      it "does not record conversion for preorder charge" do
+        purchase.send(:record_ab_test_conversion!)
+        assignment.reload
+
+        expect(assignment.converted_at).to be_nil
+        expect(assignment.purchase_id).to be_nil
+      end
+    end
+  end
 end
