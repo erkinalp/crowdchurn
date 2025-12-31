@@ -690,7 +690,7 @@ class StripeChargeProcessor
     merchant_account = MerchantAccount.find_by(charge_processor_merchant_id: data["account"])
     return unless merchant_account&.currency == currency
     return if merchant_account.is_a_stripe_connect_account?
-    return if merchant_account.is_managed_by_gumroad?
+    return if merchant_account.is_managed_by_operator?
 
     stripe_loan_paydown_id = data["id"]
     amount_cents = -data["details"]["total_amount"].to_i

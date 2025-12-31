@@ -72,7 +72,7 @@
 
       <dt><%= purchase.charge_processor_id&.capitalize %> transaction ID</dt>
       <dd>
-        <%= link_to_processor(purchase.charge_processor_id, purchase.stripe_transaction_id, purchase.charged_using_gumroad_merchant_account?, target: "_blank") %>
+        <%= link_to_processor(purchase.charge_processor_id, purchase.stripe_transaction_id, purchase.charged_using_server_owner_account?, target: "_blank") %>
         |
         <%= link_to(purchase.id, admin_purchase_path(purchase)) %>
       </dd>

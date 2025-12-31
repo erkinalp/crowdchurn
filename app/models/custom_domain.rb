@@ -55,7 +55,7 @@ class CustomDomain < ApplicationRecord
   end
 
   def validate_domain_is_allowed
-    forbidden_suffixes = [DOMAIN, ROOT_DOMAIN, SHORT_DOMAIN, DISCOVER_DOMAIN, API_DOMAIN, INTERNAL_GUMROAD_DOMAIN].freeze
+    forbidden_suffixes = [DOMAIN, ROOT_DOMAIN, SHORT_DOMAIN, DISCOVER_DOMAIN, API_DOMAIN, INTERNAL_DOMAIN].freeze
 
     forbidden_suffixes.each do |suffix|
       if domain == suffix || domain.to_s.ends_with?(".#{suffix}")

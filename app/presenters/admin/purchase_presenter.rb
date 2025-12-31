@@ -62,7 +62,7 @@ class Admin::PurchasePresenter
                        charge_processor_id: purchase.charge_processor_id&.capitalize,
                        stripe_transaction: purchase.stripe_transaction_id ? {
                          id: purchase.stripe_transaction_id,
-                         search_url: ChargeProcessor.transaction_url_for_admin(purchase.charge_processor_id, purchase.stripe_transaction_id, purchase.charged_using_gumroad_merchant_account?),
+                         search_url: ChargeProcessor.transaction_url_for_admin(purchase.charge_processor_id, purchase.stripe_transaction_id, purchase.charged_using_server_owner_account?),
                        } : nil,
                        external_id_numeric: purchase.external_id_numeric,
                        quantity: purchase.quantity,

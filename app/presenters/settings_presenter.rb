@@ -401,11 +401,11 @@ class SettingsPresenter
       processor_fee_percent = processor_fee_percent.to_i == processor_fee_percent ? processor_fee_percent.to_i : processor_fee_percent
       processor_fee_fixed_cents = Purchase::PROCESSOR_FIXED_FEE_CENTS
 
-      discover_fee_percent = (Purchase::GUMROAD_DISCOVER_FEE_PER_THOUSAND / 10.0).round(1)
+      discover_fee_percent = (Purchase::OPERATOR_DISCOVER_FEE_PER_THOUSAND / 10.0).round(1)
       discover_fee_percent = discover_fee_percent.to_i == discover_fee_percent ? discover_fee_percent.to_i : discover_fee_percent
-      direct_fee_percent = ((seller.custom_fee_per_thousand.presence || Purchase::GUMROAD_FLAT_FEE_PER_THOUSAND) / 10.0).round(1)
+      direct_fee_percent = ((seller.custom_fee_per_thousand.presence || Purchase::OPERATOR_FLAT_FEE_PER_THOUSAND) / 10.0).round(1)
       direct_fee_percent = direct_fee_percent.to_i == direct_fee_percent ? direct_fee_percent.to_i : direct_fee_percent
-      fixed_fee_cents = Purchase::GUMROAD_FIXED_FEE_CENTS
+      fixed_fee_cents = Purchase::OPERATOR_FIXED_FEE_CENTS
 
       if user_compliance_info&.country_code == Compliance::Countries::BRA.alpha2
         {

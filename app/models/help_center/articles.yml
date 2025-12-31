@@ -5,7 +5,7 @@
   category_id: <%= HelpCenter::Category::GET_PAID.id %>
 - id: 13
   slug: "13-getting-paid"
-  title: "Getting paid by Gumroad"
+  title: "Getting paid by CrowdChurn"
   category_id: <%= HelpCenter::Category::GET_PAID.id %>
 - id: 15
   slug: "15-1099s"
@@ -65,7 +65,7 @@
   category_id: <%= HelpCenter::Category::OPEN_AN_ACCOUNT.id %>
 - id: 66
   slug: "66-gumroads-fees"
-  title: "Gumroad's fees"
+  title: "Operator fees"
   category_id: <%= HelpCenter::Category::GET_PAID.id %>
 - id: 67
   slug: "67-the-settings-menu"

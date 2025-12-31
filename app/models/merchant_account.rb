@@ -27,16 +27,17 @@ class MerchantAccount < ApplicationRecord
   scope :stripe, -> { where(charge_processor_id: StripeChargeProcessor.charge_processor_id) }
   scope :stripe_connect, -> { stripe.where("json_data->>'$.meta.stripe_connect' = 'true'").where.not(user_id: nil) } # Logic should match method `#is_a_stripe_connect_account?`
 
-  # Public: Get Gumroad's merchant account on the charge processor.
+  # Public: Get the operator's merchant account on the charge processor.
+  # (CrowdChurn is a fork of Gumroad)
   #
   # charge_processor_id – The charge processor to get a MerchantAccount for.
   #
-  # Returns a MerchantAccount which is Gumroad's merchant account on the given charge processor.
-  def self.gumroad(charge_processor_id)
+  # Returns a MerchantAccount which is the operator's merchant account on the given charge processor.
+  def self.operator(charge_processor_id)
     where(user_id: nil, charge_processor_id:).first
   end
 
-  def is_managed_by_gumroad?
+  def is_managed_by_operator?
     !user_id
   end
 

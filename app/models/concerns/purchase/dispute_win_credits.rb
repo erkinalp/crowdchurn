@@ -27,7 +27,7 @@ module Purchase::DisputeWinCredits
   end
 
   def create_credit_for_dispute_won_for_seller!(flow_of_funds, amount_cents:)
-    return unless charged_using_gumroad_merchant_account?
+    return unless charged_using_server_owner_account?
 
     seller_issued_amount = BalanceTransaction::Amount.create_issued_amount_for_seller(
         flow_of_funds:,

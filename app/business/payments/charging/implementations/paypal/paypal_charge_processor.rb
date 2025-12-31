@@ -366,7 +366,7 @@ class PaypalChargeProcessor
                                                                                 product_info[:vat_cents].to_i > 0 ?
                                                                                   product_info[:exclusive_vat_cents].to_i :
                                                                                   product_info[:exclusive_tax_cents].to_i),
-                                                   fee_cents_usd: product.gumroad_amount_for_paypal_order(
+                                                   fee_cents_usd: product.operator_amount_for_paypal_order(
                                                      amount_cents: get_usd_cents(currency, product_info[:price_cents].to_i),
                                                      affiliate_id: product_info[:affiliate_id],
                                                      vat_cents: get_usd_cents(currency, product_info[:vat_cents].to_i),
@@ -400,7 +400,7 @@ class PaypalChargeProcessor
                                                                                 product_info[:vat_cents].to_i > 0 ?
                                                                                     product_info[:exclusive_vat_cents].to_i :
                                                                                     product_info[:exclusive_tax_cents].to_i),
-                                                   fee_cents_usd: product.gumroad_amount_for_paypal_order(
+                                                   fee_cents_usd: product.operator_amount_for_paypal_order(
                                                      amount_cents: get_usd_cents(currency, product_info[:price_cents].to_i),
                                                      affiliate_id: product_info[:affiliate_id],
                                                      vat_cents: get_usd_cents(currency, product_info[:vat_cents].to_i),

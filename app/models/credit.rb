@@ -28,7 +28,7 @@ class Credit < ApplicationRecord
   def self.create_for_credit!(user:, amount_cents:, crediting_user:)
     credit = new
     credit.user = user
-    credit.merchant_account = MerchantAccount.gumroad(StripeChargeProcessor.charge_processor_id)
+    credit.merchant_account = MerchantAccount.operator(StripeChargeProcessor.charge_processor_id)
     credit.amount_cents = amount_cents
     credit.crediting_user = crediting_user
     credit.save!
@@ -114,8 +114,8 @@ class Credit < ApplicationRecord
     credit = new
     credit.user = refund.purchase.seller
     credit.merchant_account = refund.purchase.stripe_charge_processor? ?
-                                  MerchantAccount.gumroad(StripeChargeProcessor.charge_processor_id) :
-                                  MerchantAccount.gumroad(BraintreeChargeProcessor.charge_processor_id)
+                                  MerchantAccount.operator(StripeChargeProcessor.charge_processor_id) :
+                                  MerchantAccount.operator(BraintreeChargeProcessor.charge_processor_id)
     credit.amount_cents = credit_amount
     credit.refund = refund
     credit.save!
@@ -174,8 +174,8 @@ class Credit < ApplicationRecord
     credit = new
     credit.user = refund.purchase.seller
     credit.merchant_account = refund.purchase.stripe_charge_processor? ?
-                                  MerchantAccount.gumroad(StripeChargeProcessor.charge_processor_id) :
-                                  MerchantAccount.gumroad(BraintreeChargeProcessor.charge_processor_id)
+                                  MerchantAccount.operator(StripeChargeProcessor.charge_processor_id) :
+                                  MerchantAccount.operator(BraintreeChargeProcessor.charge_processor_id)
     credit.amount_cents = amount_to_credit
     credit.refund = refund
     credit.save!
@@ -288,7 +288,7 @@ class Credit < ApplicationRecord
     # to the seller's balance. We have to do it this way because we don't have the seller's balance in our control,
     # so adding a negative credit to their account for Gumroad's fee wouldn't work because there likely wouldn't be a
     # balance to collect from.
-    unless refund.purchase.charged_using_gumroad_merchant_account?
+    unless refund.purchase.charged_using_server_owner_account?
       purchase = refund.purchase
       application_fee_refundable_portion = purchase.gumroad_tax_cents + purchase.affiliate_credit_cents
       return if application_fee_refundable_portion.zero?
@@ -296,7 +296,7 @@ class Credit < ApplicationRecord
       credit = new
       credit.user = purchase.seller
       credit.amount_cents = (application_fee_refundable_portion * (refund.amount_cents.to_f / purchase.price_cents)).round
-      credit.merchant_account = MerchantAccount.gumroad(StripeChargeProcessor.charge_processor_id)
+      credit.merchant_account = MerchantAccount.operator(StripeChargeProcessor.charge_processor_id)
       credit.fee_retention_refund = refund
       credit.save!
 

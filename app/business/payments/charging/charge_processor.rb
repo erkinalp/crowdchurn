@@ -4,7 +4,7 @@ module ChargeProcessor
   # Time user has to complete Strong Customer Authentication (enter an OTP, confirm purchase via bank app, etc). Sensible default, not dictated by a payment processor.
   TIME_TO_COMPLETE_SCA = 15.minutes
 
-  NOTIFICATION_CHARGE_EVENT = "charge_event.charge_processor.gumroad"
+  NOTIFICATION_CHARGE_EVENT = "charge_event.charge_processor.operator"
 
   DEFAULT_CURRENCY_CODE = Currency::USD.upcase
 
@@ -211,14 +211,14 @@ module ChargeProcessor
     get_charge_processor(charge_processor_id).transaction_url(charge_id)
   end
 
-  def self.transaction_url_for_seller(charge_processor_id, charge_id, charged_using_gumroad_account)
-    return if charge_processor_id.blank? || charge_id.blank? || charged_using_gumroad_account
+  def self.transaction_url_for_seller(charge_processor_id, charge_id, charged_using_operator_account)
+    return if charge_processor_id.blank? || charge_id.blank? || charged_using_operator_account
 
     transaction_url(charge_processor_id, charge_id)
   end
 
-  def self.transaction_url_for_admin(charge_processor_id, charge_id, charged_using_gumroad_account)
-    return if charge_processor_id.blank? || charge_id.blank? || !charged_using_gumroad_account
+  def self.transaction_url_for_admin(charge_processor_id, charge_id, charged_using_operator_account)
+    return if charge_processor_id.blank? || charge_id.blank? || !charged_using_operator_account
 
     transaction_url(charge_processor_id, charge_id)
   end

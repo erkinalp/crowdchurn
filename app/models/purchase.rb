@@ -20,15 +20,15 @@ class Purchase < ApplicationRecord
   # If a sku-enabled product has no skus (i.e. the product has no variants), then the sku id of the purchase will be "pid_#{external_product_id}".
   SKU_ID_PREFIX_FOR_PRODUCT_WITH_NO_SKUS = "pid_"
 
-  # Gumroad's fees per transaction
-  GUMROAD_FEE_PER_THOUSAND = 85
-  GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND = 100
+  # Operator's fees per transaction (CrowdChurn is a fork of Gumroad)
+  OPERATOR_FEE_PER_THOUSAND = 85
+  OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND = 100
 
-  GUMROAD_NON_PRO_FEE_PERCENTAGE = 60
+  OPERATOR_NON_PRO_FEE_PERCENTAGE = 60
 
-  GUMROAD_FLAT_FEE_PER_THOUSAND = 100
-  GUMROAD_DISCOVER_FEE_PER_THOUSAND = 300
-  GUMROAD_FIXED_FEE_CENTS = 50
+  OPERATOR_FLAT_FEE_PER_THOUSAND = 100
+  OPERATOR_DISCOVER_FEE_PER_THOUSAND = 300
+  OPERATOR_FIXED_FEE_CENTS = 50
   PROCESSOR_FEE_PER_THOUSAND = 29
   PROCESSOR_FIXED_FEE_CENTS = 30
 
@@ -834,7 +834,7 @@ class Purchase < ApplicationRecord
   end
 
   def transaction_url_for_seller
-    ChargeProcessor.transaction_url_for_seller(charge_processor_id, stripe_transaction_id, charged_using_gumroad_merchant_account?)
+    ChargeProcessor.transaction_url_for_seller(charge_processor_id, stripe_transaction_id, charged_using_server_owner_account?)
   end
 
   def base_product_price_cents
@@ -856,8 +856,8 @@ class Purchase < ApplicationRecord
     @ab_test_price_override_cents = compute_ab_test_price_override_cents
   end
 
-  def charged_using_gumroad_merchant_account?
-    (merchant_account&.is_managed_by_gumroad?) ||
+  def charged_using_server_owner_account?
+    (merchant_account&.is_managed_by_operator?) ||
         (stripe_charge_processor? && !charged_using_stripe_connect_account?)
   end
 
@@ -866,9 +866,9 @@ class Purchase < ApplicationRecord
   end
 
   def update_user_balance_in_transaction_for_affiliate
-    if charged_using_gumroad_merchant_account? && using_gumroad_merchant_account_for_affiliate_user?
+    if charged_using_server_owner_account? && using_operator_merchant_account_for_affiliate_user?
       true
-    elsif seller_merchant_migration_enabled? && !affiliate_merchant_account&.is_managed_by_gumroad?
+    elsif seller_merchant_migration_enabled? && !affiliate_merchant_account&.is_managed_by_operator?
       false
     else
       true
@@ -881,14 +881,14 @@ class Purchase < ApplicationRecord
 
   def affiliate_merchant_account_exists?
     affiliate_user_merchant_account = merchant_account_for_affiliate_user
-    affiliate_user_merchant_account && !affiliate_user_merchant_account.is_managed_by_gumroad?
+    affiliate_user_merchant_account && !affiliate_user_merchant_account.is_managed_by_operator?
   end
 
   def seller_merchant_migration_enabled?
     seller&.merchant_migration_enabled?
   end
 
-  def using_gumroad_merchant_account_for_affiliate_user?
+  def using_operator_merchant_account_for_affiliate_user?
     # Always true for now. Revisit when Stripe merchant migration is enabled.
     true
   end
@@ -897,7 +897,7 @@ class Purchase < ApplicationRecord
     affiliate_user = affiliate&.affiliate_user
     charge_processor_id = self.charge_processor_id || StripeChargeProcessor.charge_processor_id
     merchant_account = affiliate_user&.merchant_account(charge_processor_id)
-    merchant_account || MerchantAccount.gumroad(charge_processor_id)
+    merchant_account || MerchantAccount.operator(charge_processor_id)
   end
 
   def refunded? = stripe_refunded?
@@ -1315,7 +1315,7 @@ class Purchase < ApplicationRecord
 
     create_affiliate_balances!
 
-    return if using_gumroad_merchant_account_for_affiliate_user?
+    return if using_operator_merchant_account_for_affiliate_user?
 
     if merchant_account_for_affiliate_user&.charge_processor_merchant_id
       logger.info("Transferring affiliate Credits for: #{id}")
@@ -1369,7 +1369,7 @@ class Purchase < ApplicationRecord
 
     increment_affiliates_balance!
 
-    return unless charged_using_gumroad_merchant_account?
+    return unless charged_using_server_owner_account?
 
     seller_issued_amount = BalanceTransaction::Amount.create_issued_amount_for_seller(
       flow_of_funds:,
@@ -1387,7 +1387,7 @@ class Purchase < ApplicationRecord
       purchase: self,
       issued_amount: seller_issued_amount,
       holding_amount: seller_holding_amount,
-      update_user_balance: charged_using_gumroad_merchant_account?
+      update_user_balance: charged_using_server_owner_account?
     )
 
     self.purchase_success_balance = seller_balance_transaction.balance
@@ -1775,7 +1775,7 @@ class Purchase < ApplicationRecord
     logger.info("process_refund_or_chargeback_for_purchase_balance::flow_of_funds::#{flow_of_funds.inspect}")
     logger.info("process_refund_or_chargeback_for_purchase_balance::refund::#{refund.inspect}")
     logger.info("process_refund_or_chargeback_for_purchase_balance::dispute::#{dispute.inspect}")
-    return unless charged_using_gumroad_merchant_account?
+    return unless charged_using_server_owner_account?
 
     seller_issued_amount = BalanceTransaction::Amount.create_issued_amount_for_seller(
       flow_of_funds:,
@@ -1794,7 +1794,7 @@ class Purchase < ApplicationRecord
       dispute:,
       issued_amount: seller_issued_amount,
       holding_amount: seller_holding_amount,
-      update_user_balance: charged_using_gumroad_merchant_account?
+      update_user_balance: charged_using_server_owner_account?
     )
 
     if refund
@@ -2426,7 +2426,7 @@ class Purchase < ApplicationRecord
   end
 
   def discover_fee_per_thousand
-    recommended_purchase_info&.discover_fee_per_thousand || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND
+    recommended_purchase_info&.discover_fee_per_thousand || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND
   end
 
   def is_direct_to_australian_customer?
@@ -3232,7 +3232,7 @@ class Purchase < ApplicationRecord
         return
       end
 
-      fee_per_thousand = calculate_gumroad_fee_per_thousand
+      fee_per_thousand = calculate_operator_fee_per_thousand
 
       if charge_discover_fee?
         discover_fee_per_thousand = calculate_additional_discover_fee_per_thousand
@@ -3244,15 +3244,15 @@ class Purchase < ApplicationRecord
 
       variable_fee_cents = (price_cents * fee_per_thousand / 1000.0).round
 
-      fixed_processor_fee_cents = charged_using_gumroad_merchant_account? ? PROCESSOR_FIXED_FEE_CENTS : 0
+      fixed_processor_fee_cents = charged_using_server_owner_account? ? PROCESSOR_FIXED_FEE_CENTS : 0
       fixed_fee_cents = if is_recurring_subscription_charge
         if subscription.mor_fee_applicable?
-          was_discover_fee_charged? ? 0 : GUMROAD_FIXED_FEE_CENTS + fixed_processor_fee_cents
+          was_discover_fee_charged? ? 0 : OPERATOR_FIXED_FEE_CENTS + fixed_processor_fee_cents
         else
           fixed_processor_fee_cents
         end
       else
-        was_discover_fee_charged? ? 0 : GUMROAD_FIXED_FEE_CENTS + fixed_processor_fee_cents
+        was_discover_fee_charged? ? 0 : OPERATOR_FIXED_FEE_CENTS + fixed_processor_fee_cents
       end
 
       self.fee_cents = variable_fee_cents + fixed_fee_cents
@@ -3261,25 +3261,25 @@ class Purchase < ApplicationRecord
 
     def calculate_additional_discover_fee_per_thousand
       if is_recurring_subscription_charge || is_updated_original_subscription_purchase
-        subscription.original_purchase.discover_fee_per_thousand - (flat_fee_applicable? ? (custom_fee_per_thousand.presence || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND) : 0) - (subscription.mor_fee_applicable? && charged_using_gumroad_merchant_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
+        subscription.original_purchase.discover_fee_per_thousand - (flat_fee_applicable? ? (custom_fee_per_thousand.presence || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND) : 0) - (subscription.mor_fee_applicable? && charged_using_server_owner_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
       elsif is_preorder_charge?
-        preorder.authorization_purchase.discover_fee_per_thousand - (flat_fee_applicable? ? (custom_fee_per_thousand.presence || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND) + PROCESSOR_FEE_PER_THOUSAND : 0)
+        preorder.authorization_purchase.discover_fee_per_thousand - (flat_fee_applicable? ? (custom_fee_per_thousand.presence || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND) + PROCESSOR_FEE_PER_THOUSAND : 0)
       else
-        GUMROAD_DISCOVER_FEE_PER_THOUSAND - (custom_fee_per_thousand.presence || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND) - (charged_using_gumroad_merchant_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
+        OPERATOR_DISCOVER_FEE_PER_THOUSAND - (custom_fee_per_thousand.presence || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND) - (charged_using_server_owner_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
       end
     end
 
-    def calculate_gumroad_fee_per_thousand
+    def calculate_operator_fee_per_thousand
       if flat_fee_applicable?
         calculate_custom_fee_per_thousand
-        (custom_fee_per_thousand.presence || gumroad_flat_fee_per_thousand) + (charged_using_gumroad_merchant_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
+        (custom_fee_per_thousand.presence || operator_flat_fee_per_thousand) + (charged_using_server_owner_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
       elsif seller.tier_pricing_enabled?
-        (seller.tier_fee(is_merchant_account: charged_using_gumroad_merchant_account?).to_f * 1000).round
+        (seller.tier_fee(is_merchant_account: charged_using_server_owner_account?).to_f * 1000).round
       else
-        if charged_using_gumroad_merchant_account?
-          gumroad_fee_percentage_for_non_migrated_account
+        if charged_using_server_owner_account?
+          operator_fee_percentage_for_non_migrated_account
         else
-          gumroad_fee_percentage_for_migrated_account
+          operator_fee_percentage_for_migrated_account
         end
       end
     end
@@ -3297,8 +3297,8 @@ class Purchase < ApplicationRecord
       end
     end
 
-    def gumroad_flat_fee_per_thousand
-      seller.waive_gumroad_fee_on_new_sales? && subscription.blank? && !is_preorder_charge? ? 0 : GUMROAD_FLAT_FEE_PER_THOUSAND
+    def operator_flat_fee_per_thousand
+      seller.waive_gumroad_fee_on_new_sales? && subscription.blank? && !is_preorder_charge? ? 0 : OPERATOR_FLAT_FEE_PER_THOUSAND
     end
 
     def flat_fee_applicable?
@@ -3307,12 +3307,12 @@ class Purchase < ApplicationRecord
       subscription.blank? || subscription.flat_fee_applicable?
     end
 
-    def gumroad_fee_percentage_for_non_migrated_account
-      GUMROAD_FEE_PER_THOUSAND
+    def operator_fee_percentage_for_non_migrated_account
+      OPERATOR_FEE_PER_THOUSAND
     end
 
-    def gumroad_fee_percentage_for_migrated_account
-      GUMROAD_NON_PRO_FEE_PERCENTAGE
+    def operator_fee_percentage_for_migrated_account
+      OPERATOR_NON_PRO_FEE_PERCENTAGE
     end
 
     def calculate_taxes
@@ -3892,7 +3892,7 @@ class Purchase < ApplicationRecord
     end
 
     def run_risk_checks?
-      price_cents > 0 && !not_charged? && charged_using_gumroad_merchant_account?
+      price_cents > 0 && !not_charged? && charged_using_server_owner_account?
     end
 
     def all_workflows

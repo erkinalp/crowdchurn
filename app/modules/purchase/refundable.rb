@@ -44,7 +44,7 @@ class Purchase
         end
 
         amount_cents_to_refund = amount_cents.presence || amount_refundable_cents
-        if amount_cents_to_refund > seller.unpaid_balance_cents && charged_using_gumroad_merchant_account?
+        if amount_cents_to_refund > seller.unpaid_balance_cents && charged_using_server_owner_account?
           errors.add :base, "Your balance is insufficient to process this refund."
           return false
         end
@@ -203,7 +203,7 @@ class Purchase
       end
       refund.is_for_fraud = is_for_fraud
       refunds << refund
-      self.is_refund_chargeback_fee_waived = !charged_using_gumroad_merchant_account? || is_for_fraud
+      self.is_refund_chargeback_fee_waived = !charged_using_server_owner_account? || is_for_fraud
       mark_giftee_purchase_as_refunded(is_partially_refunded: self.stripe_partially_refunded?) if is_gift_sender_purchase
       subscription.cancel_immediately_if_pending_cancellation! if subscription.present?
       decrement_balance_for_refund_or_chargeback!(flow_of_funds, refund:)
@@ -247,7 +247,7 @@ class Purchase
         self.stripe_refunded = false
         self.stripe_partially_refunded = true
       end
-      self.is_refund_chargeback_fee_waived = !charged_using_gumroad_merchant_account?
+      self.is_refund_chargeback_fee_waived = !charged_using_server_owner_account?
       if partially_refunded_previously && stripe_refunded
         refund = build_partial_full_refund(refunding_user_id:)
       else

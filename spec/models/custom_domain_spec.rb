@@ -36,12 +36,12 @@ describe CustomDomain do
 
   describe "#validate_domain_is_allowed" do
     before do
-      stub_const("ROOT_DOMAIN", "gumroad.com")
-      stub_const("DOMAIN", "gumroad.com")
-      stub_const("SHORT_DOMAIN", "gum.co")
-      stub_const("API_DOMAIN", "api.gumroad.com")
-      stub_const("DISCOVER_DOMAIN", "discover.gumroad.com")
-      stub_const("INTERNAL_GUMROAD_DOMAIN", "gumroad.net")
+      stub_const("ROOT_DOMAIN", "example.com")
+      stub_const("DOMAIN", "example.com")
+      stub_const("SHORT_DOMAIN", "example.com")
+      stub_const("API_DOMAIN", "api.example.com")
+      stub_const("DISCOVER_DOMAIN", "discover.example.com")
+      stub_const("INTERNAL_DOMAIN", "internal.example.com")
     end
 
     context "when the domain name matches one of the forbidden domain names" do
@@ -49,7 +49,7 @@ describe CustomDomain do
         @invalid_domains = [
           DOMAIN, ROOT_DOMAIN, SHORT_DOMAIN, API_DOMAIN, DISCOVER_DOMAIN,
           "subdomain.#{DOMAIN}", "subdomain.#{ROOT_DOMAIN}", "subdomain.#{SHORT_DOMAIN}",
-          "subdomain.#{API_DOMAIN}", "subdomain.#{DISCOVER_DOMAIN}", "subdomain.#{INTERNAL_GUMROAD_DOMAIN}"
+          "subdomain.#{API_DOMAIN}", "subdomain.#{DISCOVER_DOMAIN}", "subdomain.#{INTERNAL_DOMAIN}"
         ]
       end
 
