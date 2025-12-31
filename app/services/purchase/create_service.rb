@@ -6,15 +6,16 @@ class Purchase::CreateService < Purchase::BaseService
   RESERVED_URL_PARAMETERS = %w[code wanted referrer email as_modal as_embed debug affiliate_id].freeze
   INVENTORY_LOCK_ACQUISITION_TIMEOUT = 50.seconds
 
-  attr_reader :product, :params, :purchase_params, :gift_params, :buyer
+  attr_reader :product, :params, :purchase_params, :gift_params, :buyer, :buyer_cookie
   attr_accessor :purchase, :gift
 
-  def initialize(product:, params:, buyer: nil)
+  def initialize(product:, params:, buyer: nil, buyer_cookie: nil)
     @product = product
     @params = params
     @purchase_params = params[:purchase]
     @gift_params = params[:gift].presence
     @buyer = buyer
+    @buyer_cookie = buyer_cookie
   end
 
   def perform
@@ -287,6 +288,10 @@ class Purchase::CreateService < Purchase::BaseService
       end
 
       purchase.url_parameters = parse_url_parameters(params_for_purchase[:url_parameters])
+
+      # Set buyer_cookie for A/B test price enforcement (for guest buyers)
+      purchase.buyer_cookie = buyer_cookie if buyer_cookie.present?
+
       purchase
     end
 
