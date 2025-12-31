@@ -1,6 +1,6 @@
 # CrowdChurn
 
-CrowdChurn is a self-hostable e-commerce platform that enables creators to sell products directly to consumers. It is a fork of [Gumroad](https://github.com/antiwork/gumroad), designed for self-hosted deployments.
+CrowdChurn is a self-hostable e-commerce platform that enables creators to sell products and offer services directly to consumers. It is a fork of [Gumroad](https://github.com/antiwork/gumroad), designed for self-hosted deployments.
 
 ## Table of Contents
 
