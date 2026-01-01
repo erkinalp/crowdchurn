@@ -1166,6 +1166,138 @@ const StripePaymentRequest = () => {
   );
 };
 
+const KillBill = () => {
+  const [state, dispatch] = useState();
+  const fail = useFail();
+  const payLabel = usePayLabel();
+  const uid = React.useId();
+
+  const [walletAddress, setWalletAddress] = React.useState("");
+  const [isCryptocurrency, setIsCryptocurrency] = React.useState(false);
+  const [killBillConfig, setKillBillConfig] = React.useState<{
+    publicKey: string | null;
+    accountId: string | null;
+  } | null>(null);
+
+  React.useEffect(() => {
+    const publicKeyTag = document.querySelector<HTMLElement>('meta[name="killbill-public-key"]');
+    const accountIdTag = document.querySelector<HTMLElement>('meta[name="killbill-account-id"]');
+    const config = {
+      publicKey: publicKeyTag?.getAttribute("content") ?? null,
+      accountId: accountIdTag?.getAttribute("content") ?? null,
+    };
+    if (config.publicKey && config.accountId) {
+      setKillBillConfig(config);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!killBillConfig) return;
+    dispatch({
+      type: "add-payment-method",
+      paymentMethod: {
+        type: "killbill",
+        button: (
+          <PaymentMethodRadio paymentMethod="killbill">
+            <div className="flex w-full flex-col items-center justify-center gap-2 self-center">
+              <Icon name="outline-currency-dollar" />
+              <h4 className="text-center">Kill Bill</h4>
+            </div>
+          </PaymentMethodRadio>
+        ),
+      },
+    });
+  }, [killBillConfig]);
+
+  React.useEffect(() => {
+    if (state.status.type !== "starting" || state.paymentMethod !== "killbill") return;
+    if (!killBillConfig?.publicKey || !killBillConfig?.accountId) {
+      fail();
+      return;
+    }
+
+    (async () => {
+      try {
+        const response = await fetch("/api/killbill/payment_methods", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-KillBill-ApiKey": killBillConfig.publicKey ?? "",
+          },
+          body: JSON.stringify({
+            account_id: killBillConfig.accountId,
+            wallet_address: isCryptocurrency ? walletAddress : null,
+            is_cryptocurrency: isCryptocurrency,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to create Kill Bill payment method");
+        }
+
+        const data: { payment_method_id: string } = await response.json();
+
+        const selectedPaymentMethod: SelectedPaymentMethod = {
+          type: "killbill",
+          paymentMethodId: data.payment_method_id,
+          accountId: killBillConfig.accountId ?? "",
+          walletAddress: isCryptocurrency ? walletAddress : null,
+          isCryptocurrency,
+        };
+
+        dispatch({
+          type: "set-payment-method",
+          paymentMethod: await (requiresReusablePaymentMethod(state)
+            ? getReusablePaymentMethodResult(selectedPaymentMethod, { products: state.products })
+            : getPaymentMethodResult(selectedPaymentMethod)),
+        });
+      } catch {
+        fail();
+      }
+    })();
+  }, [state.status.type]);
+
+  if (!killBillConfig || state.paymentMethod !== "killbill") return null;
+
+  return (
+    <div style={{ borderTop: "none", paddingTop: "0" }}>
+      <div className="flex flex-col gap-4">
+        <fieldset>
+          <legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={isCryptocurrency}
+                onChange={(e) => setIsCryptocurrency(e.target.checked)}
+                disabled={isProcessing(state)}
+              />
+              Pay with cryptocurrency
+            </label>
+          </legend>
+        </fieldset>
+        {isCryptocurrency ? (
+          <fieldset>
+            <legend>
+              <label htmlFor={`${uid}walletAddress`}>Wallet address (for refunds)</label>
+            </legend>
+            <input
+              id={`${uid}walletAddress`}
+              type="text"
+              placeholder="Your cryptocurrency wallet address"
+              value={walletAddress}
+              onChange={(e) => setWalletAddress(e.target.value)}
+              disabled={isProcessing(state)}
+            />
+          </fieldset>
+        ) : null}
+        <Button color="primary" onClick={() => dispatch({ type: "offer" })} disabled={isSubmitDisabled(state)}>
+          {payLabel}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 export const PaymentForm = ({
   className,
   notice,
@@ -1246,6 +1378,7 @@ export const PaymentForm = ({
           <StripeElementsProvider>
             <StripePaymentRequest />
           </StripeElementsProvider>
+          <KillBill />
         </>
       ) : null}
       {recaptcha.container}

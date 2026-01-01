@@ -19,7 +19,7 @@ import { useRunOnce } from "$app/components/useRunOnce";
 
 enableMapSet();
 
-export type PaymentMethodType = "paypal" | "stripePaymentRequest" | "card";
+export type PaymentMethodType = "paypal" | "stripePaymentRequest" | "card" | "killbill";
 export type PaymentMethod = { type: PaymentMethodType; button: React.ReactElement };
 
 export type Product = {
