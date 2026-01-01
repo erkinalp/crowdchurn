@@ -149,6 +149,10 @@ Rails.application.routes.draw do
       resources :setup_intents, only: :create
     end
 
+    namespace :killbill do
+      resources :setup_intents, only: [:create, :show]
+    end
+
     post "/shipments/verify_shipping_address", to: "shipments#verify_shipping_address"
 
     # discover/autocomplete_search
