@@ -1001,6 +1001,7 @@ Rails.application.routes.draw do
     post "/sns-aws-config-webhook", to: "foreign_webhooks#sns_aws_config"
     post "/grmc-webhook", to: "foreign_webhooks#grmc"
     post "/resend-webhook", to: "foreign_webhooks#resend"
+    post "/killbill-webhook", to: "foreign_webhooks#killbill"
 
     # secure redirect
     get "/secure_url_redirect", to: "secure_redirect#new", as: :secure_url_redirect
