@@ -1,5 +1,20 @@
 # frozen_string_literal: true
 
+# Represents a refund transaction in Kill Bill
+#
+# IMPORTANT: Cryptocurrency vs Fiat Refund Behavior
+#
+# Cryptocurrency refunds are NET (not GROSS):
+# - Original blockchain transaction fees are NOT refunded
+# - These fees were paid to miners/validators and are irrecoverable by design
+# - The customer receives the payment amount minus any network fees
+# - This is an inherent limitation of blockchain technology, not a policy choice
+#
+# Fiat refunds are typically GROSS:
+# - Payment processor fees may be reversed (depends on processor policy)
+# - The customer receives the full original payment amount
+# - Gumroad's fee portion is also refunded proportionally
+#
 class KillbillChargeRefund < ChargeRefund
   attr_reader :killbill_payment, :refund_transaction, :is_cryptocurrency
 
@@ -7,6 +22,7 @@ class KillbillChargeRefund < ChargeRefund
   #
   # For cryptocurrency refunds, this represents a credit transaction sent to the
   # customer's wallet, since crypto transactions cannot be reversed.
+  # Note: Crypto refunds are NET - blockchain transaction fees are not recoverable.
   def initialize(killbill_payment, refund_transaction, is_cryptocurrency: false)
     @killbill_payment = killbill_payment
     @refund_transaction = refund_transaction
@@ -42,13 +58,14 @@ class KillbillChargeRefund < ChargeRefund
         cents: -1 * refund_amount_cents
       )
 
-      # For cryptocurrency refunds, the full amount goes to the customer
-      # For fiat refunds, we may need to account for fee reversals
+      # Cryptocurrency refunds are NET - blockchain transaction fees are not recoverable
+      # Fiat refunds are GROSS - processor fees may be reversed
       gumroad_amount = if is_cryptocurrency
-        # No fee reversal for crypto refunds - we're sending new funds
+        # NET refund: No fee reversal for crypto - original blockchain fees are lost
+        # The customer receives only the payment amount, not the network fees they paid
         FlowOfFunds::Amount.new(currency: currency, cents: 0)
       else
-        # For fiat refunds, Gumroad's fee portion is also refunded
+        # GROSS refund: For fiat refunds, Gumroad's fee portion is also refunded
         gumroad_fee_cents = extract_gumroad_fee_refund
         FlowOfFunds::Amount.new(currency: currency, cents: -1 * gumroad_fee_cents)
       end

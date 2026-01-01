@@ -377,6 +377,15 @@ class KillbillChargeProcessor
 
     # Refund a cryptocurrency payment by creating a credit transaction
     # Since crypto transactions cannot be reversed, we send new funds to the customer
+    #
+    # IMPORTANT: Cryptocurrency refunds are NET, not GROSS
+    # - The original blockchain transaction fees are NOT refunded
+    # - These fees were paid to miners/validators and are irrecoverable
+    # - The refund amount is the payment amount minus any transaction fees
+    # - This is different from fiat refunds where processor fees may be reversed
+    #
+    # Example: Customer pays 0.01 BTC + 0.0001 BTC network fee
+    # Refund sends: 0.01 BTC (the 0.0001 BTC fee is lost)
     def refund_cryptocurrency_payment!(payment, amount_cents, options, is_for_fraud)
       # Get the customer's wallet address from the original payment
       wallet_address = extract_wallet_address(payment)
