@@ -5,6 +5,7 @@ class Price < BasePrice
 
   validates :link, presence: true
   validate :recurrence_validation
+  validate :unique_price_per_currency, on: :create
 
   after_commit :invalidate_product_cache
 
@@ -28,6 +29,20 @@ class Price < BasePrice
       return if recurrence.in?(ALLOWED_RECURRENCES)
 
       errors.add(:base, "Invalid recurrence")
+    end
+
+    def unique_price_per_currency
+      return unless link.present?
+
+      existing_price = link.prices.alive.where(
+        currency:,
+        recurrence:,
+        flags:
+      ).exists?
+
+      return unless existing_price
+
+      errors.add(:base, "A price for this currency, recurrence, and type already exists")
     end
 
     def invalidate_product_cache
