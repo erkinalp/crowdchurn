@@ -3,6 +3,7 @@ import { formatPrice, parseUnitStringToPriceCents, priceCentsToUnit } from "$app
 import currenciesInfo from "../../../config/currencies.json";
 
 const currenciesMap = currenciesInfo.currencies;
+const cryptocurrenciesMap = currenciesInfo.cryptocurrencies;
 
 // Some terminology:
 //
@@ -14,6 +15,8 @@ const currenciesMap = currenciesInfo.currencies;
 // (In some currencies, like JPY, units _are_ cents.)
 
 export type CurrencyCode = keyof typeof currenciesMap;
+export type CryptocurrencyCode = keyof typeof cryptocurrenciesMap;
+
 type Currency = {
   code: CurrencyCode;
   isSingleUnit: boolean;
@@ -23,7 +26,40 @@ type Currency = {
   minPriceCents: number;
 };
 
-export const currencyCodeList: CurrencyCode[] = Object.keys(currenciesMap);
+type Cryptocurrency = {
+  code: CryptocurrencyCode;
+  longSymbol: string;
+  displayFormat: string;
+  minPriceCents: number;
+  decimals: number;
+  subunit: string;
+  subunitToUnit: number;
+};
+
+export const currencyCodeList: CurrencyCode[] = Object.keys(currenciesMap) as CurrencyCode[];
+export const cryptocurrencyCodeList: CryptocurrencyCode[] = Object.keys(cryptocurrenciesMap) as CryptocurrencyCode[];
+export const allCurrencyCodeList: (CurrencyCode | CryptocurrencyCode)[] = [
+  ...currencyCodeList,
+  ...cryptocurrencyCodeList,
+];
+
+export const isCryptocurrency = (code: string): code is CryptocurrencyCode => {
+  const lowerCode = code.toLowerCase();
+  return cryptocurrencyCodeList.some((c) => c === lowerCode);
+};
+
+export const findCryptocurrencyByCode = (code: CryptocurrencyCode): Cryptocurrency => {
+  const spec = cryptocurrenciesMap[code];
+  return {
+    code,
+    longSymbol: spec.symbol,
+    displayFormat: spec.display_format,
+    minPriceCents: spec.min_price,
+    decimals: spec.decimals,
+    subunit: spec.subunit,
+    subunitToUnit: spec.subunit_to_unit,
+  };
+};
 
 export const findCurrencyByCode = (code: CurrencyCode): Currency => {
   const spec = currenciesMap[code];

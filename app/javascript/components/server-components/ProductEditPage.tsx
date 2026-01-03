@@ -30,6 +30,8 @@ import {
   ExistingFileEntry,
   ShippingCountry,
   ContentUpdates,
+  AvailableCurrency,
+  AvailableCryptocurrency,
 } from "$app/components/ProductEdit/state";
 import { ImageUploadSettingsContext } from "$app/components/RichTextEditor";
 import { showAlert } from "$app/components/server-components/Alert";
@@ -79,6 +81,8 @@ type Props = {
   aws_key: string;
   s3_url: string;
   available_countries: ShippingCountry[];
+  available_currencies: AvailableCurrency[];
+  available_cryptocurrencies: AvailableCryptocurrency[];
   google_client_id: string;
   google_calendar_enabled: boolean;
   seller_refund_policy_enabled: boolean;
@@ -110,6 +114,8 @@ const createContextValue = (props: Props) => ({
   awsKey: props.aws_key,
   s3Url: props.s3_url,
   availableCountries: props.available_countries,
+  availableCurrencies: props.available_currencies,
+  availableCryptocurrencies: props.available_cryptocurrencies,
   saving: false,
   save: async () => {},
   googleClientId: props.google_client_id,

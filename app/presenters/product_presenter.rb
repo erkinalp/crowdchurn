@@ -199,6 +199,15 @@ class ProductPresenter
         public_files: product.alive_public_files.attached.map { PublicFilePresenter.new(public_file: _1).props },
         audio_previews_enabled: Feature.active?(:audio_previews, product.user),
         community_chat_enabled: Feature.active?(:communities, product.user) ? product.community_chat_enabled? : nil,
+        pricing_mode: product.pricing_mode || "legacy",
+        currency_prices: product.alive_prices.map do |price|
+          {
+            id: price.external_id,
+            currency: price.currency,
+            price_cents: price.price_cents,
+            recurrence: price.recurrence,
+          }
+        end,
       },
       id: product.external_id,
       unique_permalink: product.unique_permalink,
@@ -241,6 +250,23 @@ class ProductPresenter
         fine_print: product.user.refund_policy.fine_print,
       },
       cancellation_discounts_enabled: Feature.active?(:cancellation_discounts, product.user),
+      available_currencies: CURRENCY_CHOICES.map do |code, info|
+        {
+          code: code.to_s,
+          symbol: info["symbol"],
+          display_format: info["display_format"],
+          min_price_cents: info["min_price"],
+        }
+      end,
+      available_cryptocurrencies: CRYPTO_CURRENCIES.map do |code, info|
+        {
+          code: code.to_s,
+          symbol: info["symbol"],
+          display_format: info["display_format"],
+          min_price_cents: info["min_price"],
+          decimals: info["decimals"],
+        }
+      end,
     }
   end
 
