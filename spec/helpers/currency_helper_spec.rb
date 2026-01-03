@@ -150,4 +150,91 @@ describe CurrencyHelper do
       end
     end
   end
+
+  describe "#is_crypto_currency?" do
+    it "returns true for cryptocurrencies" do
+      expect(is_crypto_currency?("btc")).to be true
+      expect(is_crypto_currency?("eth")).to be true
+      expect(is_crypto_currency?("usdt")).to be true
+      expect(is_crypto_currency?("usdc")).to be true
+      expect(is_crypto_currency?("ltc")).to be true
+      expect(is_crypto_currency?("sol")).to be true
+    end
+
+    it "returns false for fiat currencies" do
+      expect(is_crypto_currency?("usd")).to be false
+      expect(is_crypto_currency?("gbp")).to be false
+      expect(is_crypto_currency?("eur")).to be false
+      expect(is_crypto_currency?("jpy")).to be false
+    end
+
+    it "handles case insensitivity" do
+      expect(is_crypto_currency?("BTC")).to be true
+      expect(is_crypto_currency?("ETH")).to be true
+      expect(is_crypto_currency?("USD")).to be false
+    end
+  end
+
+  describe "#is_stablecoin?" do
+    it "returns true for stablecoins" do
+      expect(is_stablecoin?("usdt")).to be true
+      expect(is_stablecoin?("usdc")).to be true
+      expect(is_stablecoin?("dai")).to be true
+    end
+
+    it "returns false for volatile cryptocurrencies" do
+      expect(is_stablecoin?("btc")).to be false
+      expect(is_stablecoin?("eth")).to be false
+      expect(is_stablecoin?("ltc")).to be false
+    end
+
+    it "returns false for fiat currencies" do
+      expect(is_stablecoin?("usd")).to be false
+      expect(is_stablecoin?("eur")).to be false
+    end
+  end
+
+  describe "#is_volatile_crypto?" do
+    it "returns true for volatile cryptocurrencies" do
+      expect(is_volatile_crypto?("btc")).to be true
+      expect(is_volatile_crypto?("eth")).to be true
+      expect(is_volatile_crypto?("ltc")).to be true
+      expect(is_volatile_crypto?("sol")).to be true
+    end
+
+    it "returns false for stablecoins" do
+      expect(is_volatile_crypto?("usdt")).to be false
+      expect(is_volatile_crypto?("usdc")).to be false
+      expect(is_volatile_crypto?("dai")).to be false
+    end
+
+    it "returns false for fiat currencies" do
+      expect(is_volatile_crypto?("usd")).to be false
+      expect(is_volatile_crypto?("eur")).to be false
+    end
+  end
+
+  describe "#crypto_decimals" do
+    it "returns correct decimals for cryptocurrencies" do
+      expect(crypto_decimals("btc")).to eq 8
+      expect(crypto_decimals("eth")).to eq 18
+      expect(crypto_decimals("usdt")).to eq 6
+      expect(crypto_decimals("usdc")).to eq 6
+      expect(crypto_decimals("sol")).to eq 9
+      expect(crypto_decimals("ada")).to eq 6
+    end
+
+    it "returns default for unknown currencies" do
+      expect(crypto_decimals("unknown")).to eq 8
+    end
+  end
+
+  describe "#crypto_subunit_to_unit" do
+    it "returns correct subunit_to_unit for cryptocurrencies" do
+      expect(crypto_subunit_to_unit("btc")).to eq 100_000_000
+      expect(crypto_subunit_to_unit("eth")).to eq 1_000_000_000_000_000_000
+      expect(crypto_subunit_to_unit("usdt")).to eq 1_000_000
+      expect(crypto_subunit_to_unit("sol")).to eq 1_000_000_000
+    end
+  end
 end

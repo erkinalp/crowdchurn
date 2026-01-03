@@ -15,6 +15,28 @@ module CurrencyHelper
     CRYPTO_CURRENCIES[currency_type.to_s.downcase]
   end
 
+  # Returns the decimal precision for a cryptocurrency
+  def crypto_decimals(currency_type)
+    config = get_crypto_currency_config(currency_type)
+    config&.dig("decimals") || config&.dig(:decimals) || 8
+  end
+
+  # Returns the subunit to unit conversion factor for a cryptocurrency
+  def crypto_subunit_to_unit(currency_type)
+    config = get_crypto_currency_config(currency_type)
+    config&.dig("subunit_to_unit") || config&.dig(:subunit_to_unit) || 100_000_000
+  end
+
+  # Returns true if the currency is a stablecoin (lower volatility)
+  def is_stablecoin?(currency_type)
+    Currency.stablecoin?(currency_type)
+  end
+
+  # Returns true if the currency is volatile (non-stablecoin crypto)
+  def is_volatile_crypto?(currency_type)
+    Currency.volatile?(currency_type)
+  end
+
   def currency_namespace
     Redis::Namespace.new(:currencies, redis: $redis)
   end
@@ -53,6 +75,22 @@ module CurrencyHelper
     currency_namespace.get(currency_type.to_s)
   end
 
+  # Query crypto exchange rate from configured source
+  # Falls back to cached rate if source is unavailable
+  def query_crypto_rate(currency_type)
+    return nil if CRYPTO_EXCHANGE_RATE_SOURCE.blank?
+
+    begin
+      crypto_rates = JSON.parse(URI.open(CRYPTO_EXCHANGE_RATE_SOURCE).read)["rates"]
+      crypto_rates&.[](currency_type.to_s.upcase)
+    rescue StandardError => e
+      Rails.logger.warn("Failed to query crypto rate for #{currency_type}: #{e.message}")
+      currency_namespace.get(currency_type.to_s.upcase)
+    end
+  end
+
+  # Get rate with crypto support
+  # For volatile crypto, rates are cached with shorter TTL to handle price volatility
   def get_rate(currency_type)
     return "1.0" if currency_type.to_s.downcase == instance_base_currency
     formatted_currency = currency_type.to_s.upcase
@@ -60,10 +98,70 @@ module CurrencyHelper
     if rate && rate.to_f > 0
       rate.to_f.to_s
     else
-      new_rate = query_rate(formatted_currency)
-      currency_namespace.set(formatted_currency.to_s, new_rate)
+      new_rate = if is_crypto_currency?(currency_type)
+        query_crypto_rate(formatted_currency) || query_rate(formatted_currency)
+      else
+        query_rate(formatted_currency)
+      end
+      currency_namespace.set(formatted_currency.to_s, new_rate) if new_rate
       new_rate.to_f.to_s
     end
+  end
+
+  # Get crypto rate with volatility-aware caching
+  # Volatile crypto rates are refreshed more frequently than stablecoins
+  # Returns the rate as a string for consistency with fiat rates
+  def get_crypto_rate(currency_type)
+    return "1.0" if currency_type.to_s.downcase == instance_base_currency
+    return nil unless is_crypto_currency?(currency_type)
+
+    formatted_currency = currency_type.to_s.upcase
+    cache_key = "crypto_rate_#{formatted_currency}"
+
+    # Check for cached rate
+    cached_rate = currency_namespace.get(cache_key)
+    return cached_rate.to_f.to_s if cached_rate && cached_rate.to_f > 0
+
+    # Query fresh rate
+    new_rate = query_crypto_rate(formatted_currency)
+    if new_rate
+      currency_namespace.set(cache_key, new_rate)
+      # Also update the main currency namespace for compatibility
+      currency_namespace.set(formatted_currency, new_rate)
+    end
+
+    new_rate.to_f.to_s
+  end
+
+  # Lock a crypto rate for a transaction to protect against volatility
+  # Returns a rate lock token that can be used to retrieve the locked rate
+  # Rate locks expire after the specified duration (default: 15 minutes)
+  def lock_crypto_rate(currency_type, duration_seconds: 900)
+    return nil unless is_volatile_crypto?(currency_type)
+
+    rate = get_crypto_rate(currency_type)
+    return nil unless rate
+
+    lock_token = SecureRandom.hex(16)
+    lock_key = "crypto_rate_lock_#{lock_token}"
+
+    currency_namespace.setex(lock_key, duration_seconds, { currency: currency_type, rate: rate }.to_json)
+    lock_token
+  end
+
+  # Retrieve a locked crypto rate by its token
+  # Returns nil if the lock has expired or doesn't exist
+  def get_locked_crypto_rate(lock_token)
+    return nil if lock_token.blank?
+
+    lock_key = "crypto_rate_lock_#{lock_token}"
+    lock_data = currency_namespace.get(lock_key)
+    return nil unless lock_data
+
+    parsed = JSON.parse(lock_data)
+    parsed["rate"]
+  rescue JSON::ParserError
+    nil
   end
 
   def get_base_currency_units(currency_type, quantity, rate: nil)

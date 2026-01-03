@@ -121,7 +121,27 @@ module Product::Prices
   end
 
   def currency
-    CURRENCY_CHOICES[price_currency_type]
+    CURRENCY_CHOICES[price_currency_type] || CRYPTO_CURRENCIES[price_currency_type.to_s.downcase]
+  end
+
+  # Returns true if the product is priced in a cryptocurrency
+  def crypto_priced?
+    is_crypto_currency?(price_currency_type)
+  end
+
+  # Returns true if the product is priced in a volatile cryptocurrency (non-stablecoin)
+  def volatile_crypto_priced?
+    crypto_priced? && !is_stablecoin?(price_currency_type)
+  end
+
+  # Returns the decimal precision for the product's currency
+  def price_decimals
+    Currency.decimals_for(price_currency_type)
+  end
+
+  # Returns the display decimal precision for the product's currency
+  def price_display_decimals
+    Currency.display_decimals_for(price_currency_type)
   end
 
   def min_price_formatted
