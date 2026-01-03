@@ -739,4 +739,340 @@ describe Product::Prices do
       end
     end
   end
+
+  describe "multi-currency pricing modes" do
+    let(:product) { create(:product, price_cents: 10_00, price_currency_type: "usd") }
+
+    describe "#price_for_currency" do
+      it "returns nil when currency is blank" do
+        expect(product.price_for_currency(nil)).to be_nil
+        expect(product.price_for_currency("")).to be_nil
+      end
+
+      it "returns the price for the specified currency" do
+        expect(product.price_for_currency("usd")).to be_present
+        expect(product.price_for_currency("usd").price_cents).to eq(10_00)
+      end
+
+      it "returns nil when no price exists for the currency" do
+        expect(product.price_for_currency("eur")).to be_nil
+      end
+
+      it "finds price with matching recurrence for subscriptions" do
+        subscription = create(:subscription_product, price_cents: 5_00)
+        create(:price, link: subscription, price_cents: 50_00, recurrence: BasePrice::Recurrence::YEARLY)
+
+        monthly_price = subscription.price_for_currency("usd", recurrence: BasePrice::Recurrence::MONTHLY)
+        yearly_price = subscription.price_for_currency("usd", recurrence: BasePrice::Recurrence::YEARLY)
+
+        expect(monthly_price.price_cents).to eq(5_00)
+        expect(yearly_price.price_cents).to eq(50_00)
+      end
+
+      it "finds rental prices when is_rental is true" do
+        rental_product = create(:product, price_cents: 10_00, rental_price_cents: 3_00, purchase_type: :buy_and_rent)
+
+        buy_price = rental_product.price_for_currency("usd", is_rental: false)
+        rental_price = rental_product.price_for_currency("usd", is_rental: true)
+
+        expect(buy_price.price_cents).to eq(10_00)
+        expect(rental_price.price_cents).to eq(3_00)
+      end
+    end
+
+    describe "#has_price_for_currency?" do
+      it "returns true when price exists for currency" do
+        expect(product.has_price_for_currency?("usd")).to be true
+      end
+
+      it "returns false when no price exists for currency" do
+        expect(product.has_price_for_currency?("eur")).to be false
+      end
+    end
+
+    describe "#resolve_price_for_buyer" do
+      context "legacy pricing mode (default)" do
+        before { product.update!(pricing_mode: :legacy) }
+
+        it "returns product price in product currency regardless of buyer currency" do
+          result = product.resolve_price_for_buyer(buyer_currency: "eur")
+
+          expect(result[:price_cents]).to eq(10_00)
+          expect(result[:currency]).to eq("usd")
+          expect(result[:conversion_needed]).to be true
+          expect(result[:pricing_mode]).to eq(:legacy)
+        end
+
+        it "indicates no conversion needed when buyer currency matches product currency" do
+          result = product.resolve_price_for_buyer(buyer_currency: "usd")
+
+          expect(result[:conversion_needed]).to be false
+        end
+
+        it "uses product currency when buyer currency is not specified" do
+          result = product.resolve_price_for_buyer
+
+          expect(result[:currency]).to eq("usd")
+          expect(result[:conversion_needed]).to be false
+        end
+      end
+
+      context "gross pricing mode" do
+        before { product.update!(pricing_mode: :gross) }
+
+        it "returns same numeric value in buyer currency" do
+          result = product.resolve_price_for_buyer(buyer_currency: "eur")
+
+          expect(result[:price_cents]).to eq(10_00)
+          expect(result[:currency]).to eq("eur")
+          expect(result[:source_currency]).to eq("usd")
+          expect(result[:conversion_needed]).to be false
+          expect(result[:pricing_mode]).to eq(:gross)
+        end
+
+        it "adjusts for single_unit currencies" do
+          # USD (cents) to JPY (single unit)
+          result = product.resolve_price_for_buyer(buyer_currency: "jpy")
+
+          # 1000 cents -> 10 JPY (divided by 100)
+          expect(result[:price_cents]).to eq(10)
+          expect(result[:currency]).to eq("jpy")
+        end
+
+        context "with single_unit source currency" do
+          let(:jpy_product) { create(:product, price_cents: 100, price_currency_type: "jpy", pricing_mode: :gross) }
+
+          it "adjusts when converting to cent-based currency" do
+            result = jpy_product.resolve_price_for_buyer(buyer_currency: "usd")
+
+            # 100 JPY -> 10000 cents (multiplied by 100)
+            expect(result[:price_cents]).to eq(10000)
+            expect(result[:currency]).to eq("usd")
+          end
+        end
+      end
+
+      context "multi_currency pricing mode" do
+        before { product.update!(pricing_mode: :multi_currency) }
+
+        it "returns explicit price when it exists for buyer currency" do
+          create(:price, link: product, price_cents: 9_00, currency: "eur")
+
+          result = product.resolve_price_for_buyer(buyer_currency: "eur")
+
+          expect(result[:price_cents]).to eq(9_00)
+          expect(result[:currency]).to eq("eur")
+          expect(result[:conversion_needed]).to be false
+          expect(result[:explicit_price]).to be true
+          expect(result[:pricing_mode]).to eq(:multi_currency)
+        end
+
+        it "falls back to default price when no explicit price exists" do
+          result = product.resolve_price_for_buyer(buyer_currency: "gbp")
+
+          expect(result[:price_cents]).to eq(10_00)
+          expect(result[:currency]).to eq("usd")
+          expect(result[:conversion_needed]).to be true
+          expect(result[:explicit_price]).to be false
+        end
+
+        it "returns default price when buyer currency matches product currency" do
+          result = product.resolve_price_for_buyer(buyer_currency: "usd")
+
+          expect(result[:price_cents]).to eq(10_00)
+          expect(result[:currency]).to eq("usd")
+          expect(result[:conversion_needed]).to be false
+        end
+      end
+    end
+
+    describe "#default_price_cents with buyer_currency" do
+      context "legacy mode" do
+        before { product.update!(pricing_mode: :legacy) }
+
+        it "returns product price regardless of buyer currency" do
+          expect(product.default_price_cents(buyer_currency: "eur")).to eq(10_00)
+          expect(product.default_price_cents(buyer_currency: "gbp")).to eq(10_00)
+        end
+
+        it "maintains backward compatibility when called without arguments" do
+          expect(product.default_price_cents).to eq(10_00)
+        end
+      end
+
+      context "gross mode" do
+        before { product.update!(pricing_mode: :gross) }
+
+        it "returns same numeric value for any currency" do
+          expect(product.default_price_cents(buyer_currency: "eur")).to eq(10_00)
+        end
+
+        it "adjusts for single_unit currencies" do
+          expect(product.default_price_cents(buyer_currency: "jpy")).to eq(10)
+        end
+      end
+
+      context "multi_currency mode" do
+        before { product.update!(pricing_mode: :multi_currency) }
+
+        it "returns explicit price when available" do
+          create(:price, link: product, price_cents: 8_50, currency: "eur")
+
+          expect(product.default_price_cents(buyer_currency: "eur")).to eq(8_50)
+        end
+
+        it "returns default price when no explicit price exists" do
+          expect(product.default_price_cents(buyer_currency: "gbp")).to eq(10_00)
+        end
+      end
+    end
+
+    describe "#default_price with buyer_currency" do
+      context "multi_currency mode" do
+        before { product.update!(pricing_mode: :multi_currency) }
+
+        it "returns Price object for explicit currency price" do
+          eur_price = create(:price, link: product, price_cents: 9_00, currency: "eur")
+
+          result = product.default_price(buyer_currency: "eur")
+
+          expect(result).to eq(eur_price)
+          expect(result.currency).to eq("eur")
+        end
+
+        it "returns default Price object when no explicit price exists" do
+          result = product.default_price(buyer_currency: "gbp")
+
+          expect(result.currency).to eq("usd")
+          expect(result.price_cents).to eq(10_00)
+        end
+      end
+    end
+
+    describe "#min_price_for_currency" do
+      it "returns minimum price for USD" do
+        expect(product.min_price_for_currency("usd")).to eq(99)
+      end
+
+      it "returns minimum price for EUR" do
+        expect(product.min_price_for_currency("eur")).to eq(79)
+      end
+
+      it "returns minimum price for JPY" do
+        expect(product.min_price_for_currency("jpy")).to eq(99)
+      end
+
+      it "returns 0 for unknown currency" do
+        expect(product.min_price_for_currency("xyz")).to eq(0)
+      end
+    end
+
+    describe "#currency_single_unit?" do
+      it "returns false for USD" do
+        expect(product.currency_single_unit?("usd")).to be false
+      end
+
+      it "returns true for JPY" do
+        expect(product.currency_single_unit?("jpy")).to be true
+      end
+
+      it "returns false for unknown currency" do
+        expect(product.currency_single_unit?("xyz")).to be false
+      end
+    end
+
+    describe "rental prices with pricing modes" do
+      let(:rental_product) do
+        create(:product, price_cents: 10_00, rental_price_cents: 3_00, purchase_type: :buy_and_rent)
+      end
+
+      context "legacy mode" do
+        before { rental_product.update!(pricing_mode: :legacy) }
+
+        it "returns rental price in product currency" do
+          expect(rental_product.rental_price_cents(buyer_currency: "eur")).to eq(3_00)
+        end
+      end
+
+      context "gross mode" do
+        before { rental_product.update!(pricing_mode: :gross) }
+
+        it "returns same numeric rental value in buyer currency" do
+          expect(rental_product.rental_price_cents(buyer_currency: "eur")).to eq(3_00)
+        end
+      end
+
+      context "multi_currency mode" do
+        before { rental_product.update!(pricing_mode: :multi_currency) }
+
+        it "returns explicit rental price when available" do
+          create(:price, link: rental_product, price_cents: 2_50, currency: "eur", is_rental: true)
+
+          expect(rental_product.rental_price_cents(buyer_currency: "eur")).to eq(2_50)
+        end
+
+        it "falls back to default rental price when no explicit price exists" do
+          expect(rental_product.rental_price_cents(buyer_currency: "gbp")).to eq(3_00)
+        end
+      end
+    end
+
+    describe "subscription products with pricing modes" do
+      let(:subscription) do
+        create(:subscription_product, price_cents: 5_00, subscription_duration: :monthly)
+      end
+
+      before do
+        create(:price, link: subscription, price_cents: 50_00, recurrence: BasePrice::Recurrence::YEARLY)
+      end
+
+      context "multi_currency mode" do
+        before { subscription.update!(pricing_mode: :multi_currency) }
+
+        it "finds explicit price for currency and recurrence" do
+          create(:price, link: subscription, price_cents: 4_50, currency: "eur", recurrence: BasePrice::Recurrence::MONTHLY)
+
+          result = subscription.resolve_price_for_buyer(
+            buyer_currency: "eur",
+            recurrence: BasePrice::Recurrence::MONTHLY
+          )
+
+          expect(result[:price_cents]).to eq(4_50)
+          expect(result[:currency]).to eq("eur")
+          expect(result[:explicit_price]).to be true
+        end
+
+        it "falls back to default when no explicit price for recurrence" do
+          result = subscription.resolve_price_for_buyer(
+            buyer_currency: "eur",
+            recurrence: BasePrice::Recurrence::YEARLY
+          )
+
+          expect(result[:price_cents]).to eq(50_00)
+          expect(result[:currency]).to eq("usd")
+          expect(result[:explicit_price]).to be false
+        end
+      end
+    end
+
+    describe "backward compatibility" do
+      it "price_cents method still works without arguments" do
+        expect(product.price_cents).to eq(10_00)
+      end
+
+      it "default_price method still works without arguments" do
+        expect(product.default_price).to be_present
+        expect(product.default_price.price_cents).to eq(10_00)
+      end
+
+      it "buy_price_cents method still works without arguments" do
+        expect(product.buy_price_cents).to eq(10_00)
+      end
+
+      it "rental_price_cents method still works for rental products" do
+        rental_product = create(:product, price_cents: 10_00, rental_price_cents: 3_00, purchase_type: :buy_and_rent)
+        expect(rental_product.rental_price_cents).to eq(3_00)
+      end
+    end
+  end
 end
