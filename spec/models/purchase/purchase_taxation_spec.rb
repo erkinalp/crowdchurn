@@ -814,4 +814,131 @@ describe "PurchaseTaxation", :vcr do
       end
     end
   end
+
+  describe "shipping mode handling" do
+    let(:seller) { create(:user) }
+    let(:merchant_account) { create(:merchant_account_stripe_connect, user: seller) }
+
+    before do
+      Feature.activate_user(:merchant_migration, seller)
+      create(:user_compliance_info, user: seller)
+    end
+
+    describe "shipping_added mode (default)" do
+      let(:price) { 10_00 }
+      let(:product) do
+        product = create(:product, user: seller, price_cents: price, shipping_mode: :shipping_added)
+        product.is_physical = true
+        product.require_shipping = true
+        product.shipping_destinations << ShippingDestination.new(country_code: "US", one_item_rate_cents: 5_00, multiple_items_rate_cents: 2_00)
+        product.save!
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               full_name: "Test User",
+               street_address: "123 Test St",
+               city: "San Francisco",
+               state: "CA",
+               zip_code: "94107",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "calculates and adds shipping to the price" do
+        expect(purchase.shipping_cents).to eq(5_00)
+        expect(purchase.total_transaction_cents).to eq(15_00) # price + shipping
+      end
+    end
+
+    describe "shipping_inclusive mode" do
+      let(:gross_price) { 15_00 } # Price includes shipping
+      let(:product) do
+        product = create(:product, user: seller, price_cents: gross_price, pricing_mode: :gross, shipping_mode: :shipping_inclusive)
+        product.is_physical = true
+        product.require_shipping = true
+        product.shipping_destinations << ShippingDestination.new(country_code: "US", one_item_rate_cents: 5_00, multiple_items_rate_cents: 2_00)
+        product.save!
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: gross_price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               full_name: "Test User",
+               street_address: "123 Test St",
+               city: "San Francisco",
+               state: "CA",
+               zip_code: "94107",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "does not add shipping to the price (shipping is included)" do
+        expect(purchase.shipping_cents).to eq(0)
+        expect(purchase.total_transaction_cents).to eq(15_00) # Gross price unchanged
+      end
+    end
+
+    describe "no_shipping mode" do
+      let(:price) { 10_00 }
+      let(:product) do
+        product = create(:product, user: seller, price_cents: price, shipping_mode: :no_shipping)
+        product.is_physical = true
+        product.require_shipping = true
+        product.shipping_destinations << ShippingDestination.new(country_code: "US", one_item_rate_cents: 5_00, multiple_items_rate_cents: 2_00)
+        product.save!
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               full_name: "Test User",
+               street_address: "123 Test St",
+               city: "San Francisco",
+               state: "CA",
+               zip_code: "94107",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "does not charge for shipping (free shipping)" do
+        expect(purchase.shipping_cents).to eq(0)
+        expect(purchase.total_transaction_cents).to eq(10_00) # Price only, no shipping
+      end
+    end
+  end
 end

@@ -3454,6 +3454,15 @@ class Purchase < ApplicationRecord
       return unless link.is_physical
       return if country.blank?
 
+      # Handle shipping mode for gross pricing
+      # - shipping_added: Calculate and add shipping to price (default behavior)
+      # - shipping_inclusive: Shipping is included in the product price (no additional charge)
+      # - no_shipping: No shipping (free shipping or not applicable)
+      if link.shipping_inclusive? || link.no_shipping?
+        self.shipping_cents = 0
+        return
+      end
+
       self.shipping_cents = if is_recurring_subscription_charge
         subscription.original_purchase.shipping_cents
       elsif is_preorder_charge?
@@ -3462,6 +3471,15 @@ class Purchase < ApplicationRecord
         shipping_rate = ShippingDestination.for_product_and_country_code(product: link, country_code: Compliance::Countries.find_by_name(country)&.alpha2)
         shipping_rate.calculate_shipping_rate(quantity:, currency_type: link.price_currency_type)
       end
+    end
+
+    # Check if shipping is included in the gross price and needs decomposition.
+    # For shipping_inclusive mode with gross pricing, we need to extract the shipping
+    # portion from the gross price similar to how we decompose tax.
+    #
+    # Returns Boolean.
+    def shipping_included_in_gross_price?
+      link.gross? && link.shipping_inclusive?
     end
 
     def validate_shipping
