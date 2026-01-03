@@ -77,6 +77,16 @@ class Purchase < ApplicationRecord
 
   alias_attribute :total_transaction_cents_usd, :total_transaction_cents
 
+  # Multi-currency aliases: _base_units suffix for currency-agnostic naming
+  # These aliases allow code to use currency-agnostic names while maintaining
+  # backward compatibility with the existing _cents column names.
+  alias_attribute :price_base_units, :price_cents
+  alias_attribute :tax_base_units, :tax_cents
+  alias_attribute :gumroad_tax_base_units, :gumroad_tax_cents
+  alias_attribute :shipping_base_units, :shipping_cents
+  alias_attribute :total_transaction_base_units, :total_transaction_cents
+  alias_attribute :fee_base_units, :fee_cents
+
   belongs_to :link, optional: true
   has_one :url_redirect
   has_one :gift_given, class_name: "Gift", foreign_key: :gifter_purchase_id
@@ -2777,12 +2787,12 @@ class Purchase < ApplicationRecord
       calculate_taxes
       return if errors.present?
 
-      self.price_cents += tax_cents if was_tax_excluded_from_price
-      self.total_transaction_cents = self.price_cents + gumroad_tax_cents
+      self.price_base_units += tax_base_units if was_tax_excluded_from_price
+      self.total_transaction_base_units = self.price_base_units + gumroad_tax_base_units
 
-      # Actually add the shipping amount to price cents and update total transaction cents
-      self.price_cents += shipping_cents
-      self.total_transaction_cents += shipping_cents
+      # Actually add the shipping amount to price and update total transaction amount
+      self.price_base_units += shipping_base_units
+      self.total_transaction_base_units += shipping_base_units
 
       calculate_fees
 
@@ -3383,7 +3393,61 @@ class Purchase < ApplicationRecord
       end
 
       self.was_purchase_taxable = gumroad_tax_cents > 0 || tax_cents > 0
-      self.was_tax_excluded_from_price = true
+
+      # Handle gross (tax-inclusive) pricing mode
+      if link.gross? && was_purchase_taxable
+        apply_gross_pricing_tax_decomposition(tax_calculation)
+        self.was_tax_excluded_from_price = false
+      else
+        self.was_tax_excluded_from_price = true
+      end
+    end
+
+    # Decompose a gross (tax-inclusive) price into pre-tax amount and tax.
+    # For gross pricing, the seller sets a single tax-inclusive price, and we need
+    # to work backwards to determine the pre-tax amount and tax separately.
+    #
+    # Formula: gross_price = pre_tax * (1 + tax_rate)
+    # Therefore: pre_tax = gross_price / (1 + tax_rate)
+    # And: tax = gross_price - pre_tax
+    #
+    # tax_calculation - The SalesTaxCalculation object containing tax rate info.
+    def apply_gross_pricing_tax_decomposition(tax_calculation)
+      effective_tax_rate = get_effective_tax_rate(tax_calculation)
+
+      # Edge case: zero tax rate means no decomposition needed
+      return if effective_tax_rate.nil? || effective_tax_rate <= 0
+
+      gross_price_base_units = price_cents
+      pre_tax_base_units = (gross_price_base_units / (1 + effective_tax_rate)).round
+      calculated_tax_base_units = gross_price_base_units - pre_tax_base_units
+
+      # For gumroad-responsible tax, we need to adjust price_cents to be the pre-tax amount
+      # so that total_transaction_cents = price_cents + gumroad_tax_cents = gross_price
+      if gumroad_tax_cents > 0
+        self.price_cents = pre_tax_base_units
+        self.gumroad_tax_cents = calculated_tax_base_units
+      else
+        # For seller-responsible tax, price_cents stays as gross (includes tax)
+        # and tax_cents is set to the calculated tax amount
+        self.tax_cents = calculated_tax_base_units
+      end
+    end
+
+    # Get the effective combined tax rate from a tax calculation.
+    # Handles both lookup table rates (zip_tax_rate) and TaxJar rates.
+    #
+    # tax_calculation - The SalesTaxCalculation object.
+    #
+    # Returns Float tax rate (e.g., 0.10 for 10%) or nil if not available.
+    def get_effective_tax_rate(tax_calculation)
+      return nil unless tax_calculation
+
+      if tax_calculation.zip_tax_rate.present?
+        tax_calculation.zip_tax_rate.combined_rate
+      elsif tax_calculation.used_taxjar && tax_calculation.taxjar_info.present?
+        tax_calculation.taxjar_info[:combined_tax_rate]
+      end
     end
 
     def calculate_shipping
