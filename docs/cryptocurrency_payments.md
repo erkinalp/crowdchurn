@@ -29,11 +29,49 @@ The following cryptocurrencies are configured in `config/currencies.json`:
 | XRP | XRP | 6 | drop | Ripple |
 | TRX | TRX | 6 | sun | Tron |
 
-## Recommended KillBill Plugin: BTCPay Server
+## Payment Processor Options
 
-### Why BTCPay Server?
+The official KillBill cryptocurrency plugins (killbill-bitcoin-plugin, killbill-bitpay-plugin, killbill-coinbase-plugin) were archived in October 2019 and are no longer maintained. You'll need to integrate with a third-party cryptocurrency payment processor.
 
-The official KillBill cryptocurrency plugins (killbill-bitcoin-plugin, killbill-bitpay-plugin, killbill-coinbase-plugin) were archived in October 2019 and are no longer maintained. We recommend integrating with **BTCPay Server** instead:
+### Self-Hosted Options (Recommended)
+
+Self-hosted processors give you full control over funds and eliminate third-party risk.
+
+| Processor | Fees | Lightning | Direct to Wallet | Altcoins | Requirements |
+|-----------|------|-----------|------------------|----------|--------------|
+| [BTCPay Server](https://btcpayserver.org/) | None | Yes | Yes | Via plugins | 2GB RAM, 80GB storage, Docker |
+| [SatSale](https://github.com/SatSale/SatSale) | None | Yes | Yes | No | Python, Bitcoin node optional |
+| [BitcartCC](https://bitcartcc.com) | None | Yes | Yes | Yes (many) | 1GB RAM, 10GB storage, Docker |
+| [CryptoWoo](https://www.cryptowoo.com/) | $34-99/yr | No | Yes | Yes | PHP 5.6+, WordPress, WooCommerce |
+| [LnMe](https://github.com/bumi/lnme) | None | Yes | Yes | No | LND node |
+| [Keagate](https://github.com/dilan-dio4/Keagate) | None | No | Yes | Yes | 1GB RAM, Unix |
+
+### Hosted Non-Custodial Options
+
+These use your wallets but run on third-party infrastructure (simpler setup, less control).
+
+| Processor | Fees | Lightning | Direct to Wallet | Notes |
+|-----------|------|-----------|------------------|-------|
+| [Blockonomics](https://www.blockonomics.co/merchants) | 1% | No | Yes | Payment forwarding to fiat available |
+| [Zaprite](https://zaprite.com/) | $25/mo | Yes | Yes | Business-focused |
+| [Bitrequest](https://bitrequest.io/) | None | Yes | Yes | Simple invoicing |
+| [Paymento](https://paymento.io/) | 0.5% | No | Yes | Multi-currency |
+
+### Hosted Custodial Options
+
+These hold funds on your behalf (simplest setup, but counterparty risk and KYC requirements).
+
+| Processor | Fees | Lightning | Fiat Conversion | KYC Required |
+|-----------|------|-----------|-----------------|--------------|
+| [CoinGate](https://coingate.com/accept) | 1%+ | Yes | Yes | Yes (extensive) |
+| [OpenNode](https://www.opennode.co/) | 1% | Yes | Yes | Yes |
+| [NOWPayments](https://nowpayments.io/) | ≤0.5% | No | No | Selective |
+| [Coinbase Commerce](https://commerce.coinbase.com/) | 1% | No | Yes | Yes |
+| [BitPay](https://bitpay.com/) | 1% | No | Yes | Yes |
+
+### Recommended: BTCPay Server
+
+For self-hosted CrowdChurn instances, we recommend **BTCPay Server**:
 
 - **Self-hosted**: No third-party custody of funds
 - **No fees**: No transaction, processing, or subscription fees
@@ -243,5 +281,8 @@ This would require:
 
 - [BTCPay Server Documentation](https://docs.btcpayserver.org/)
 - [BTCPay Server GitHub](https://github.com/btcpayserver/btcpayserver)
+- [Awesome Bitcoin Payment Processors](https://github.com/alexk111/awesome-bitcoin-payment-processors) - Curated list of payment processors
+- [BitcartCC](https://bitcartcc.com) - Multi-cryptocurrency self-hosted processor
+- [SatSale](https://github.com/SatSale/SatSale) - Lightweight Bitcoin payment processor
 - [KillBill Payment Plugin Development](https://docs.killbill.io/latest/payment_plugin)
 - [Bitcoin Confirmation Best Practices](https://bitcoin.org/en/you-need-to-know)
