@@ -942,4 +942,206 @@ describe "PurchaseTaxation", :vcr do
       end
     end
   end
+
+  describe "multi-currency pricing mode" do
+    let(:seller) { create(:user) }
+    let(:merchant_account) { create(:merchant_account_stripe_connect, user: seller) }
+
+    before do
+      Feature.activate_user(:merchant_migration, seller)
+      create(:user_compliance_info, user: seller)
+    end
+
+    describe "with explicit price for buyer's currency" do
+      let(:usd_price) { 10_00 }
+      let(:eur_price) { 9_00 }
+      let(:product) do
+        product = create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+        create(:price, link: product, price_cents: eur_price, currency: "eur")
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: usd_price,
+               seller:,
+               link: product,
+               country: "Germany",
+               ip_country: "Germany",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("DE")
+        purchase.process!
+      end
+
+      it "uses explicit EUR price for German buyer" do
+        expect(purchase.displayed_price_currency_type).to eq("eur")
+        # Price should be converted to base currency units
+        expect(purchase.price_cents).to be > 0
+      end
+
+      it "does not apply PPP discount for explicit prices" do
+        expect(purchase.purchasing_power_parity_info).to be_nil
+      end
+    end
+
+    describe "with fallback to default price" do
+      let(:usd_price) { 10_00 }
+      let(:product) do
+        create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: usd_price,
+               seller:,
+               link: product,
+               country: "Japan",
+               ip_country: "Japan",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("JP")
+        purchase.process!
+      end
+
+      it "falls back to USD price when no explicit JPY price exists" do
+        expect(purchase.displayed_price_currency_type).to eq("usd")
+        expect(purchase.price_cents).to eq(usd_price)
+      end
+    end
+
+    describe "PPP behavior with pricing modes" do
+      let(:usd_price) { 10_00 }
+
+      describe "legacy mode with PPP" do
+        let(:product) do
+          create(:product, user: seller, price_cents: usd_price, pricing_mode: :legacy)
+        end
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: usd_price,
+                 seller:,
+                 link: product,
+                 country: "India",
+                 ip_country: "India",
+                 is_purchasing_power_parity_discounted: true,
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          allow(purchase).to receive(:card_country).and_return("IN")
+          allow_any_instance_of(PurchasingPowerParityService).to receive(:get_factor).and_return(0.5)
+          purchase.process!
+        end
+
+        it "applies PPP discount for legacy mode" do
+          expect(purchase.purchasing_power_parity_info).to be_present
+          expect(purchase.purchasing_power_parity_info.factor).to eq(0.5)
+        end
+      end
+
+      describe "multi-currency mode with explicit price (no PPP)" do
+        let(:eur_price) { 9_00 }
+        let(:product) do
+          product = create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+          create(:price, link: product, price_cents: eur_price, currency: "eur")
+          product
+        end
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: usd_price,
+                 seller:,
+                 link: product,
+                 country: "Germany",
+                 ip_country: "Germany",
+                 is_purchasing_power_parity_discounted: true,
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          allow(purchase).to receive(:card_country).and_return("DE")
+          allow_any_instance_of(PurchasingPowerParityService).to receive(:get_factor).and_return(0.8)
+          purchase.process!
+        end
+
+        it "does not apply PPP for explicit multi-currency prices" do
+          expect(purchase.purchasing_power_parity_info).to be_nil
+        end
+      end
+
+      describe "multi-currency mode with fallback (PPP applies)" do
+        let(:product) do
+          create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+        end
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: usd_price,
+                 seller:,
+                 link: product,
+                 country: "India",
+                 ip_country: "India",
+                 is_purchasing_power_parity_discounted: true,
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          allow(purchase).to receive(:card_country).and_return("IN")
+          allow_any_instance_of(PurchasingPowerParityService).to receive(:get_factor).and_return(0.5)
+          purchase.process!
+        end
+
+        it "applies PPP for fallback prices in multi-currency mode" do
+          expect(purchase.purchasing_power_parity_info).to be_present
+          expect(purchase.purchasing_power_parity_info.factor).to eq(0.5)
+        end
+      end
+    end
+
+    describe "fee calculation with base currency" do
+      let(:usd_price) { 10_00 }
+      let(:product) do
+        create(:product, user: seller, price_cents: usd_price, pricing_mode: :legacy)
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: usd_price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "calculates fees based on price in base currency units" do
+        expect(purchase.fee_cents).to be > 0
+        # Fee should be calculated as a percentage of price_cents
+        expect(purchase.fee_cents).to be < purchase.price_cents
+      end
+    end
+  end
 end

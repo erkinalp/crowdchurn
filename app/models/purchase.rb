@@ -1694,11 +1694,19 @@ class Purchase < ApplicationRecord
                                               duration_in_months: link.is_tiered_membership? ? offer_code.duration_in_months : nil)
     end
 
-    self.build_purchasing_power_parity_info(factor: purchasing_power_parity_factor) if is_purchasing_power_parity_discounted? && purchasing_power_parity_factor < 1
+    # Handle pricing based on product's pricing mode
+    resolved_price = resolve_price_based_on_pricing_mode
+
+    # Only apply PPP for non-explicit multi-currency prices
+    # PPP should not apply when seller has explicitly set prices for buyer's currency
+    should_apply_ppp = is_purchasing_power_parity_discounted? &&
+                       purchasing_power_parity_factor < 1 &&
+                       !resolved_price[:explicit_price]
+    self.build_purchasing_power_parity_info(factor: purchasing_power_parity_factor) if should_apply_ppp
 
     self.displayed_price_cents = determine_customized_price_cents || calculate_price_range_cents || minimum_paid_price_cents
-    self.displayed_price_currency_type = link.price_currency_type
-    self.price_cents = displayed_price_base_units
+    self.displayed_price_currency_type = resolved_price[:currency]
+    self.price_cents = convert_to_base_currency_units(resolved_price)
     self.rate_converted_to_usd = get_rate(displayed_price_currency_type)
     self.total_transaction_cents = self.price_cents
     self.affiliate_credit_cents = determine_affiliate_balance_cents
@@ -3994,6 +4002,67 @@ class Purchase < ApplicationRecord
 
     def purchasing_power_parity_factor
       @_purchasing_power_parity_factor ||= PurchasingPowerParityService.new.get_factor(Compliance::Countries.find_by_name(ip_country)&.alpha2, seller)
+    end
+
+    # Resolve price based on the product's pricing mode.
+    # Returns a hash with :price_cents, :currency, :conversion_needed, :explicit_price keys.
+    #
+    # For multi_currency mode: looks up explicit price in buyer's currency
+    # For gross mode: uses the tax-inclusive price directly
+    # For legacy mode: uses product's default price (conversion at checkout)
+    def resolve_price_based_on_pricing_mode
+      buyer_currency = determine_buyer_currency
+
+      case link.pricing_mode&.to_sym
+      when :multi_currency
+        link.resolve_price_for_buyer(buyer_currency:) || default_price_resolution
+      when :gross
+        # Gross mode: same numeric value in buyer's currency
+        link.resolve_price_for_buyer(buyer_currency:) || default_price_resolution
+      else # :legacy or nil
+        default_price_resolution
+      end
+    end
+
+    # Determine the buyer's currency based on their location.
+    # Uses IP country to determine the default currency for the buyer.
+    def determine_buyer_currency
+      return link.price_currency_type if ip_country.blank?
+
+      country_code = Compliance::Countries.find_by_name(ip_country)&.alpha2
+      return link.price_currency_type if country_code.blank?
+
+      country = Country.find_by(alpha2_code: country_code)
+      country&.default_currency || link.price_currency_type
+    end
+
+    # Default price resolution for legacy mode or fallback.
+    def default_price_resolution
+      {
+        price_cents: link.default_price_cents,
+        currency: link.price_currency_type,
+        source_currency: link.price_currency_type,
+        conversion_needed: false,
+        pricing_mode: :legacy,
+        explicit_price: false
+      }
+    end
+
+    # Convert resolved price to base currency units.
+    # Handles different pricing modes and currency conversions.
+    #
+    # resolved_price - Hash with :price_cents, :currency, :conversion_needed keys.
+    #
+    # Returns Integer price in base currency units.
+    def convert_to_base_currency_units(resolved_price)
+      price_cents = resolved_price[:price_cents]
+      currency = resolved_price[:currency]
+
+      # If already in base currency, no conversion needed
+      return price_cents if currency.to_s.downcase == instance_base_currency
+
+      # Convert to base currency units
+      get_base_currency_units(currency, price_cents)
     end
 
     def trigger_iffy_moderation
