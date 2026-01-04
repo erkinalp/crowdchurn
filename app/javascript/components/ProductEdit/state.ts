@@ -100,7 +100,7 @@ export type AvailableCurrency = {
   code: string;
   symbol: string;
   display_format: string;
-  min_price_cents: number;
+  min_price: number;
 };
 
 export type AvailableCryptocurrency = AvailableCurrency & {

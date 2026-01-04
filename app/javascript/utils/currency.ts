@@ -23,14 +23,14 @@ type Currency = {
   longSymbol: string;
   shortSymbol: string;
   displayFormat: string;
-  minPriceCents: number;
+  minPrice: number;
 };
 
 type Cryptocurrency = {
   code: CryptocurrencyCode;
   longSymbol: string;
   displayFormat: string;
-  minPriceCents: number;
+  minPrice: number;
   decimals: number;
   subunit: string;
   subunitToUnit: number;
@@ -58,7 +58,7 @@ export const findCryptocurrencyByCode = (code: CryptocurrencyCode): Cryptocurren
     code,
     longSymbol: spec.symbol,
     displayFormat: spec.display_format,
-    minPriceCents: spec.min_price,
+    minPrice: spec.min_price,
     decimals: spec.decimals,
     subunit: spec.subunit,
     subunitToUnit: spec.subunit_to_unit,
@@ -73,7 +73,7 @@ export const findCurrencyByCode = (code: CurrencyCode): Currency => {
     longSymbol: spec.symbol,
     shortSymbol: "short_symbol" in spec ? spec.short_symbol : spec.symbol, // default to long symbol
     displayFormat: spec.display_format,
-    minPriceCents: spec.min_price,
+    minPrice: spec.min_price,
   };
 };
 
@@ -93,9 +93,9 @@ export const getShortCurrencySymbol = (code: CurrencyCode): string => {
 };
 
 // Stripe will not accept payments below certain limits (e.g. $0.50 for USD), this is a way to query these minimum amounts
-export const getMinPriceCents = (code: CurrencyCode): number => {
+export const getMinPrice = (code: CurrencyCode): number => {
   const currency = findCurrencyByCode(code);
-  return currency.minPriceCents;
+  return currency.minPrice;
 };
 
 export const parseCurrencyUnitStringToCents = (code: CurrencyCode, unitAmount: string | null): number | null => {

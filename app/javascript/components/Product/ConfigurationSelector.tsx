@@ -24,7 +24,7 @@ import {
   formatPriceCentsWithCurrencySymbol,
   formatPriceCentsWithoutCurrencySymbol,
   formatPriceCentsWithoutCurrencySymbolAndComma,
-  getMinPriceCents,
+  getMinPrice,
 } from "$app/utils/currency";
 import { formatCallDate } from "$app/utils/date";
 import { applyOfferCodeToCents } from "$app/utils/offer-code";
@@ -71,8 +71,8 @@ const PWYWInput = React.forwardRef<
         placeholder={`${formatPriceCentsWithoutCurrencySymbol(currencyCode, suggestedPriceCents || 0)}+`}
         hasError={hasError}
         onBlur={() => {
-          const minPriceCents = getMinPriceCents(currencyCode);
-          if (cents && cents < minPriceCents) onChange(minPriceCents);
+          const minPrice = getMinPrice(currencyCode);
+          if (cents && cents < minPrice) onChange(minPrice);
           onBlur();
         }}
         ref={ref}

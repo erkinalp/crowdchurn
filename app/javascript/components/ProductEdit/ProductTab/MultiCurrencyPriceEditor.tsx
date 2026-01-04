@@ -14,7 +14,7 @@ type CurrencyOption = {
   code: string;
   symbol: string;
   displayFormat: string;
-  minPriceCents: number;
+  minPrice: number;
   isCrypto: boolean;
   decimals?: number;
 };
@@ -28,7 +28,7 @@ export const MultiCurrencyPriceEditor = () => {
       code: c.code,
       symbol: c.symbol,
       displayFormat: c.display_format,
-      minPriceCents: c.min_price_cents,
+      minPrice: c.min_price,
       isCrypto: false,
     }));
 
@@ -36,7 +36,7 @@ export const MultiCurrencyPriceEditor = () => {
       code: c.code,
       symbol: c.symbol,
       displayFormat: c.display_format,
-      minPriceCents: c.min_price_cents,
+      minPrice: c.min_price,
       isCrypto: true,
       decimals: c.decimals,
     }));
@@ -77,18 +77,18 @@ export const MultiCurrencyPriceEditor = () => {
   const getMinPriceDisplay = (currencyCode: string): string => {
     const option = getCurrencyOption(currencyCode);
     if (!option) return "";
-    const minCents = option.minPriceCents;
+    const minAmount = option.minPrice;
     if (option.isCrypto) {
-      return `Min: ${minCents} ${option.symbol}`;
+      return `Min: ${minAmount} ${option.symbol}`;
     }
-    const minUnits = minCents / 100;
+    const minUnits = minAmount / 100;
     return `Min: ${option.symbol}${minUnits.toFixed(2)}`;
   };
 
-  const validatePrice = (currencyCode: string, priceCents: number): boolean => {
+  const validatePrice = (currencyCode: string, priceAmount: number): boolean => {
     const option = getCurrencyOption(currencyCode);
     if (!option) return true;
-    return priceCents >= option.minPriceCents;
+    return priceAmount >= option.minPrice;
   };
 
   return (
