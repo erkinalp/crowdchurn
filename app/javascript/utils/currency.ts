@@ -36,8 +36,12 @@ type Cryptocurrency = {
   subunitToUnit: number;
 };
 
-export const currencyCodeList: CurrencyCode[] = Object.keys(currenciesMap) as CurrencyCode[];
-export const cryptocurrencyCodeList: CryptocurrencyCode[] = Object.keys(cryptocurrenciesMap) as CryptocurrencyCode[];
+// Type-safe extraction of currency codes from the JSON config
+// The keys are guaranteed to be valid codes since they come directly from the JSON config that defines the types
+// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Object.keys returns string[], but we know these are valid currency codes from the JSON schema
+export const currencyCodeList = Object.keys(currenciesMap) as readonly CurrencyCode[];
+// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Object.keys returns string[], but we know these are valid cryptocurrency codes from the JSON schema
+export const cryptocurrencyCodeList = Object.keys(cryptocurrenciesMap) as readonly CryptocurrencyCode[];
 export const allCurrencyCodeList: (CurrencyCode | CryptocurrencyCode)[] = [
   ...currencyCodeList,
   ...cryptocurrencyCodeList,
