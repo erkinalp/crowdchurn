@@ -6,7 +6,7 @@ const PRICING_MODES: { id: PricingMode; label: string; description: string }[] =
   {
     id: "legacy",
     label: "Single currency (legacy)",
-    description: "Set one price in your base currency. Other currencies are converted dynamically.",
+    description: "Set one price in your base currency. Other currencies are converted dynamically and taxes are applied on top.",
   },
   {
     id: "gross",
