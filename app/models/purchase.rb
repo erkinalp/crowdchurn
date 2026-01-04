@@ -2830,7 +2830,17 @@ class Purchase < ApplicationRecord
     end
 
     def load_flow_of_funds(processor_charge)
-      processor_charge.flow_of_funds ||= FlowOfFunds.build_simple_flow_of_funds(Currency::USD, self.total_transaction_cents) if StripeChargeProcessor.charge_processor_id != charge_processor_id
+      # For non-Stripe processors, build a simple flow of funds
+      # Use configurable base currency for KillBill (self-hosted), but keep USD for Stripe/PayPal/Braintree
+      # since those payment processors require USD for their internal accounting
+      if StripeChargeProcessor.charge_processor_id != charge_processor_id
+        flow_of_funds_currency = if charge_processor_id == KillbillChargeProcessor.charge_processor_id
+          instance_base_currency.upcase
+        else
+          Currency::USD
+        end
+        processor_charge.flow_of_funds ||= FlowOfFunds.build_simple_flow_of_funds(flow_of_funds_currency, self.total_transaction_cents)
+      end
       self.flow_of_funds = if is_part_of_combined_charge?
         build_flow_of_funds_from_combined_charge(processor_charge.flow_of_funds)
       else
