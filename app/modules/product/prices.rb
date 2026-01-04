@@ -500,8 +500,8 @@ module Product::Prices
     end
 
     # Private: Resolve price in gross mode.
-    # Returns the same numeric value in the buyer's currency.
-    # Example: $10 USD product shows as 10 EUR for EUR buyer.
+    # Converts the tax-inclusive price to the buyer's currency using FX rates.
+    # Example: $100 USD product shows as €92 EUR for EUR buyer (at 0.92 rate).
     #
     # target_currency - The buyer's desired currency.
     # recurrence      - The recurrence period for subscriptions.
@@ -514,15 +514,24 @@ module Product::Prices
 
       return nil if base_price.nil?
 
-      # In gross mode, the numeric value stays the same across currencies
-      # but we need to adjust for single_unit currencies
-      price_cents = adjust_price_for_currency(base_price.price_cents, product_currency, target_currency)
+      # In gross mode, convert the tax-inclusive price to the buyer's currency
+      # using FX rates to maintain equivalent purchasing power
+      if target_currency.to_s.downcase == product_currency
+        # Same currency, no conversion needed
+        price_cents = base_price.price_cents
+      else
+        # Convert: source -> base currency -> target currency
+        # First convert to base currency units
+        base_units = get_base_currency_units(product_currency, base_price.price_cents)
+        # Then convert from base currency to target currency
+        price_cents = base_currency_to_display_currency(target_currency, base_units)
+      end
 
       {
         price_cents: price_cents,
         currency: target_currency,
         source_currency: product_currency,
-        conversion_needed: false,
+        conversion_needed: target_currency.to_s.downcase != product_currency,
         pricing_mode: :gross
       }
     end
