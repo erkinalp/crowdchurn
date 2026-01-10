@@ -1,0 +1,229 @@
+<div class="message-detail">
+  <div class="message-container">
+    <div class="message-header">
+      <div class="back-link">
+        <%= link_to "← Back to Inbox", automated_messages_path %>
+      </div>
+
+      <div class="message-meta">
+        <div class="sender-info">
+          <% if @message.user == current_user %>
+            <strong>From: <%= @message.sender.name %></strong>
+          <% else %>
+            <strong>To: <%= @message.user.name || @message.user.email %></strong>
+          <% end %>
+        </div>
+        <div class="message-date">
+          <%= @message.sent_at.strftime("%B %d, %Y at %I:%M %p") %>
+        </div>
+      </div>
+    </div>
+
+    <div class="original-message">
+      <% if @message.rendered_subject.present? %>
+        <h2 class="message-subject"><%= @message.rendered_subject %></h2>
+      <% end %>
+
+      <div class="message-body">
+        <%= simple_format(@message.rendered_message) %>
+      </div>
+
+      <div class="message-template-info">
+        <small class="text-muted">
+          From template: <%= @message.message_template.name %>
+        </small>
+      </div>
+    </div>
+
+    <!-- Conversation Thread -->
+    <% if @replies.any? %>
+      <div class="conversation-thread">
+        <h3>Conversation</h3>
+
+        <% @replies.each do |reply| %>
+          <div class="reply-item <%= reply.sender == current_user ? 'sent' : 'received' %>">
+            <div class="reply-header">
+              <strong><%= reply.sender.name %></strong>
+              <span class="reply-time"><%= time_ago_in_words(reply.created_at) %> ago</span>
+            </div>
+            <div class="reply-body">
+              <%= simple_format(reply.message_body) %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+
+    <!-- Reply Form -->
+    <% if @message.can_reply?(current_user) %>
+      <div class="reply-form">
+        <h3>Reply to <%= @message.sender.name %></h3>
+
+        <%= form_with(url: reply_automated_message_path(@message), method: :post) do |f| %>
+          <%= f.text_area :message_body,
+                          placeholder: "Write your reply...",
+                          rows: 4,
+                          class: "form-control",
+                          required: true %>
+
+          <%= f.submit "Send Reply", class: "btn btn-primary" %>
+        <% end %>
+      </div>
+    <% elsif @message.buyer_replied %>
+      <div class="reply-notice">
+        ✓ You've already replied to this message. Check your inbox for the seller's response.
+      </div>
+    <% end %>
+  </div>
+</div>
+
+<style>
+.message-detail {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.back-link {
+  margin-bottom: 20px;
+}
+
+.back-link a {
+  color: #007bff;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.message-header {
+  margin-bottom: 24px;
+}
+
+.message-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.sender-info {
+  font-size: 18px;
+}
+
+.message-date {
+  font-size: 14px;
+  color: #666;
+}
+
+.original-message {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.message-subject {
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.message-body {
+  font-size: 16px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.message-template-info {
+  padding-top: 16px;
+  border-top: 1px solid #e9ecef;
+}
+
+.conversation-thread {
+  margin: 24px 0;
+}
+
+.conversation-thread h3 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+.reply-item {
+  margin: 12px 0;
+  padding: 16px;
+  border-radius: 8px;
+  max-width: 85%;
+}
+
+.reply-item.sent {
+  background-color: #007bff;
+  color: white;
+  margin-left: auto;
+}
+
+.reply-item.received {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+}
+
+.reply-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.reply-time {
+  opacity: 0.7;
+}
+
+.reply-body {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.reply-form {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 24px;
+  margin-top: 24px;
+}
+
+.reply-form h3 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 16px;
+  font-family: inherit;
+  margin-bottom: 16px;
+}
+
+.btn {
+  padding: 12px 24px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.reply-notice {
+  background-color: #d1ecf1;
+  border: 1px solid #bee5eb;
+  color: #0c5460;
+  padding: 16px;
+  border-radius: 6px;
+  margin-top: 24px;
+}
+</style>

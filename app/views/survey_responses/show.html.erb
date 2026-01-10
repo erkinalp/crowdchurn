@@ -1,0 +1,189 @@
+<div class="survey-response-container">
+  <div class="survey-header">
+    <h1><%= @survey.title %></h1>
+    <div class="progress-bar">
+      <div class="progress" style="width: <%= (@response.survey_answers.count.to_f / @questions.count * 100).round %>%"></div>
+    </div>
+    <p class="progress-text">
+      <%= @response.survey_answers.count %> of <%= @questions.count %> questions answered
+    </p>
+  </div>
+
+  <%= form_with(model: [@survey, @response],
+                url: survey_survey_response_path(@survey, @response),
+                method: :patch,
+                class: "survey-form") do |f| %>
+
+    <div class="survey-questions">
+      <% @questions.each_with_index do |question, index| %>
+        <div class="question-block" id="question-<%= question.external_id %>">
+          <div class="question-number">Question <%= index + 1 %></div>
+          <div class="question-text">
+            <%= question.question_text %>
+            <% if question.required? %>
+              <span class="required">*</span>
+            <% end %>
+          </div>
+
+          <div class="question-answer">
+            <% existing_answer = @response.survey_answers.find_by(survey_question: question) %>
+
+            <% case question.question_type %>
+            <% when 'text_short' %>
+              <%= text_field_tag "answers[#{question.external_id}][text_answer]",
+                                 existing_answer&.text_answer,
+                                 class: "form-control",
+                                 placeholder: "Your answer...",
+                                 required: question.required? %>
+
+            <% when 'text_long' %>
+              <%= text_area_tag "answers[#{question.external_id}][text_answer]",
+                                existing_answer&.text_answer,
+                                class: "form-control",
+                                rows: 4,
+                                placeholder: "Your answer...",
+                                required: question.required? %>
+
+            <% when 'multiple_choice_single', 'yes_no' %>
+              <% question.survey_question_options.each do |option| %>
+                <label class="radio-option">
+                  <%= radio_button_tag "answers[#{question.external_id}][option_id]",
+                                       option.external_id,
+                                       existing_answer&.survey_question_option_id == option.id,
+                                       required: question.required? %>
+                  <%= option.option_text %>
+                </label>
+              <% end %>
+
+            <% when 'rating_scale' %>
+              <div class="rating-scale">
+                <% min = question.settings&.dig('min_rating') || 1 %>
+                <% max = question.settings&.dig('max_rating') || 5 %>
+                <% (min..max).each do |rating| %>
+                  <label class="rating-option">
+                    <%= radio_button_tag "answers[#{question.external_id}][rating_value]",
+                                         rating,
+                                         existing_answer&.rating_value == rating,
+                                         required: question.required? %>
+                    <span class="rating-number"><%= rating %></span>
+                  </label>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="survey-actions">
+      <%= f.submit "Submit Survey", class: "btn btn-primary btn-lg" %>
+    </div>
+  <% end %>
+</div>
+
+<style>
+.survey-response-container {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.survey-header {
+  margin-bottom: 40px;
+}
+
+.progress-bar {
+  height: 8px;
+  background-color: #e9ecef;
+  border-radius: 4px;
+  margin: 20px 0 8px;
+}
+
+.progress {
+  height: 100%;
+  background-color: #28a745;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.progress-text {
+  font-size: 14px;
+  color: #666;
+}
+
+.question-block {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.question-number {
+  font-size: 12px;
+  font-weight: 600;
+  color: #007bff;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.question-text {
+  font-size: 18px;
+  font-weight: 500;
+  margin-bottom: 20px;
+}
+
+.required {
+  color: #dc3545;
+  margin-left: 4px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 16px;
+}
+
+.radio-option, .rating-option {
+  display: block;
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.radio-option:hover, .rating-option:hover {
+  background-color: #f8f9fa;
+  border-color: #007bff;
+}
+
+.radio-option input, .rating-option input {
+  margin-right: 12px;
+}
+
+.rating-scale {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.rating-option {
+  flex: 0 0 auto;
+  text-align: center;
+  min-width: 60px;
+}
+
+.rating-number {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.survey-actions {
+  text-align: center;
+  margin-top: 40px;
+}
+</style>

@@ -1,0 +1,270 @@
+<div class="messages-inbox">
+  <div class="inbox-header">
+    <h1>Messages from Sellers</h1>
+    <p class="inbox-subtitle">Personalized messages from product creators</p>
+  </div>
+
+  <div class="inbox-tabs">
+    <button class="tab-button active" data-tab="received">
+      Received Messages
+      <% if @received_messages.unread.any? %>
+        <span class="badge"><%= @received_messages.unread.count %></span>
+      <% end %>
+    </button>
+
+    <% if current_user.links.any? %>
+      <button class="tab-button" data-tab="sent">
+        Sent Messages
+        <span class="badge"><%= @sent_messages.count %></span>
+      </button>
+    <% end %>
+  </div>
+
+  <div class="tab-content active" id="received-tab">
+    <% if @received_messages.any? %>
+      <div class="messages-list">
+        <% @received_messages.each do |message| %>
+          <%= link_to automated_message_path(message), class: "message-item #{message.read_at ? 'read' : 'unread'}" do %>
+            <div class="message-header">
+              <div class="sender-name">
+                <strong><%= message.sender.name %></strong>
+                <% unless message.read_at %>
+                  <span class="unread-indicator">●</span>
+                <% end %>
+              </div>
+              <div class="message-time">
+                <%= time_ago_in_words(message.sent_at) %> ago
+              </div>
+            </div>
+
+            <% if message.rendered_subject.present? %>
+              <div class="message-subject"><%= message.rendered_subject %></div>
+            <% end %>
+
+            <div class="message-preview">
+              <%= truncate(message.rendered_message, length: 150) %>
+            </div>
+
+            <% if message.buyer_replied %>
+              <div class="replied-badge">
+                ✓ You replied
+              </div>
+            <% end %>
+          <% end %>
+        <% end %>
+      </div>
+
+      <%= paginate @received_messages %>
+    <% else %>
+      <div class="empty-state">
+        <p>📭 No messages yet</p>
+        <p class="empty-subtitle">When sellers send you personalized messages, they'll appear here.</p>
+      </div>
+    <% end %>
+  </div>
+
+  <% if current_user.links.any? %>
+    <div class="tab-content" id="sent-tab" style="display: none;">
+      <% if @sent_messages.any? %>
+        <div class="messages-list">
+          <% @sent_messages.each do |message| %>
+            <%= link_to automated_message_path(message), class: "message-item read" do %>
+              <div class="message-header">
+                <div class="sender-name">
+                  <strong>To: <%= message.user.name || message.user.email %></strong>
+                </div>
+                <div class="message-time">
+                  <%= time_ago_in_words(message.sent_at) %> ago
+                </div>
+              </div>
+
+              <div class="message-preview">
+                <%= truncate(message.rendered_message, length: 150) %>
+              </div>
+
+              <div class="message-stats">
+                <% if message.read_at %>
+                  ✓ Read <%= " " + time_ago_in_words(message.read_at) + " ago" %>
+                <% else %>
+                  ○ Unread
+                <% end %>
+
+                <% if message.buyer_replied %>
+                  • 💬 Replied
+                <% end %>
+              </div>
+            <% end %>
+          <% end %>
+        </div>
+
+        <%= paginate @sent_messages %>
+      <% else %>
+        <div class="empty-state">
+          <p>📤 No sent messages</p>
+          <p class="empty-subtitle">Set up automated messages in your product settings.</p>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+</div>
+
+<style>
+.messages-inbox {
+  max-width: 900px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.inbox-header {
+  margin-bottom: 32px;
+}
+
+.inbox-header h1 {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.inbox-subtitle {
+  color: #666;
+  font-size: 16px;
+}
+
+.inbox-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid #e9ecef;
+  margin-bottom: 24px;
+}
+
+.tab-button {
+  padding: 12px 24px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  color: #666;
+  position: relative;
+}
+
+.tab-button.active {
+  color: #007bff;
+  border-bottom-color: #007bff;
+}
+
+.badge {
+  background-color: #dc3545;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-item {
+  display: block;
+  padding: 20px;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.2s;
+}
+
+.message-item:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.message-item.unread {
+  background-color: #f8f9fa;
+  border-left: 4px solid #007bff;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sender-name {
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unread-indicator {
+  color: #007bff;
+  font-size: 8px;
+}
+
+.message-time {
+  font-size: 14px;
+  color: #999;
+}
+
+.message-subject {
+  font-weight: 600;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.message-preview {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.replied-badge {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #28a745;
+  font-weight: 500;
+}
+
+.message-stats {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #999;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+}
+
+.empty-state p {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.empty-subtitle {
+  font-size: 16px !important;
+  color: #666;
+}
+</style>
+
+<script>
+document.querySelectorAll('.tab-button').forEach(button => {
+  button.addEventListener('click', () => {
+    // Remove active from all tabs
+    document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+
+    // Activate clicked tab
+    button.classList.add('active');
+    const tabId = button.dataset.tab + '-tab';
+    document.getElementById(tabId).style.display = 'block';
+  });
+});
+</script>

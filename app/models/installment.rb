@@ -74,6 +74,7 @@ class Installment < ApplicationRecord
   has_many :sent_abandoned_cart_emails
   has_many :post_variants, dependent: :destroy
   has_many :surveys, as: :surveyable, dependent: :destroy
+  has_many :message_templates, as: :templateable, dependent: :destroy
 
   friendly_id :slug_candidates, use: :slugged
 
