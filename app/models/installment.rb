@@ -73,6 +73,7 @@ class Installment < ApplicationRecord
   has_many :blasts, class_name: "PostEmailBlast", foreign_key: "post_id"
   has_many :sent_abandoned_cart_emails
   has_many :post_variants, dependent: :destroy
+  has_many :surveys, as: :surveyable, dependent: :destroy
 
   friendly_id :slug_candidates, use: :slugged
 
