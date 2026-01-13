@@ -225,6 +225,8 @@ class Link < ApplicationRecord
   enum subscription_duration: %i[monthly yearly quarterly biannually every_two_years]
   enum purchase_type: %i[buy_only rent_only buy_and_rent] # Indicates whether this product can be bought or rented or both.
   enum free_trial_duration_unit: %i[week month]
+  enum pricing_mode: %i[legacy gross multi_currency]
+  enum shipping_mode: %i[shipping_added shipping_inclusive no_shipping] # Shipping handling mode for gross pricing
 
   attr_json_data_accessor :excluded_sales_tax_regions, default: -> { [] }
   attr_json_data_accessor :sections, default: -> { [] }

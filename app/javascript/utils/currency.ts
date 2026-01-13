@@ -3,6 +3,7 @@ import { formatPrice, parseUnitStringToPriceCents, priceCentsToUnit } from "$app
 import currenciesInfo from "../../../config/currencies.json";
 
 const currenciesMap = currenciesInfo.currencies;
+const cryptocurrenciesMap = currenciesInfo.cryptocurrencies;
 
 // Some terminology:
 //
@@ -14,16 +15,55 @@ const currenciesMap = currenciesInfo.currencies;
 // (In some currencies, like JPY, units _are_ cents.)
 
 export type CurrencyCode = keyof typeof currenciesMap;
+export type CryptocurrencyCode = keyof typeof cryptocurrenciesMap;
+
 type Currency = {
   code: CurrencyCode;
   isSingleUnit: boolean;
   longSymbol: string;
   shortSymbol: string;
   displayFormat: string;
-  minPriceCents: number;
+  minPrice: number;
 };
 
-export const currencyCodeList: CurrencyCode[] = Object.keys(currenciesMap);
+type Cryptocurrency = {
+  code: CryptocurrencyCode;
+  longSymbol: string;
+  displayFormat: string;
+  minPrice: number;
+  decimals: number;
+  subunit: string;
+  subunitToUnit: number;
+};
+
+// Type-safe extraction of currency codes from the JSON config
+// The keys are guaranteed to be valid codes since they come directly from the JSON config that defines the types
+// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Object.keys returns string[], but we know these are valid currency codes from the JSON schema
+export const currencyCodeList = Object.keys(currenciesMap) as readonly CurrencyCode[];
+// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- Object.keys returns string[], but we know these are valid cryptocurrency codes from the JSON schema
+export const cryptocurrencyCodeList = Object.keys(cryptocurrenciesMap) as readonly CryptocurrencyCode[];
+export const allCurrencyCodeList: (CurrencyCode | CryptocurrencyCode)[] = [
+  ...currencyCodeList,
+  ...cryptocurrencyCodeList,
+];
+
+export const isCryptocurrency = (code: string): code is CryptocurrencyCode => {
+  const lowerCode = code.toLowerCase();
+  return cryptocurrencyCodeList.some((c) => c === lowerCode);
+};
+
+export const findCryptocurrencyByCode = (code: CryptocurrencyCode): Cryptocurrency => {
+  const spec = cryptocurrenciesMap[code];
+  return {
+    code,
+    longSymbol: spec.symbol,
+    displayFormat: spec.display_format,
+    minPrice: spec.min_price,
+    decimals: spec.decimals,
+    subunit: spec.subunit,
+    subunitToUnit: spec.subunit_to_unit,
+  };
+};
 
 export const findCurrencyByCode = (code: CurrencyCode): Currency => {
   const spec = currenciesMap[code];
@@ -33,7 +73,7 @@ export const findCurrencyByCode = (code: CurrencyCode): Currency => {
     longSymbol: spec.symbol,
     shortSymbol: "short_symbol" in spec ? spec.short_symbol : spec.symbol, // default to long symbol
     displayFormat: spec.display_format,
-    minPriceCents: spec.min_price,
+    minPrice: spec.min_price,
   };
 };
 
@@ -53,9 +93,9 @@ export const getShortCurrencySymbol = (code: CurrencyCode): string => {
 };
 
 // Stripe will not accept payments below certain limits (e.g. $0.50 for USD), this is a way to query these minimum amounts
-export const getMinPriceCents = (code: CurrencyCode): number => {
+export const getMinPrice = (code: CurrencyCode): number => {
   const currency = findCurrencyByCode(code);
-  return currency.minPriceCents;
+  return currency.minPrice;
 };
 
 export const parseCurrencyUnitStringToCents = (code: CurrencyCode, unitAmount: string | null): number | null => {

@@ -10,3 +10,11 @@ else
 end
 
 CURRENCY_CHOICES = HashWithIndifferentAccess.new(JSON.load_file("#{Rails.root}/config/currencies.json")["currencies"])
+
+INSTANCE_BASE_CURRENCY = GlobalConfig.get("INSTANCE_BASE_CURRENCY", "usd").downcase.freeze
+
+CRYPTO_CURRENCIES = HashWithIndifferentAccess.new(
+  JSON.load_file("#{Rails.root}/config/currencies.json").fetch("cryptocurrencies", {})
+)
+
+CRYPTO_EXCHANGE_RATE_SOURCE = GlobalConfig.get("CRYPTO_EXCHANGE_RATE_SOURCE", nil)

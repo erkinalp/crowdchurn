@@ -105,5 +105,135 @@
       "display_format": "Kč (Czech koruna)",
       "min_price": 2149
     }
+  },
+  "cryptocurrencies": {
+    "btc": {
+      "symbol": "₿",
+      "display_format": "₿ (Bitcoin)",
+      "min_price": 1,
+      "decimals": 8,
+      "subunit": "satoshi",
+      "subunit_to_unit": 100000000
+    },
+    "eth": {
+      "symbol": "Ξ",
+      "display_format": "Ξ (Ethereum)",
+      "min_price": 1,
+      "decimals": 18,
+      "subunit": "wei",
+      "subunit_to_unit": 1000000000000000000
+    },
+    "ltc": {
+      "symbol": "Ł",
+      "display_format": "Ł (Litecoin)",
+      "min_price": 1,
+      "decimals": 8,
+      "subunit": "litoshi",
+      "subunit_to_unit": 100000000
+    },
+    "xmr": {
+      "symbol": "ɱ",
+      "display_format": "ɱ (Monero)",
+      "min_price": 1,
+      "decimals": 12,
+      "subunit": "piconero",
+      "subunit_to_unit": 1000000000000
+    },
+    "usdt": {
+      "symbol": "₮",
+      "display_format": "₮ (Tether USDT)",
+      "min_price": 99,
+      "decimals": 6,
+      "subunit": "cent",
+      "subunit_to_unit": 1000000
+    },
+    "usdc": {
+      "symbol": "USDC",
+      "display_format": "USDC (USD Coin)",
+      "min_price": 99,
+      "decimals": 6,
+      "subunit": "cent",
+      "subunit_to_unit": 1000000
+    },
+    "dai": {
+      "symbol": "DAI",
+      "display_format": "DAI (Dai Stablecoin)",
+      "min_price": 99,
+      "decimals": 18,
+      "subunit": "wei",
+      "subunit_to_unit": 1000000000000000000
+    },
+    "sol": {
+      "symbol": "SOL",
+      "display_format": "SOL (Solana)",
+      "min_price": 1,
+      "decimals": 9,
+      "subunit": "lamport",
+      "subunit_to_unit": 1000000000
+    },
+    "doge": {
+      "symbol": "Ð",
+      "display_format": "Ð (Dogecoin)",
+      "min_price": 1,
+      "decimals": 8,
+      "subunit": "koinu",
+      "subunit_to_unit": 100000000
+    },
+    "matic": {
+      "symbol": "MATIC",
+      "display_format": "MATIC (Polygon)",
+      "min_price": 1,
+      "decimals": 18,
+      "subunit": "wei",
+      "subunit_to_unit": 1000000000000000000
+    },
+    "avax": {
+      "symbol": "AVAX",
+      "display_format": "AVAX (Avalanche)",
+      "min_price": 1,
+      "decimals": 18,
+      "subunit": "wei",
+      "subunit_to_unit": 1000000000000000000
+    },
+    "dot": {
+      "symbol": "DOT",
+      "display_format": "DOT (Polkadot)",
+      "min_price": 1,
+      "decimals": 10,
+      "subunit": "planck",
+      "subunit_to_unit": 10000000000
+    },
+    "ada": {
+      "symbol": "ADA",
+      "display_format": "ADA (Cardano)",
+      "min_price": 1,
+      "decimals": 6,
+      "subunit": "lovelace",
+      "subunit_to_unit": 1000000
+    },
+    "bnb": {
+      "symbol": "BNB",
+      "display_format": "BNB (BNB Chain)",
+      "min_price": 1,
+      "decimals": 18,
+      "subunit": "jager",
+      "subunit_to_unit": 1000000000000000000
+    },
+    "xrp": {
+      "symbol": "XRP",
+      "display_format": "XRP (Ripple)",
+      "min_price": 1,
+      "decimals": 6,
+      "subunit": "drop",
+      "subunit_to_unit": 1000000
+    },
+    "trx": {
+      "symbol": "TRX",
+      "display_format": "TRX (Tron)",
+      "min_price": 1,
+      "decimals": 6,
+      "subunit": "sun",
+      "subunit_to_unit": 1000000
+    }
   }
 }

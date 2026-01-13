@@ -77,6 +77,17 @@ class Purchase < ApplicationRecord
 
   alias_attribute :total_transaction_cents_usd, :total_transaction_cents
 
+  # Multi-currency aliases: _base_units suffix for currency-agnostic naming
+  # These aliases allow code to use currency-agnostic names while maintaining
+  # backward compatibility with the existing _cents column names.
+  alias_attribute :price_base_units, :price_cents
+  alias_attribute :tax_base_units, :tax_cents
+  alias_attribute :platform_tax_base_units, :gumroad_tax_cents # Platform-responsible tax (renamed from gumroad)
+  alias_attribute :gumroad_tax_base_units, :gumroad_tax_cents # Legacy alias for backward compatibility
+  alias_attribute :shipping_base_units, :shipping_cents
+  alias_attribute :total_transaction_base_units, :total_transaction_cents
+  alias_attribute :fee_base_units, :fee_cents
+
   belongs_to :link, optional: true
   has_one :url_redirect
   has_one :gift_given, class_name: "Gift", foreign_key: :gifter_purchase_id
@@ -1695,11 +1706,19 @@ class Purchase < ApplicationRecord
                                               duration_in_months: link.is_tiered_membership? ? offer_code.duration_in_months : nil)
     end
 
-    self.build_purchasing_power_parity_info(factor: purchasing_power_parity_factor) if is_purchasing_power_parity_discounted? && purchasing_power_parity_factor < 1
+    # Handle pricing based on product's pricing mode
+    resolved_price = resolve_price_based_on_pricing_mode
+
+    # Only apply PPP for non-explicit multi-currency prices
+    # PPP should not apply when seller has explicitly set prices for buyer's currency
+    should_apply_ppp = is_purchasing_power_parity_discounted? &&
+                       purchasing_power_parity_factor < 1 &&
+                       !resolved_price[:explicit_price]
+    self.build_purchasing_power_parity_info(factor: purchasing_power_parity_factor) if should_apply_ppp
 
     self.displayed_price_cents = determine_customized_price_cents || calculate_price_range_cents || minimum_paid_price_cents
-    self.displayed_price_currency_type = link.price_currency_type
-    self.price_cents = displayed_price_usd_cents
+    self.displayed_price_currency_type = resolved_price[:currency]
+    self.price_cents = convert_to_base_currency_units(resolved_price)
     self.rate_converted_to_usd = get_rate(displayed_price_currency_type)
     self.total_transaction_cents = self.price_cents
     self.affiliate_credit_cents = determine_affiliate_balance_cents
@@ -2737,9 +2756,11 @@ class Purchase < ApplicationRecord
         &.amount_off(purchase_min_price) || 0
     end
 
-    def displayed_price_usd_cents
-      get_usd_cents(displayed_price_currency_type, displayed_price_cents)
+    def displayed_price_base_units
+      get_base_currency_units(displayed_price_currency_type, displayed_price_cents)
     end
+
+    alias_method :displayed_price_usd_cents, :displayed_price_base_units
 
     def transcode_product_videos
       # Transcode videos immediately after successful purchase
@@ -2787,12 +2808,12 @@ class Purchase < ApplicationRecord
       calculate_taxes
       return if errors.present?
 
-      self.price_cents += tax_cents if was_tax_excluded_from_price
-      self.total_transaction_cents = self.price_cents + gumroad_tax_cents
+      self.price_base_units += tax_base_units if was_tax_excluded_from_price
+      self.total_transaction_base_units = self.price_base_units + platform_tax_base_units
 
-      # Actually add the shipping amount to price cents and update total transaction cents
-      self.price_cents += shipping_cents
-      self.total_transaction_cents += shipping_cents
+      # Actually add the shipping amount to price and update total transaction amount
+      self.price_base_units += shipping_base_units
+      self.total_transaction_base_units += shipping_base_units
 
       calculate_fees
 
@@ -2821,7 +2842,17 @@ class Purchase < ApplicationRecord
     end
 
     def load_flow_of_funds(processor_charge)
-      processor_charge.flow_of_funds ||= FlowOfFunds.build_simple_flow_of_funds(Currency::USD, self.total_transaction_cents) if StripeChargeProcessor.charge_processor_id != charge_processor_id
+      # For non-Stripe processors, build a simple flow of funds
+      # Use configurable base currency for KillBill (self-hosted), but keep USD for Stripe/PayPal/Braintree
+      # since those payment processors require USD for their internal accounting
+      if StripeChargeProcessor.charge_processor_id != charge_processor_id
+        flow_of_funds_currency = if charge_processor_id == KillbillChargeProcessor.charge_processor_id
+          instance_base_currency.upcase
+        else
+          Currency::USD
+        end
+        processor_charge.flow_of_funds ||= FlowOfFunds.build_simple_flow_of_funds(flow_of_funds_currency, self.total_transaction_cents)
+      end
       self.flow_of_funds = if is_part_of_combined_charge?
         build_flow_of_funds_from_combined_charge(processor_charge.flow_of_funds)
       else
@@ -3393,12 +3424,75 @@ class Purchase < ApplicationRecord
       end
 
       self.was_purchase_taxable = gumroad_tax_cents > 0 || tax_cents > 0
-      self.was_tax_excluded_from_price = true
+
+      # Handle gross (tax-inclusive) pricing mode
+      if link.gross? && was_purchase_taxable
+        apply_gross_pricing_tax_decomposition(tax_calculation)
+        self.was_tax_excluded_from_price = false
+      else
+        self.was_tax_excluded_from_price = true
+      end
+    end
+
+    # Decompose a gross (tax-inclusive) price into pre-tax amount and tax.
+    # For gross pricing, the seller sets a single tax-inclusive price, and we need
+    # to work backwards to determine the pre-tax amount and tax separately.
+    #
+    # Formula: gross_price = pre_tax * (1 + tax_rate)
+    # Therefore: pre_tax = gross_price / (1 + tax_rate)
+    # And: tax = gross_price - pre_tax
+    #
+    # tax_calculation - The SalesTaxCalculation object containing tax rate info.
+    def apply_gross_pricing_tax_decomposition(tax_calculation)
+      effective_tax_rate = get_effective_tax_rate(tax_calculation)
+
+      # Edge case: zero tax rate means no decomposition needed
+      return if effective_tax_rate.nil? || effective_tax_rate <= 0
+
+      gross_price_base_units = price_cents
+      pre_tax_base_units = (gross_price_base_units / (1 + effective_tax_rate)).round
+      calculated_tax_base_units = gross_price_base_units - pre_tax_base_units
+
+      # For platform-responsible tax, we need to adjust price_cents to be the pre-tax amount
+      # so that total_transaction_cents = price_cents + platform_tax_cents = gross_price
+      if platform_tax_base_units > 0
+        self.price_cents = pre_tax_base_units
+        self.platform_tax_base_units = calculated_tax_base_units
+      else
+        # For seller-responsible tax, price_cents stays as gross (includes tax)
+        # and tax_cents is set to the calculated tax amount
+        self.tax_cents = calculated_tax_base_units
+      end
+    end
+
+    # Get the effective combined tax rate from a tax calculation.
+    # Handles both lookup table rates (zip_tax_rate) and TaxJar rates.
+    #
+    # tax_calculation - The SalesTaxCalculation object.
+    #
+    # Returns Float tax rate (e.g., 0.10 for 10%) or nil if not available.
+    def get_effective_tax_rate(tax_calculation)
+      return nil unless tax_calculation
+
+      if tax_calculation.zip_tax_rate.present?
+        tax_calculation.zip_tax_rate.combined_rate
+      elsif tax_calculation.used_taxjar && tax_calculation.taxjar_info.present?
+        tax_calculation.taxjar_info[:combined_tax_rate]
+      end
     end
 
     def calculate_shipping
       return unless link.is_physical
       return if country.blank?
+
+      # Handle shipping mode for gross pricing
+      # - shipping_added: Calculate and add shipping to price (default behavior)
+      # - shipping_inclusive: Shipping is included in the product price (no additional charge)
+      # - no_shipping: No shipping (free shipping or not applicable)
+      if link.shipping_inclusive? || link.no_shipping?
+        self.shipping_cents = 0
+        return
+      end
 
       self.shipping_cents = if is_recurring_subscription_charge
         subscription.original_purchase.shipping_cents
@@ -3408,6 +3502,15 @@ class Purchase < ApplicationRecord
         shipping_rate = ShippingDestination.for_product_and_country_code(product: link, country_code: Compliance::Countries.find_by_name(country)&.alpha2)
         shipping_rate.calculate_shipping_rate(quantity:, currency_type: link.price_currency_type)
       end
+    end
+
+    # Check if shipping is included in the gross price and needs decomposition.
+    # For shipping_inclusive mode with gross pricing, we need to extract the shipping
+    # portion from the gross price similar to how we decompose tax.
+    #
+    # Returns Boolean.
+    def shipping_included_in_gross_price?
+      link.gross? && link.shipping_inclusive?
     end
 
     def validate_shipping
@@ -3921,6 +4024,67 @@ class Purchase < ApplicationRecord
 
     def purchasing_power_parity_factor
       @_purchasing_power_parity_factor ||= PurchasingPowerParityService.new.get_factor(Compliance::Countries.find_by_name(ip_country)&.alpha2, seller)
+    end
+
+    # Resolve price based on the product's pricing mode.
+    # Returns a hash with :price_cents, :currency, :conversion_needed, :explicit_price keys.
+    #
+    # For multi_currency mode: looks up explicit price in buyer's currency
+    # For gross mode: uses the tax-inclusive price directly
+    # For legacy mode: uses product's default price (conversion at checkout)
+    def resolve_price_based_on_pricing_mode
+      buyer_currency = determine_buyer_currency
+
+      case link.pricing_mode&.to_sym
+      when :multi_currency
+        link.resolve_price_for_buyer(buyer_currency:) || default_price_resolution
+      when :gross
+        # Gross mode: same numeric value in buyer's currency
+        link.resolve_price_for_buyer(buyer_currency:) || default_price_resolution
+      else # :legacy or nil
+        default_price_resolution
+      end
+    end
+
+    # Determine the buyer's currency based on their location.
+    # Uses IP country to determine the default currency for the buyer.
+    def determine_buyer_currency
+      return link.price_currency_type if ip_country.blank?
+
+      country_code = Compliance::Countries.find_by_name(ip_country)&.alpha2
+      return link.price_currency_type if country_code.blank?
+
+      country = Country.find_by(alpha2_code: country_code)
+      country&.default_currency || link.price_currency_type
+    end
+
+    # Default price resolution for legacy mode or fallback.
+    def default_price_resolution
+      {
+        price_cents: link.default_price_cents,
+        currency: link.price_currency_type,
+        source_currency: link.price_currency_type,
+        conversion_needed: false,
+        pricing_mode: :legacy,
+        explicit_price: false
+      }
+    end
+
+    # Convert resolved price to base currency units.
+    # Handles different pricing modes and currency conversions.
+    #
+    # resolved_price - Hash with :price_cents, :currency, :conversion_needed keys.
+    #
+    # Returns Integer price in base currency units.
+    def convert_to_base_currency_units(resolved_price)
+      price_cents = resolved_price[:price_cents]
+      currency = resolved_price[:currency]
+
+      # If already in base currency, no conversion needed
+      return price_cents if currency.to_s.downcase == instance_base_currency
+
+      # Convert to base currency units
+      get_base_currency_units(currency, price_cents)
     end
 
     def trigger_iffy_moderation

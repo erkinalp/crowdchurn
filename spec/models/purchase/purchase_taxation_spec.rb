@@ -623,4 +623,525 @@ describe "PurchaseTaxation", :vcr do
       end
     end
   end
+
+  describe "gross pricing tax calculation" do
+    let(:seller) { create(:user) }
+    let(:merchant_account) { create(:merchant_account_stripe_connect, user: seller) }
+
+    before do
+      seller.collect_eu_vat = true
+      seller.is_eu_vat_exclusive = true
+      seller.save!
+      Feature.activate_user(:merchant_migration, seller)
+      create(:user_compliance_info, user: seller)
+    end
+
+    describe "with gumroad-responsible VAT" do
+      let(:gross_price) { 12_20 } # Tax-inclusive price (€10 + 22% VAT = €12.20)
+      let(:tax_rate) { 0.22 }
+      let(:product) { create(:product, user: seller, price_cents: gross_price, pricing_mode: :gross) }
+      let(:zip_tax_rate) { create(:zip_tax_rate, country: "GB", combined_rate: tax_rate, is_seller_responsible: false) }
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: gross_price,
+               seller:,
+               link: product,
+               country: "United Kingdom",
+               ip_country: "United Kingdom",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        zip_tax_rate
+        allow(purchase).to receive(:card_country).and_return("GB")
+        purchase.process!
+      end
+
+      it "decomposes gross price into pre-tax and tax amounts" do
+        # For gross pricing: pre_tax = gross / (1 + rate) = 1220 / 1.22 = 1000
+        # tax = gross - pre_tax = 1220 - 1000 = 220
+        expect(purchase.was_purchase_taxable).to be(true)
+        expect(purchase.was_tax_excluded_from_price).to be(false)
+        expect(purchase.price_cents).to eq(10_00) # Pre-tax amount
+        expect(purchase.gumroad_tax_cents).to eq(2_20) # Calculated tax
+        expect(purchase.total_transaction_cents).to eq(12_20) # Equals original gross price
+      end
+
+      it "provides multi-currency aliases" do
+        expect(purchase.price_base_units).to eq(purchase.price_cents)
+        expect(purchase.tax_base_units).to eq(purchase.tax_cents)
+        expect(purchase.platform_tax_base_units).to eq(purchase.gumroad_tax_cents) # Platform-responsible tax
+        expect(purchase.gumroad_tax_base_units).to eq(purchase.gumroad_tax_cents) # Legacy alias
+        expect(purchase.total_transaction_base_units).to eq(purchase.total_transaction_cents)
+      end
+    end
+
+    describe "with seller-responsible tax" do
+      let(:gross_price) { 11_00 } # Tax-inclusive price ($10 + 10% tax = $11)
+      let(:tax_rate) { 0.10 }
+      let(:product) { create(:product, user: seller, price_cents: gross_price, pricing_mode: :gross) }
+      let(:zip_tax_rate) { create(:zip_tax_rate, country: "US", state: "CA", combined_rate: tax_rate, is_seller_responsible: true) }
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: gross_price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               zip_code: "94107",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        zip_tax_rate
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "decomposes gross price with seller-responsible tax" do
+        # For gross pricing: pre_tax = gross / (1 + rate) = 1100 / 1.10 = 1000
+        # tax = gross - pre_tax = 1100 - 1000 = 100
+        expect(purchase.was_purchase_taxable).to be(true)
+        expect(purchase.was_tax_excluded_from_price).to be(false)
+        expect(purchase.tax_cents).to eq(1_00) # Calculated tax (seller-responsible)
+        expect(purchase.gumroad_tax_cents).to eq(0)
+        expect(purchase.total_transaction_cents).to eq(11_00) # Equals original gross price
+      end
+    end
+
+    describe "edge cases" do
+      describe "with zero tax rate" do
+        let(:gross_price) { 10_00 }
+        let(:product) { create(:product, user: seller, price_cents: gross_price, pricing_mode: :gross) }
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: gross_price,
+                 seller:,
+                 link: product,
+                 country: "Togo", # Non-taxable country
+                 ip_country: "Togo",
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          allow(purchase).to receive(:card_country).and_return("TG")
+          purchase.process!
+        end
+
+        it "does not decompose price when no tax applies" do
+          expect(purchase.was_purchase_taxable).to be(false)
+          expect(purchase.tax_cents).to eq(0)
+          expect(purchase.gumroad_tax_cents).to eq(0)
+          expect(purchase.price_cents).to eq(10_00)
+          expect(purchase.total_transaction_cents).to eq(10_00)
+        end
+      end
+
+      describe "with valid business VAT ID (tax-exempt)" do
+        let(:gross_price) { 12_20 }
+        let(:tax_rate) { 0.22 }
+        let(:product) { create(:product, user: seller, price_cents: gross_price, pricing_mode: :gross) }
+        let(:zip_tax_rate) { create(:zip_tax_rate, country: "GB", combined_rate: tax_rate, is_seller_responsible: false) }
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: gross_price,
+                 seller:,
+                 link: product,
+                 country: "United Kingdom",
+                 ip_country: "United Kingdom",
+                 business_vat_id: "GB123456789",
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          zip_tax_rate
+          allow(purchase).to receive(:card_country).and_return("GB")
+          allow_any_instance_of(VatValidationService).to receive(:process).and_return(true)
+          purchase.process!
+        end
+
+        it "does not apply tax for valid VAT ID" do
+          expect(purchase.was_purchase_taxable).to be(false)
+          expect(purchase.tax_cents).to eq(0)
+          expect(purchase.gumroad_tax_cents).to eq(0)
+          expect(purchase.price_cents).to eq(12_20) # Full gross price (no tax decomposition)
+          expect(purchase.total_transaction_cents).to eq(12_20)
+        end
+      end
+
+      describe "legacy pricing mode (tax-exclusive)" do
+        let(:net_price) { 10_00 }
+        let(:tax_rate) { 0.22 }
+        let(:product) { create(:product, user: seller, price_cents: net_price, pricing_mode: :legacy) }
+        let(:zip_tax_rate) { create(:zip_tax_rate, country: "GB", combined_rate: tax_rate, is_seller_responsible: false) }
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: net_price,
+                 seller:,
+                 link: product,
+                 country: "United Kingdom",
+                 ip_country: "United Kingdom",
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          zip_tax_rate
+          allow(purchase).to receive(:card_country).and_return("GB")
+          purchase.process!
+        end
+
+        it "adds tax on top of price for legacy pricing" do
+          expect(purchase.was_purchase_taxable).to be(true)
+          expect(purchase.was_tax_excluded_from_price).to be(true)
+          expect(purchase.price_cents).to eq(10_00) # Original net price
+          expect(purchase.gumroad_tax_cents).to eq(2_20) # Tax added on top
+          expect(purchase.total_transaction_cents).to eq(12_20) # Net + tax
+        end
+      end
+    end
+  end
+
+  describe "shipping mode handling" do
+    let(:seller) { create(:user) }
+    let(:merchant_account) { create(:merchant_account_stripe_connect, user: seller) }
+
+    before do
+      Feature.activate_user(:merchant_migration, seller)
+      create(:user_compliance_info, user: seller)
+    end
+
+    describe "shipping_added mode (default)" do
+      let(:price) { 10_00 }
+      let(:product) do
+        product = create(:product, user: seller, price_cents: price, shipping_mode: :shipping_added)
+        product.is_physical = true
+        product.require_shipping = true
+        product.shipping_destinations << ShippingDestination.new(country_code: "US", one_item_rate_cents: 5_00, multiple_items_rate_cents: 2_00)
+        product.save!
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               full_name: "Test User",
+               street_address: "123 Test St",
+               city: "San Francisco",
+               state: "CA",
+               zip_code: "94107",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "calculates and adds shipping to the price" do
+        expect(purchase.shipping_cents).to eq(5_00)
+        expect(purchase.total_transaction_cents).to eq(15_00) # price + shipping
+      end
+    end
+
+    describe "shipping_inclusive mode" do
+      let(:gross_price) { 15_00 } # Price includes shipping
+      let(:product) do
+        product = create(:product, user: seller, price_cents: gross_price, pricing_mode: :gross, shipping_mode: :shipping_inclusive)
+        product.is_physical = true
+        product.require_shipping = true
+        product.shipping_destinations << ShippingDestination.new(country_code: "US", one_item_rate_cents: 5_00, multiple_items_rate_cents: 2_00)
+        product.save!
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: gross_price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               full_name: "Test User",
+               street_address: "123 Test St",
+               city: "San Francisco",
+               state: "CA",
+               zip_code: "94107",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "does not add shipping to the price (shipping is included)" do
+        expect(purchase.shipping_cents).to eq(0)
+        expect(purchase.total_transaction_cents).to eq(15_00) # Gross price unchanged
+      end
+    end
+
+    describe "no_shipping mode" do
+      let(:price) { 10_00 }
+      let(:product) do
+        product = create(:product, user: seller, price_cents: price, shipping_mode: :no_shipping)
+        product.is_physical = true
+        product.require_shipping = true
+        product.shipping_destinations << ShippingDestination.new(country_code: "US", one_item_rate_cents: 5_00, multiple_items_rate_cents: 2_00)
+        product.save!
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               full_name: "Test User",
+               street_address: "123 Test St",
+               city: "San Francisco",
+               state: "CA",
+               zip_code: "94107",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "does not charge for shipping (free shipping)" do
+        expect(purchase.shipping_cents).to eq(0)
+        expect(purchase.total_transaction_cents).to eq(10_00) # Price only, no shipping
+      end
+    end
+  end
+
+  describe "multi-currency pricing mode" do
+    let(:seller) { create(:user) }
+    let(:merchant_account) { create(:merchant_account_stripe_connect, user: seller) }
+
+    before do
+      Feature.activate_user(:merchant_migration, seller)
+      create(:user_compliance_info, user: seller)
+    end
+
+    describe "with explicit price for buyer's currency" do
+      let(:usd_price) { 10_00 }
+      let(:eur_price) { 9_00 }
+      let(:product) do
+        product = create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+        create(:price, link: product, price_cents: eur_price, currency: "eur")
+        product
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: usd_price,
+               seller:,
+               link: product,
+               country: "Germany",
+               ip_country: "Germany",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("DE")
+        purchase.process!
+      end
+
+      it "uses explicit EUR price for German buyer" do
+        expect(purchase.displayed_price_currency_type).to eq("eur")
+        # Price should be converted to base currency units
+        expect(purchase.price_cents).to be > 0
+      end
+
+      it "does not apply PPP discount for explicit prices" do
+        expect(purchase.purchasing_power_parity_info).to be_nil
+      end
+    end
+
+    describe "with fallback to default price" do
+      let(:usd_price) { 10_00 }
+      let(:product) do
+        create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: usd_price,
+               seller:,
+               link: product,
+               country: "Japan",
+               ip_country: "Japan",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("JP")
+        purchase.process!
+      end
+
+      it "falls back to USD price when no explicit JPY price exists" do
+        expect(purchase.displayed_price_currency_type).to eq("usd")
+        expect(purchase.price_cents).to eq(usd_price)
+      end
+    end
+
+    describe "PPP behavior with pricing modes" do
+      let(:usd_price) { 10_00 }
+
+      describe "legacy mode with PPP" do
+        let(:product) do
+          create(:product, user: seller, price_cents: usd_price, pricing_mode: :legacy)
+        end
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: usd_price,
+                 seller:,
+                 link: product,
+                 country: "India",
+                 ip_country: "India",
+                 is_purchasing_power_parity_discounted: true,
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          allow(purchase).to receive(:card_country).and_return("IN")
+          allow_any_instance_of(PurchasingPowerParityService).to receive(:get_factor).and_return(0.5)
+          purchase.process!
+        end
+
+        it "applies PPP discount for legacy mode" do
+          expect(purchase.purchasing_power_parity_info).to be_present
+          expect(purchase.purchasing_power_parity_info.factor).to eq(0.5)
+        end
+      end
+
+      describe "multi-currency mode with explicit price (no PPP)" do
+        let(:eur_price) { 9_00 }
+        let(:product) do
+          product = create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+          create(:price, link: product, price_cents: eur_price, currency: "eur")
+          product
+        end
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: usd_price,
+                 seller:,
+                 link: product,
+                 country: "Germany",
+                 ip_country: "Germany",
+                 is_purchasing_power_parity_discounted: true,
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          allow(purchase).to receive(:card_country).and_return("DE")
+          allow_any_instance_of(PurchasingPowerParityService).to receive(:get_factor).and_return(0.8)
+          purchase.process!
+        end
+
+        it "does not apply PPP for explicit multi-currency prices" do
+          expect(purchase.purchasing_power_parity_info).to be_nil
+        end
+      end
+
+      describe "multi-currency mode with fallback (PPP applies)" do
+        let(:product) do
+          create(:product, user: seller, price_cents: usd_price, pricing_mode: :multi_currency)
+        end
+        let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+        let(:purchase) do
+          create(:purchase,
+                 chargeable:,
+                 price_cents: usd_price,
+                 seller:,
+                 link: product,
+                 country: "India",
+                 ip_country: "India",
+                 is_purchasing_power_parity_discounted: true,
+                 purchase_state: "in_progress")
+        end
+
+        before do
+          allow(purchase).to receive(:card_country).and_return("IN")
+          allow_any_instance_of(PurchasingPowerParityService).to receive(:get_factor).and_return(0.5)
+          purchase.process!
+        end
+
+        it "applies PPP for fallback prices in multi-currency mode" do
+          expect(purchase.purchasing_power_parity_info).to be_present
+          expect(purchase.purchasing_power_parity_info.factor).to eq(0.5)
+        end
+      end
+    end
+
+    describe "fee calculation with base currency" do
+      let(:usd_price) { 10_00 }
+      let(:product) do
+        create(:product, user: seller, price_cents: usd_price, pricing_mode: :legacy)
+      end
+      let(:chargeable) { build(:chargeable, product_permalink: product.unique_permalink) }
+
+      let(:purchase) do
+        create(:purchase,
+               chargeable:,
+               price_cents: usd_price,
+               seller:,
+               link: product,
+               country: "United States",
+               ip_country: "United States",
+               purchase_state: "in_progress")
+      end
+
+      before do
+        allow(purchase).to receive(:card_country).and_return("US")
+        purchase.process!
+      end
+
+      it "calculates fees based on price in base currency units" do
+        expect(purchase.fee_cents).to be > 0
+        # Fee should be calculated as a percentage of price_cents
+        expect(purchase.fee_cents).to be < purchase.price_cents
+      end
+    end
+  end
 end

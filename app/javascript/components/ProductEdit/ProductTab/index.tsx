@@ -26,8 +26,11 @@ import { DurationEditor } from "$app/components/ProductEdit/ProductTab/DurationE
 import { DurationsEditor } from "$app/components/ProductEdit/ProductTab/DurationsEditor";
 import { FreeTrialSelector } from "$app/components/ProductEdit/ProductTab/FreeTrialSelector";
 import { GoogleCalendarIntegrationEditor } from "$app/components/ProductEdit/ProductTab/GoogleCalendarIntegrationEditor";
+import { GrossPriceEditor } from "$app/components/ProductEdit/ProductTab/GrossPriceEditor";
 import { MaxPurchaseCountToggle } from "$app/components/ProductEdit/ProductTab/MaxPurchaseCountToggle";
+import { MultiCurrencyPriceEditor } from "$app/components/ProductEdit/ProductTab/MultiCurrencyPriceEditor";
 import { PriceEditor } from "$app/components/ProductEdit/ProductTab/PriceEditor";
+import { PricingModeSelector } from "$app/components/ProductEdit/ProductTab/PricingModeSelector";
 import { ShippingDestinationsEditor } from "$app/components/ProductEdit/ProductTab/ShippingDestinationsEditor";
 import { SuggestedAmountsEditor } from "$app/components/ProductEdit/ProductTab/SuggestedAmountsEditor";
 import { ThumbnailEditor } from "$app/components/ProductEdit/ProductTab/ThumbnailEditor";
@@ -265,37 +268,59 @@ export const ProductTab = () => {
                 <>
                   <section className="p-4! md:p-8!">
                     <h2>Pricing</h2>
-                    <PriceEditor
-                      priceCents={product.price_cents}
-                      suggestedPriceCents={product.suggested_price_cents}
-                      isPWYW={product.customizable_price}
-                      setPriceCents={(priceCents) =>
-                        updateProduct({
-                          price_cents: priceCents,
-                          ...(priceCents === 0 && { customizable_price: true }),
-                        })
-                      }
-                      setSuggestedPriceCents={(suggestedPriceCents) =>
-                        updateProduct({ suggested_price_cents: suggestedPriceCents })
-                      }
-                      currencyCodeSelector={{
-                        options: currencyCodeList,
-                        onChange: (currencyCode) => {
-                          setCurrencyType(currencyCode);
-                        },
-                      }}
-                      setIsPWYW={(isPWYW) => updateProduct({ customizable_price: isPWYW })}
-                      currencyType={currencyType}
-                      eligibleForInstallmentPlans={product.eligible_for_installment_plans}
-                      allowInstallmentPlan={product.allow_installment_plan}
-                      numberOfInstallments={product.installment_plan?.number_of_installments ?? null}
-                      onAllowInstallmentPlanChange={(allowed) => updateProduct({ allow_installment_plan: allowed })}
-                      onNumberOfInstallmentsChange={(value) =>
-                        updateProduct({
-                          installment_plan: { ...product.installment_plan, number_of_installments: value },
-                        })
-                      }
-                    />
+                    <PricingModeSelector />
+                    {product.pricing_mode === "multi_currency" ? (
+                      <MultiCurrencyPriceEditor />
+                    ) : product.pricing_mode === "gross" ? (
+                      <GrossPriceEditor
+                        price={product.price_cents}
+                        setPrice={(price) =>
+                          updateProduct({
+                            price_cents: price,
+                            ...(price === 0 && { customizable_price: true }),
+                          })
+                        }
+                        currencyType={currencyType}
+                        currencyCodeSelector={{
+                          options: currencyCodeList,
+                          onChange: (currencyCode) => {
+                            setCurrencyType(currencyCode);
+                          },
+                        }}
+                      />
+                    ) : (
+                      <PriceEditor
+                        priceCents={product.price_cents}
+                        suggestedPriceCents={product.suggested_price_cents}
+                        isPWYW={product.customizable_price}
+                        setPriceCents={(priceCents) =>
+                          updateProduct({
+                            price_cents: priceCents,
+                            ...(priceCents === 0 && { customizable_price: true }),
+                          })
+                        }
+                        setSuggestedPriceCents={(suggestedPriceCents) =>
+                          updateProduct({ suggested_price_cents: suggestedPriceCents })
+                        }
+                        currencyCodeSelector={{
+                          options: currencyCodeList,
+                          onChange: (currencyCode) => {
+                            setCurrencyType(currencyCode);
+                          },
+                        }}
+                        setIsPWYW={(isPWYW) => updateProduct({ customizable_price: isPWYW })}
+                        currencyType={currencyType}
+                        eligibleForInstallmentPlans={product.eligible_for_installment_plans}
+                        allowInstallmentPlan={product.allow_installment_plan}
+                        numberOfInstallments={product.installment_plan?.number_of_installments ?? null}
+                        onAllowInstallmentPlanChange={(allowed) => updateProduct({ allow_installment_plan: allowed })}
+                        onNumberOfInstallmentsChange={(value) =>
+                          updateProduct({
+                            installment_plan: { ...product.installment_plan, number_of_installments: value },
+                          })
+                        }
+                      />
+                    )}
                     {product.native_type === "commission" ? (
                       <p
                         style={{

@@ -85,6 +85,27 @@ export type InstallmentPlan = {
   number_of_installments: number;
 };
 
+export type PricingMode = "legacy" | "gross" | "multi_currency";
+
+export type CurrencyPrice = {
+  id: string | null;
+  currency: string;
+  price_cents: number;
+  recurrence: string | null;
+  newlyAdded?: boolean;
+};
+
+export type AvailableCurrency = {
+  code: string;
+  symbol: string;
+  display_format: string;
+  min_price: number;
+};
+
+export type AvailableCryptocurrency = AvailableCurrency & {
+  decimals: number;
+};
+
 export type Product = {
   name: string;
   description: string;
@@ -146,6 +167,8 @@ export type Product = {
   public_files: PublicFileWithStatus[];
   audio_previews_enabled: boolean;
   community_chat_enabled: boolean | null;
+  pricing_mode: PricingMode;
+  currency_prices: CurrencyPrice[];
 } & (
   | { native_type: "call"; variants: Duration[] }
   | { native_type: "membership"; variants: Tier[] }
@@ -184,6 +207,8 @@ export const ProductEditContext = React.createContext<{
   awsKey: string;
   s3Url: string;
   availableCountries: ShippingCountry[];
+  availableCurrencies: AvailableCurrency[];
+  availableCryptocurrencies: AvailableCryptocurrency[];
   saving: boolean;
   save: () => Promise<void>;
   googleClientId: string;
