@@ -504,6 +504,7 @@ GEM
       activerecord
       kaminari-core (= 1.2.2)
     kaminari-core (1.2.2)
+    killbill-client (3.3.1)
     knapsack_pro (7.8.0)
       rake
     koala (3.6.0)
@@ -1193,6 +1194,7 @@ DEPENDENCIES
   json-schema (~> 5.0)
   json_matchers (~> 0.11)
   kaminari (~> 1.2)
+  killbill-client (~> 3.2)
   knapsack_pro (~> 7.0)
   koala (~> 3.3)
   lograge (~> 0.12)
