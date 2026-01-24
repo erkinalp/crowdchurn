@@ -16,6 +16,7 @@ class Subscription < ApplicationRecord
   include Purchase::Searchable::SubscriptionCallbacks
   include AfterCommitEverywhere
   include Subscription::KillbillIntegration
+  include CurrencyHelper
 
   # time allowed after card declined for buyer to have a successful charge before ending the subscription
   ALLOWED_TIME_BEFORE_FAIL_AND_UNSUBSCRIBE = 5.days
@@ -201,9 +202,41 @@ class Subscription < ApplicationRecord
     if is_installment_plan
       original_purchase.minimum_paid_price_cents
     else
-      discount_applies_to_next_charge? ?
+      base_price = discount_applies_to_next_charge? ?
         original_purchase.displayed_price_cents :
         original_purchase.displayed_price_cents_before_offer_code(include_deleted: true)
+
+      # For multi-currency or gross pricing modes, resolve price based on billing_currency
+      resolve_subscription_price_for_billing_currency(base_price)
+    end
+  end
+
+  def resolve_subscription_price_for_billing_currency(base_price_cents)
+    return base_price_cents if billing_currency.blank? || link.blank?
+
+    pricing_mode = link.pricing_mode&.to_sym
+    return base_price_cents if pricing_mode == :legacy || pricing_mode.nil?
+
+    product_currency = link.price_currency_type.to_s.downcase
+    target_currency = billing_currency.to_s.downcase
+
+    # If same currency, no conversion needed
+    return base_price_cents if target_currency == product_currency
+
+    case pricing_mode
+    when :gross
+      # For gross mode, convert using FX rates to maintain purchasing power
+      base_units = get_base_currency_units(product_currency, base_price_cents)
+      base_currency_to_display_currency(target_currency, base_units)
+    when :multi_currency
+      # For multi_currency mode, look up explicit price for the billing currency
+      resolved = link.resolve_price_for_buyer(
+        buyer_currency: target_currency,
+        recurrence: recurrence
+      )
+      resolved&.dig(:price_cents) || base_price_cents
+    else
+      base_price_cents
     end
   end
 
