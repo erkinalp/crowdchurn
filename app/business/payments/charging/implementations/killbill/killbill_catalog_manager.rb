@@ -2,6 +2,7 @@
 
 class KillbillCatalogManager
   include KillbillErrorHandler
+  include CurrencyHelper
 
   PRODUCT_CATEGORY_BASE = "BASE"
   PRODUCT_CATEGORY_ADD_ON = "ADD_ON"
@@ -17,6 +18,9 @@ class KillbillCatalogManager
   PHASE_TYPE_DISCOUNT = "DISCOUNT"
   PHASE_TYPE_FIXEDTERM = "FIXEDTERM"
   PHASE_TYPE_EVERGREEN = "EVERGREEN"
+
+  # Supported currencies for multi-currency catalogs (Kill Bill supports these)
+  SUPPORTED_CATALOG_CURRENCIES = %w[USD EUR GBP JPY AUD CAD CHF].freeze
 
   def initialize(merchant_account)
     @merchant_account = merchant_account
@@ -55,13 +59,14 @@ class KillbillCatalogManager
 
   def generate_catalog_for_product(product)
     products = [build_product_definition(product)]
-    plans = build_plans_for_product(product)
+    currencies = currencies_for_product(product)
+    plans = build_plans_for_product(product, currencies)
     price_lists = [{ name: "DEFAULT", plans: plans.map { |p| p[:name] } }]
 
     build_catalog_xml(
       name: "crowdchurn-catalog",
       effective_date: Time.current.iso8601,
-      currencies: [Currency::USD.upcase],
+      currencies: currencies,
       products: products,
       plans: plans,
       price_lists: price_lists
@@ -111,7 +116,7 @@ class KillbillCatalogManager
       }
     end
 
-    def build_plans_for_product(product)
+    def build_plans_for_product(product, currencies)
       plans = []
 
       product.prices.is_buy.alive.each do |price|
@@ -121,7 +126,7 @@ class KillbillCatalogManager
           name: plan_name_for_price(product, price),
           product: product_name_for_killbill(product),
           billing_period: recurrence_to_billing_period(price.recurrence),
-          phases: build_phases_for_price(product, price)
+          phases: build_phases_for_price(product, price, currencies)
         }
 
         plans << plan
@@ -130,19 +135,24 @@ class KillbillCatalogManager
       plans
     end
 
-    def build_phases_for_price(product, price)
+    def build_phases_for_price(product, price, currencies)
       phases = []
 
       if product.free_trial_duration_in_days.present? && product.free_trial_duration_in_days > 0
+        # For trial phase, all currencies have zero price
+        trial_prices = currencies.map { |currency| { currency: currency, value: 0 } }
         phases << {
           type: PHASE_TYPE_TRIAL,
           duration: {
             unit: "DAYS",
             number: product.free_trial_duration_in_days
           },
-          fixed_price: { currency: Currency::USD.upcase, value: 0 }
+          fixed_prices: trial_prices
         }
       end
+
+      # Build recurring prices for all supported currencies based on pricing_mode
+      recurring_prices = build_recurring_prices_for_currencies(product, price, currencies)
 
       phases << {
         type: PHASE_TYPE_EVERGREEN,
@@ -150,10 +160,7 @@ class KillbillCatalogManager
           unit: "UNLIMITED",
           number: -1
         },
-        recurring_price: {
-          currency: Currency::USD.upcase,
-          value: price.price_cents / 100.0
-        }
+        recurring_prices: recurring_prices
       }
 
       phases
@@ -200,6 +207,75 @@ class KillbillCatalogManager
       end
     end
 
+    def currencies_for_product(product)
+      case product.pricing_mode&.to_sym
+      when :gross
+        # For gross mode, include all supported currencies for FX conversion
+        SUPPORTED_CATALOG_CURRENCIES
+      when :multi_currency
+        # For multi_currency mode, include currencies that have explicit prices
+        explicit_currencies = product.prices.is_buy.alive.pluck(:currency).uniq.map(&:upcase)
+        # Always include the product's default currency
+        default_currency = product.price_currency_type.to_s.upcase
+        ([default_currency] + explicit_currencies).uniq & SUPPORTED_CATALOG_CURRENCIES
+      else
+        # For legacy mode, only include the product's default currency
+        [product.price_currency_type.to_s.upcase]
+      end
+    end
+
+    def build_recurring_prices_for_currencies(product, price, currencies)
+      product_currency = product.price_currency_type.to_s.downcase
+      base_price_cents = price.price_cents
+
+      currencies.map do |currency|
+        currency_lower = currency.downcase
+        price_value = resolve_price_for_currency(product, price, currency_lower, product_currency, base_price_cents)
+
+        { currency: currency, value: price_value }
+      end
+    end
+
+    def resolve_price_for_currency(product, price, target_currency, product_currency, base_price_cents)
+      case product.pricing_mode&.to_sym
+      when :gross
+        # For gross mode, convert using FX rates
+        if target_currency == product_currency
+          price_cents_to_decimal(base_price_cents, product_currency)
+        else
+          converted_cents = convert_price_with_fx(base_price_cents, product_currency, target_currency)
+          price_cents_to_decimal(converted_cents, target_currency)
+        end
+      when :multi_currency
+        # For multi_currency mode, look up explicit price or fall back to base
+        explicit_price = product.price_for_currency(target_currency, recurrence: price.recurrence)
+        if explicit_price.present?
+          price_cents_to_decimal(explicit_price.price_cents, target_currency)
+        else
+          price_cents_to_decimal(base_price_cents, product_currency)
+        end
+      else
+        # For legacy mode, use the base price
+        price_cents_to_decimal(base_price_cents, product_currency)
+      end
+    end
+
+    def convert_price_with_fx(price_cents, source_currency, target_currency)
+      # Convert source currency to base currency (USD), then to target currency
+      base_units = get_base_currency_units(source_currency, price_cents)
+      base_currency_to_display_currency(target_currency, base_units)
+    end
+
+    def price_cents_to_decimal(price_cents, currency)
+      # Convert cents to decimal value for Kill Bill catalog
+      # Handle single-unit currencies like JPY
+      if is_currency_type_single_unit?(currency)
+        price_cents.to_f
+      else
+        price_cents / 100.0
+      end
+    end
+
     def build_catalog_xml(name:, effective_date:, currencies:, products:, plans:, price_lists:)
       xml = Builder::XmlMarkup.new(indent: 2)
       xml.instruct! :xml, version: "1.0", encoding: "UTF-8"
@@ -237,17 +313,45 @@ class KillbillCatalogManager
           plans.each do |plan|
             xml.plan(name: plan[:name]) do
               xml.product plan[:product]
+
+              # Add trial phase if present
+              trial_phase = plan[:phases].find { |p| p[:type] == PHASE_TYPE_TRIAL }
+              if trial_phase
+                xml.initialPhases do
+                  xml.phase(type: "TRIAL") do
+                    xml.duration do
+                      xml.unit trial_phase[:duration][:unit]
+                      xml.number trial_phase[:duration][:number]
+                    end
+                    xml.fixed do
+                      xml.fixedPrice do
+                        trial_phase[:fixed_prices].each do |price_entry|
+                          xml.price do
+                            xml.currency price_entry[:currency]
+                            xml.value price_entry[:value]
+                          end
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+
               xml.finalPhase(type: "EVERGREEN") do
                 xml.duration do
                   xml.unit "UNLIMITED"
                   xml.number(-1)
                 end
                 xml.billingPeriod plan[:billing_period]
-                xml.recurringPrice do
-                  plan[:phases].select { |p| p[:type] == PHASE_TYPE_EVERGREEN }.each do |phase|
-                    xml.price do
-                      xml.currency phase[:recurring_price][:currency]
-                      xml.value phase[:recurring_price][:value]
+                xml.recurring do
+                  xml.recurringPrice do
+                    plan[:phases].select { |p| p[:type] == PHASE_TYPE_EVERGREEN }.each do |phase|
+                      phase[:recurring_prices].each do |price_entry|
+                        xml.price do
+                          xml.currency price_entry[:currency]
+                          xml.value price_entry[:value]
+                        end
+                      end
                     end
                   end
                 end
