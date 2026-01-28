@@ -55,6 +55,10 @@ class Charge < ApplicationRecord
     purchase_as_chargeable.upload_invoice_pdf(pdf)
   end
 
+  def upload_invoice_xml(xml_content, filename: "invoice.xml")
+    purchase_as_chargeable.upload_invoice_xml(xml_content, filename: filename)
+  end
+
   def successful_purchases
     purchases.all_success_states_including_test
   end

@@ -2245,6 +2245,15 @@ class Purchase < ApplicationRecord
     s3_obj
   end
 
+  def upload_invoice_xml(xml_content, filename: "invoice.xml")
+    timestamp = Time.current.strftime("%F")
+    key = "#{Rails.env}/#{timestamp}/invoices/purchases/#{external_id}-#{SecureRandom.hex}/#{filename}"
+
+    s3_obj = Aws::S3::Resource.new.bucket(INVOICES_S3_BUCKET).object(key)
+    s3_obj.put(body: xml_content, content_type: "application/xml")
+    s3_obj
+  end
+
   # Unsubscribe the buyer of this purchase from all of the seller's emails
   def unsubscribe_buyer
     Purchase.where(email:, seller_id:, can_contact: true).find_each do |purchase|
