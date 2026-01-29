@@ -332,6 +332,9 @@ class PurchasesController < ApplicationController
     rescue ElectronicInvoiceGenerator::UnsupportedFormatError
       Rails.logger.error("Unsupported invoice format requested: #{invoice_format}")
       render json: { success: false, message: "Unsupported invoice format: #{invoice_format}" }
+    rescue ElectronicInvoiceGenerator::MissingDataError => e
+      Rails.logger.error("Invoice generation failed due to missing data: #{e.message}")
+      render json: { success: false, message: "Invoice generation failed: #{e.message}" }
     rescue StandardError => e
       Rails.logger.error("Chargeable #{@chargeable.class.name} (#{@chargeable.external_id}) invoice generation failed due to: #{e.inspect}")
       Rails.logger.error(e.message)

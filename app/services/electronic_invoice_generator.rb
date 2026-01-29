@@ -9,6 +9,7 @@ module ElectronicInvoiceGenerator
   class Error < StandardError; end
   class UnsupportedFormatError < Error; end
   class ValidationError < Error; end
+  class MissingDataError < Error; end
 
   class << self
     def generate(format:, chargeable:, address_fields:, additional_notes: nil, business_vat_id: nil)
@@ -54,11 +55,26 @@ module ElectronicInvoiceGenerator
     end
 
     def generate
+      validate_required_data!
       raise NotImplementedError, "Subclasses must implement #generate"
     end
 
     def content_type
       "application/xml"
+    end
+
+    def validate_required_data!
+      errors = []
+      errors << "Customer name is required" if customer_name.blank? || customer_name == "Customer"
+      errors << "Customer country is required" if customer_country_code.blank?
+      errors << "No invoice line items found" if invoice_lines_data.empty?
+
+      # Address validation - warn but don't fail for missing address details
+      Rails.logger.warn("Invoice #{invoice_number}: Customer address is incomplete") if customer_address.blank?
+      Rails.logger.warn("Invoice #{invoice_number}: Customer city is missing") if customer_city.blank?
+      Rails.logger.warn("Invoice #{invoice_number}: Customer postal code is missing") if customer_postal_code.blank?
+
+      raise MissingDataError, errors.join("; ") if errors.any?
     end
 
     def file_extension
@@ -100,11 +116,23 @@ module ElectronicInvoiceGenerator
       end
 
       def currency_code
-        "USD"
+        # Use the purchase's displayed currency if available, otherwise default to USD
+        first_purchase = chargeable.successful_purchases.first
+        return "USD" unless first_purchase
+
+        first_purchase.displayed_price_currency_type.to_s.upcase
       end
 
       def supplier_name
-        "Gumroad, Inc."
+        PLATFORM_SUPPLIER_NAME
+      end
+
+      def supplier_email
+        PLATFORM_SUPPLIER_EMAIL
+      end
+
+      def supplier_website
+        PLATFORM_SUPPLIER_WEBSITE
       end
 
       def supplier_country_code
@@ -219,6 +247,7 @@ module ElectronicInvoiceGenerator
 
   class Ubl < Base
     def generate
+      validate_required_data!
       invoice = ::Ubl::Invoice.new
       configure_invoice(invoice)
       invoice.build
@@ -279,6 +308,16 @@ module ElectronicInvoiceGenerator
     end
   end
 
+  # XRechnung invoice generator for German public sector invoicing.
+  #
+  # XRechnung is based on UBL 2.1 with specific customization and profile IDs.
+  # This implementation uses respond_to? checks for customization_id= and profile_id=
+  # because the ubl gem's API may vary between versions. If these methods are not
+  # available in your version of the ubl gem, the invoice will still be generated
+  # as a valid UBL invoice but without the XRechnung-specific identifiers.
+  #
+  # For full XRechnung compliance, ensure you're using ubl gem version 0.1.4 or later
+  # which includes support for these customization options.
   class Xrechnung < Ubl
     XRECHNUNG_CUSTOMIZATION_ID = "urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0"
     XRECHNUNG_PROFILE_ID = "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0"
@@ -292,6 +331,9 @@ module ElectronicInvoiceGenerator
     protected
       def configure_invoice(invoice)
         super
+        # These methods may not be available in all versions of the ubl gem.
+        # The invoice will still be valid UBL without them, but may not pass
+        # strict XRechnung validation without the correct identifiers.
         invoice.customization_id = XRECHNUNG_CUSTOMIZATION_ID if invoice.respond_to?(:customization_id=)
         invoice.profile_id = XRECHNUNG_PROFILE_ID if invoice.respond_to?(:profile_id=)
       end
@@ -310,10 +352,21 @@ module ElectronicInvoiceGenerator
       end
   end
 
+  # ZUGFeRD invoice generator using CII (Cross-Industry Invoice) XML format.
+  #
+  # NOTE: This implementation generates CII XML only, not the full ZUGFeRD PDF/A-3
+  # hybrid format. ZUGFeRD traditionally embeds the XML invoice inside a PDF/A-3
+  # document. If full PDF/A-3 hybrid format is required, consider using a library
+  # like `combine_pdf` or `hexapdf` to embed the XML into a PDF/A-3 container,
+  # or use a dedicated ZUGFeRD library that handles PDF embedding.
+  #
+  # The current CII XML output is valid for systems that accept standalone XML
+  # invoices or for embedding into PDF documents externally.
   class Zugferd < Base
     ZUGFERD_PROFILE = :EN16931
 
     def generate
+      validate_required_data!
       build_cii_invoice.to_xml(version: 2)
     end
 
@@ -408,6 +461,7 @@ module ElectronicInvoiceGenerator
     UBL_TR_AGGREGATE_NAMESPACE = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
 
     def generate
+      validate_required_data!
       build_ubl_tr_invoice
     end
 
@@ -454,7 +508,7 @@ module ElectronicInvoiceGenerator
       def build_accounting_supplier_party(xml)
         xml["cac"].AccountingSupplierParty do
           xml["cac"].Party do
-            xml["cbc"].WebsiteURI "https://gumroad.com"
+            xml["cbc"].WebsiteURI supplier_website
             build_party_identification(xml, supplier_vat_id)
             build_party_name(xml, supplier_name)
             build_postal_address(xml, supplier_address, supplier_city, supplier_postal_code, supplier_country_code)
@@ -519,7 +573,7 @@ module ElectronicInvoiceGenerator
 
       def build_contact(xml)
         xml["cac"].Contact do
-          xml["cbc"].ElectronicMail "support@gumroad.com"
+          xml["cbc"].ElectronicMail supplier_email
         end
       end
 

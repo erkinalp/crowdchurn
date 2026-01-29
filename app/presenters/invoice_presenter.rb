@@ -56,7 +56,7 @@ class InvoicePresenter
       invoice_date: chargeable.orderable.created_at.to_date,
       currency_code: "USD",
       supplier: {
-        name: "Gumroad, Inc.",
+        name: PLATFORM_SUPPLIER_NAME,
         address: GumroadAddress::STREET,
         city: GumroadAddress::CITY,
         postal_code: GumroadAddress::ZIP_PLUS_FOUR,
