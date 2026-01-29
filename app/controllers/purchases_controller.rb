@@ -324,7 +324,7 @@ class PurchasesController < ApplicationController
       @chargeable.refund_gumroad_taxes!(refunding_user_id: logged_in_user&.id, note: address_fields.to_json, business_vat_id:) if business_vat_id
 
       case invoice_format
-      when "ubl", "peppol"
+      when "ubl", "peppol", "xrechnung", "zugferd", "efatura_ithalat"
         generate_electronic_invoice(invoice_format, address_fields, additional_notes, business_vat_id)
       else
         generate_pdf_invoice(address_fields, additional_notes, business_vat_id)
@@ -365,17 +365,37 @@ class PurchasesController < ApplicationController
       business_vat_id: business_vat_id
     )
 
-    file_extension = format == "peppol" ? "peppol.xml" : "ubl.xml"
+    file_extension = electronic_invoice_file_extension(format)
     filename = "invoice-#{@chargeable.external_id_numeric_for_invoice}.#{file_extension}"
     s3_obj = @chargeable.upload_invoice_xml(xml_content, filename: filename)
 
-    message = +"The #{format.upcase} invoice will be downloaded automatically."
+    message = +"The #{format_display_name(format)} invoice will be downloaded automatically."
     if business_vat_id
       notice = tax_refund_notice
       message << " " << notice
     end
     file_url = s3_obj.presigned_url(:get, expires_in: SignedUrlHelper::SIGNED_S3_URL_VALID_FOR_MAXIMUM.to_i)
     render json: { success: true, message:, file_location: file_url, format: format }
+  end
+
+  def electronic_invoice_file_extension(format)
+    case format
+    when "peppol" then "peppol.xml"
+    when "xrechnung" then "xrechnung.xml"
+    when "zugferd" then "zugferd.xml"
+    when "efatura_ithalat" then "efatura-ithalat.xml"
+    else "ubl.xml"
+    end
+  end
+
+  def format_display_name(format)
+    case format
+    when "peppol" then "PEPPOL"
+    when "xrechnung" then "XRechnung"
+    when "zugferd" then "ZUGFeRD"
+    when "efatura_ithalat" then "e-Fatura (ITHALAT)"
+    else "UBL"
+    end
   end
 
   def tax_refund_notice
