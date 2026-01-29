@@ -22,6 +22,11 @@ GUMROAD_MERCHANT_DESCRIPTOR_URL = GlobalConfig.get("MERCHANT_DESCRIPTOR_URL", "g
 
 GUMROAD_LOGO_URL = GlobalConfig.get("LOGO_URL", "https://gumroad.com/button/button_logo.png")
 
+# Platform/supplier name for invoices - configurable for self-hosting
+PLATFORM_SUPPLIER_NAME = GlobalConfig.get("SUPPLIER_NAME", "Gumroad, Inc.")
+PLATFORM_SUPPLIER_EMAIL = GlobalConfig.get("SUPPLIER_EMAIL", "support@gumroad.com")
+PLATFORM_SUPPLIER_WEBSITE = GlobalConfig.get("SUPPLIER_WEBSITE", "https://gumroad.com")
+
 module GumroadAddress
   STREET = GlobalConfig.get("ADDRESS_STREET", "548 Market St")
   CITY = GlobalConfig.get("ADDRESS_CITY", "San Francisco")
