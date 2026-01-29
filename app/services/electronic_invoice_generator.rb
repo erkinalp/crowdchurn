@@ -533,7 +533,6 @@ module ElectronicInvoiceGenerator
               xml["cbc"].TaxableAmount(currencyID: currency_code) { xml.text format_amount(taxable_amount) }
               xml["cbc"].TaxAmount(currencyID: currency_code) { xml.text format_amount(tax_amount) }
               xml["cac"].TaxCategory do
-                xml["cbc"].TaxExemptionReasonCode "ITHALAT" if rate.zero?
                 xml["cac"].TaxScheme do
                   xml["cbc"].Name "KDV"
                   xml["cbc"].TaxTypeCode "0015"
