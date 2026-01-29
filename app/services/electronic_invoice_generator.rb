@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 require "ubl"
+require "secretariat"
 
 module ElectronicInvoiceGenerator
-  SUPPORTED_FORMATS = %w[pdf ubl peppol].freeze
+  SUPPORTED_FORMATS = %w[pdf ubl peppol xrechnung zugferd efatura_ithalat].freeze
 
   class Error < StandardError; end
   class UnsupportedFormatError < Error; end
@@ -28,6 +29,12 @@ module ElectronicInvoiceGenerator
         Ubl
       when "peppol"
         Peppol
+      when "xrechnung"
+        Xrechnung
+      when "zugferd"
+        Zugferd
+      when "efatura_ithalat"
+        EfaturaIthalat
       else
         raise UnsupportedFormatError, "No generator for format: #{format}"
       end
@@ -270,5 +277,322 @@ module ElectronicInvoiceGenerator
       configure_invoice(invoice)
       invoice.build
     end
+  end
+
+  class Xrechnung < Ubl
+    XRECHNUNG_CUSTOMIZATION_ID = "urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0"
+    XRECHNUNG_PROFILE_ID = "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0"
+
+    def generate
+      invoice = ::Ubl::Invoice.new
+      configure_invoice(invoice)
+      invoice.build
+    end
+
+    protected
+      def configure_invoice(invoice)
+        super
+        invoice.customization_id = XRECHNUNG_CUSTOMIZATION_ID if invoice.respond_to?(:customization_id=)
+        invoice.profile_id = XRECHNUNG_PROFILE_ID if invoice.respond_to?(:profile_id=)
+      end
+
+      def add_customer_to_invoice(invoice)
+        super
+        add_leitweg_id(invoice) if leitweg_id.present?
+      end
+
+      def leitweg_id
+        address_fields[:leitweg_id]
+      end
+
+      def add_leitweg_id(invoice)
+        invoice.buyer_reference = leitweg_id if invoice.respond_to?(:buyer_reference=)
+      end
+  end
+
+  class Zugferd < Base
+    ZUGFERD_PROFILE = :EN16931
+
+    def generate
+      build_cii_invoice.to_xml(version: 2)
+    end
+
+    def content_type
+      "application/xml"
+    end
+
+    def file_extension
+      "xml"
+    end
+
+    protected
+      def build_cii_invoice
+        Secretariat::Invoice.new(
+          id: invoice_number,
+          issue_date: invoice_date,
+          currency_code: currency_code,
+          seller: build_seller,
+          buyer: build_buyer,
+          line_items: build_line_items,
+          payment_type: :BANKACCOUNT,
+          payment_text: payment_text,
+          tax_category: tax_category,
+          tax_percent: tax_percent,
+          tax_amount: total_tax_amount.to_s,
+          basis_amount: total_line_extension_amount.to_s,
+          grand_total_amount: total_payable_amount.to_s,
+          due_amount: total_payable_amount.to_s,
+          paid_amount: "0"
+        )
+      end
+
+      def build_seller
+        Secretariat::TradeParty.new(
+          name: supplier_name,
+          street1: supplier_address,
+          city: supplier_city,
+          postal_code: supplier_postal_code,
+          country_id: supplier_country_code,
+          vat_id: supplier_vat_id
+        )
+      end
+
+      def build_buyer
+        Secretariat::TradeParty.new(
+          name: customer_name,
+          street1: customer_address,
+          city: customer_city,
+          postal_code: customer_postal_code,
+          country_id: customer_country_code,
+          vat_id: customer_vat_id
+        )
+      end
+
+      def build_line_items
+        invoice_lines_data.each_with_index.map do |line, index|
+          Secretariat::LineItem.new(
+            name: line[:name],
+            quantity: line[:quantity],
+            unit_code: "C62",
+            gross_amount: line[:line_extension_amount].to_s,
+            net_amount: line[:line_extension_amount].to_s,
+            charge_amount: line[:unit_price].to_s,
+            tax_category: tax_category,
+            tax_percent: line[:tax_rate].to_s,
+            origin_country_code: supplier_country_code
+          )
+        end
+      end
+
+      def payment_text
+        "Payment for invoice #{invoice_number}"
+      end
+
+      def tax_category
+        total_tax_amount.positive? ? :STANDARDRATE : :ZEROTAXPRODUCTS
+      end
+
+      def tax_percent
+        return "0" if invoice_lines_data.empty?
+
+        avg_rate = invoice_lines_data.sum { |l| l[:tax_rate] } / invoice_lines_data.size
+        avg_rate.to_s
+      end
+  end
+
+  class EfaturaIthalat < Base
+    SCENARIO_TYPE = "ITHALAT"
+    INVOICE_TYPE_CODE = "SATIS"
+    UBL_TR_NAMESPACE = "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+    UBL_TR_COMMON_NAMESPACE = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+    UBL_TR_AGGREGATE_NAMESPACE = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+
+    def generate
+      build_ubl_tr_invoice
+    end
+
+    def content_type
+      "application/xml"
+    end
+
+    def file_extension
+      "xml"
+    end
+
+    protected
+      def build_ubl_tr_invoice
+        builder = Nokogiri::XML::Builder.new(encoding: "UTF-8") do |xml|
+          xml.Invoice(xmlns: UBL_TR_NAMESPACE,
+                      "xmlns:cbc" => UBL_TR_COMMON_NAMESPACE,
+                      "xmlns:cac" => UBL_TR_AGGREGATE_NAMESPACE) do
+            build_invoice_header(xml)
+            build_accounting_supplier_party(xml)
+            build_accounting_customer_party(xml)
+            build_tax_total(xml)
+            build_legal_monetary_total(xml)
+            build_invoice_lines(xml)
+          end
+        end
+        builder.to_xml
+      end
+
+      def build_invoice_header(xml)
+        xml["cbc"].UBLVersionID "2.1"
+        xml["cbc"].CustomizationID scenario_customization_id
+        xml["cbc"].ProfileID SCENARIO_TYPE
+        xml["cbc"].ID invoice_number
+        xml["cbc"].CopyIndicator "false"
+        xml["cbc"].UUID SecureRandom.uuid
+        xml["cbc"].IssueDate invoice_date.strftime("%Y-%m-%d")
+        xml["cbc"].IssueTime Time.current.strftime("%H:%M:%S")
+        xml["cbc"].InvoiceTypeCode INVOICE_TYPE_CODE
+        xml["cbc"].Note additional_notes if additional_notes.present?
+        xml["cbc"].DocumentCurrencyCode currency_code
+        xml["cbc"].LineCountNumeric invoice_lines_data.count
+      end
+
+      def build_accounting_supplier_party(xml)
+        xml["cac"].AccountingSupplierParty do
+          xml["cac"].Party do
+            xml["cbc"].WebsiteURI "https://gumroad.com"
+            build_party_identification(xml, supplier_vat_id)
+            build_party_name(xml, supplier_name)
+            build_postal_address(xml, supplier_address, supplier_city, supplier_postal_code, supplier_country_code)
+            build_party_tax_scheme(xml, supplier_vat_id)
+            build_party_legal_entity(xml, supplier_name)
+            build_contact(xml)
+          end
+        end
+      end
+
+      def build_accounting_customer_party(xml)
+        xml["cac"].AccountingCustomerParty do
+          xml["cac"].Party do
+            build_party_identification(xml, customer_vat_id) if customer_vat_id.present?
+            build_party_name(xml, customer_name)
+            build_postal_address(xml, customer_address, customer_city, customer_postal_code, customer_country_code)
+            build_party_tax_scheme(xml, customer_vat_id) if customer_vat_id.present?
+            build_party_legal_entity(xml, customer_name)
+          end
+        end
+      end
+
+      def build_party_identification(xml, id)
+        return unless id.present?
+
+        xml["cac"].PartyIdentification do
+          xml["cbc"].ID(schemeID: "VKN") { xml.text id }
+        end
+      end
+
+      def build_party_name(xml, name)
+        xml["cac"].PartyName do
+          xml["cbc"].Name name
+        end
+      end
+
+      def build_postal_address(xml, street, city, postal_code, country_code)
+        xml["cac"].PostalAddress do
+          xml["cbc"].StreetName street if street.present?
+          xml["cbc"].CityName city if city.present?
+          xml["cbc"].PostalZone postal_code if postal_code.present?
+          xml["cac"].Country do
+            xml["cbc"].IdentificationCode country_code
+          end
+        end
+      end
+
+      def build_party_tax_scheme(xml, tax_id)
+        xml["cac"].PartyTaxScheme do
+          xml["cbc"].CompanyID tax_id if tax_id.present?
+          xml["cac"].TaxScheme do
+            xml["cbc"].Name "VAT"
+          end
+        end
+      end
+
+      def build_party_legal_entity(xml, name)
+        xml["cac"].PartyLegalEntity do
+          xml["cbc"].RegistrationName name
+        end
+      end
+
+      def build_contact(xml)
+        xml["cac"].Contact do
+          xml["cbc"].ElectronicMail "support@gumroad.com"
+        end
+      end
+
+      def build_tax_total(xml)
+        xml["cac"].TaxTotal do
+          xml["cbc"].TaxAmount(currencyID: currency_code) { xml.text format_amount(total_tax_amount) }
+          invoice_lines_data.group_by { |l| l[:tax_rate] }.each do |rate, lines|
+            tax_amount = lines.sum { |l| l[:tax_amount] }
+            taxable_amount = lines.sum { |l| l[:line_extension_amount] }
+            xml["cac"].TaxSubtotal do
+              xml["cbc"].TaxableAmount(currencyID: currency_code) { xml.text format_amount(taxable_amount) }
+              xml["cbc"].TaxAmount(currencyID: currency_code) { xml.text format_amount(tax_amount) }
+              xml["cac"].TaxCategory do
+                xml["cbc"].TaxExemptionReasonCode "ITHALAT" if rate.zero?
+                xml["cac"].TaxScheme do
+                  xml["cbc"].Name "KDV"
+                  xml["cbc"].TaxTypeCode "0015"
+                end
+              end
+            end
+          end
+        end
+      end
+
+      def build_legal_monetary_total(xml)
+        xml["cac"].LegalMonetaryTotal do
+          xml["cbc"].LineExtensionAmount(currencyID: currency_code) { xml.text format_amount(total_line_extension_amount) }
+          xml["cbc"].TaxExclusiveAmount(currencyID: currency_code) { xml.text format_amount(total_line_extension_amount) }
+          xml["cbc"].TaxInclusiveAmount(currencyID: currency_code) { xml.text format_amount(total_payable_amount) }
+          xml["cbc"].PayableAmount(currencyID: currency_code) { xml.text format_amount(total_payable_amount) }
+        end
+      end
+
+      def build_invoice_lines(xml)
+        invoice_lines_data.each_with_index do |line, index|
+          xml["cac"].InvoiceLine do
+            xml["cbc"].ID (index + 1).to_s
+            xml["cbc"].InvoicedQuantity(unitCode: "C62") { xml.text line[:quantity].to_s }
+            xml["cbc"].LineExtensionAmount(currencyID: currency_code) { xml.text format_amount(line[:line_extension_amount]) }
+            build_line_tax_total(xml, line)
+            xml["cac"].Item do
+              xml["cbc"].Name line[:name]
+            end
+            xml["cac"].Price do
+              xml["cbc"].PriceAmount(currencyID: currency_code) { xml.text format_amount(line[:unit_price]) }
+            end
+          end
+        end
+      end
+
+      def build_line_tax_total(xml, line)
+        xml["cac"].TaxTotal do
+          xml["cbc"].TaxAmount(currencyID: currency_code) { xml.text format_amount(line[:tax_amount]) }
+          xml["cac"].TaxSubtotal do
+            xml["cbc"].TaxableAmount(currencyID: currency_code) { xml.text format_amount(line[:line_extension_amount]) }
+            xml["cbc"].TaxAmount(currencyID: currency_code) { xml.text format_amount(line[:tax_amount]) }
+            xml["cbc"].Percent line[:tax_rate].to_s
+            xml["cac"].TaxCategory do
+              xml["cac"].TaxScheme do
+                xml["cbc"].Name "KDV"
+                xml["cbc"].TaxTypeCode "0015"
+              end
+            end
+          end
+        end
+      end
+
+      def scenario_customization_id
+        "TR1.2.1"
+      end
+
+      def format_amount(amount)
+        format("%.2f", amount)
+      end
   end
 end

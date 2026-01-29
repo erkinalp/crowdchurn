@@ -202,3 +202,4 @@ group :development do
 end
 
 gem "ubl", "~> 0.1"
+gem "secretariat", "~> 3.0"

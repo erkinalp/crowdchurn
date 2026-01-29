@@ -954,6 +954,9 @@ GEM
       sprockets (> 3.0)
       sprockets-rails
       tilt
+    secretariat (3.2.0)
+      bigdecimal (~> 3.1)
+      nokogiri (~> 1.10)
     secure_headers (6.7.0)
     securerandom (0.4.1)
     selenium-webdriver (4.35.0)
@@ -1266,6 +1269,7 @@ DEPENDENCIES
   ruby-openai (~> 7.0)
   rubyzip (~> 2.3)
   sass-rails (~> 6.0)
+  secretariat (~> 3.0)
   secure_headers (~> 6.5)
   selenium-webdriver (~> 4.35)
   sendgrid-ruby (~> 6.6)
