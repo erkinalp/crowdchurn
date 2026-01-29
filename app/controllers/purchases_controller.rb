@@ -278,6 +278,7 @@ class PurchasesController < ApplicationController
       country: ISO3166::Country[params["country_code"]]&.common_name
     }
     additional_notes = params[:additional_notes]&.strip
+    invoice_format = params[:format].presence || "pdf"
 
     raw_vat_id = params["vat_id"].present? ? params["vat_id"] : nil
     if raw_vat_id
@@ -319,44 +320,100 @@ class PurchasesController < ApplicationController
       end
     end
 
-    invoice_presenter = InvoicePresenter.new(@chargeable, address_fields:, additional_notes:, business_vat_id:)
-
     begin
       @chargeable.refund_gumroad_taxes!(refunding_user_id: logged_in_user&.id, note: address_fields.to_json, business_vat_id:) if business_vat_id
 
-      invoice_html = render_to_string(locals: { invoice_presenter: }, formats: [:pdf], layout: false)
-      pdf = PDFKit.new(invoice_html, page_size: "Letter").to_pdf
-      s3_obj = @chargeable.upload_invoice_pdf(pdf)
-
-      message = +"The invoice will be downloaded automatically."
-      if business_vat_id
-        notice =
-          if @chargeable.purchase_sales_tax_info.present? &&
-             (Compliance::Countries::GST_APPLICABLE_COUNTRY_CODES.include?(@chargeable.purchase_sales_tax_info.country_code) ||
-             Compliance::Countries::IND.alpha2 == @chargeable.purchase_sales_tax_info.country_code)
-            "GST has also been refunded."
-          elsif @chargeable.purchase_sales_tax_info.present? &&
-                Compliance::Countries::CAN.alpha2 == @chargeable.purchase_sales_tax_info.country_code
-            "QST has also been refunded."
-          elsif @chargeable.purchase_sales_tax_info.present? &&
-            Compliance::Countries::MYS.alpha2 == @chargeable.purchase_sales_tax_info.country_code
-            "Service tax has also been refunded."
-          elsif @chargeable.purchase_sales_tax_info.present? &&
-            Compliance::Countries::JPN.alpha2 == @chargeable.purchase_sales_tax_info.country_code
-            "CT has also been refunded."
-          else
-            "VAT has also been refunded."
-          end
-        message << " " << notice
+      case invoice_format
+      when "ubl", "peppol", "xrechnung", "zugferd", "efatura_ithalat"
+        generate_electronic_invoice(invoice_format, address_fields, additional_notes, business_vat_id)
+      else
+        generate_pdf_invoice(address_fields, additional_notes, business_vat_id)
       end
-      file_url = s3_obj.presigned_url(:get, expires_in: SignedUrlHelper::SIGNED_S3_URL_VALID_FOR_MAXIMUM.to_i)
-      render json: { success: true, message:, file_location: file_url }
+    rescue ElectronicInvoiceGenerator::UnsupportedFormatError
+      Rails.logger.error("Unsupported invoice format requested: #{invoice_format}")
+      render json: { success: false, message: "Unsupported invoice format: #{invoice_format}" }
     rescue StandardError => e
       Rails.logger.error("Chargeable #{@chargeable.class.name} (#{@chargeable.external_id}) invoice generation failed due to: #{e.inspect}")
       Rails.logger.error(e.message)
       Rails.logger.error(e.backtrace.join("\n"))
 
       render json: { success: false, message: "Sorry, something went wrong." }
+    end
+  end
+
+  def generate_pdf_invoice(address_fields, additional_notes, business_vat_id)
+    invoice_presenter = InvoicePresenter.new(@chargeable, address_fields:, additional_notes:, business_vat_id:)
+    invoice_html = render_to_string(locals: { invoice_presenter: }, formats: [:pdf], layout: false)
+    pdf = PDFKit.new(invoice_html, page_size: "Letter").to_pdf
+    s3_obj = @chargeable.upload_invoice_pdf(pdf)
+
+    message = +"The invoice will be downloaded automatically."
+    if business_vat_id
+      notice = tax_refund_notice
+      message << " " << notice
+    end
+    file_url = s3_obj.presigned_url(:get, expires_in: SignedUrlHelper::SIGNED_S3_URL_VALID_FOR_MAXIMUM.to_i)
+    render json: { success: true, message:, file_location: file_url }
+  end
+
+  def generate_electronic_invoice(format, address_fields, additional_notes, business_vat_id)
+    xml_content = ElectronicInvoiceGenerator.generate(
+      format: format,
+      chargeable: @chargeable,
+      address_fields: address_fields,
+      additional_notes: additional_notes,
+      business_vat_id: business_vat_id
+    )
+
+    file_extension = electronic_invoice_file_extension(format)
+    filename = "invoice-#{@chargeable.external_id_numeric_for_invoice}.#{file_extension}"
+    s3_obj = @chargeable.upload_invoice_xml(xml_content, filename: filename)
+
+    message = +"The #{format_display_name(format)} invoice will be downloaded automatically."
+    if business_vat_id
+      notice = tax_refund_notice
+      message << " " << notice
+    end
+    file_url = s3_obj.presigned_url(:get, expires_in: SignedUrlHelper::SIGNED_S3_URL_VALID_FOR_MAXIMUM.to_i)
+    render json: { success: true, message:, file_location: file_url, format: format }
+  end
+
+  def electronic_invoice_file_extension(format)
+    case format
+    when "peppol" then "peppol.xml"
+    when "xrechnung" then "xrechnung.xml"
+    when "zugferd" then "zugferd.xml"
+    when "efatura_ithalat" then "efatura-ithalat.xml"
+    else "ubl.xml"
+    end
+  end
+
+  def format_display_name(format)
+    case format
+    when "peppol" then "PEPPOL"
+    when "xrechnung" then "XRechnung"
+    when "zugferd" then "ZUGFeRD"
+    when "efatura_ithalat" then "e-Fatura (ITHALAT)"
+    else "UBL"
+    end
+  end
+
+  def tax_refund_notice
+    if @chargeable.purchase_sales_tax_info.present? &&
+       (Compliance::Countries::GST_APPLICABLE_COUNTRY_CODES.include?(@chargeable.purchase_sales_tax_info.country_code) ||
+       Compliance::Countries::IND.alpha2 == @chargeable.purchase_sales_tax_info.country_code)
+      "GST has also been refunded."
+    elsif @chargeable.purchase_sales_tax_info.present? &&
+          Compliance::Countries::CAN.alpha2 == @chargeable.purchase_sales_tax_info.country_code
+      "QST has also been refunded."
+    elsif @chargeable.purchase_sales_tax_info.present? &&
+      Compliance::Countries::MYS.alpha2 == @chargeable.purchase_sales_tax_info.country_code
+      "Service tax has also been refunded."
+    elsif @chargeable.purchase_sales_tax_info.present? &&
+      Compliance::Countries::JPN.alpha2 == @chargeable.purchase_sales_tax_info.country_code
+      "CT has also been refunded."
+    else
+      "VAT has also been refunded."
     end
   end
 

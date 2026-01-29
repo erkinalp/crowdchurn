@@ -954,6 +954,9 @@ GEM
       sprockets (> 3.0)
       sprockets-rails
       tilt
+    secretariat (3.2.0)
+      bigdecimal (~> 3.1)
+      nokogiri (~> 1.10)
     secure_headers (6.7.0)
     securerandom (0.4.1)
     selenium-webdriver (4.35.0)
@@ -1068,6 +1071,7 @@ GEM
     tzinfo (2.0.6)
       concurrent-ruby (~> 1.0)
     uber (0.1.0)
+    ubl (0.1.8)
     unaccent (0.4.0)
     unicode-display_width (3.1.4)
       unicode-emoji (~> 4.0, >= 4.0.4)
@@ -1265,6 +1269,7 @@ DEPENDENCIES
   ruby-openai (~> 7.0)
   rubyzip (~> 2.3)
   sass-rails (~> 6.0)
+  secretariat (~> 3.0)
   secure_headers (~> 6.5)
   selenium-webdriver (~> 4.35)
   sendgrid-ruby (~> 6.6)
@@ -1292,6 +1297,7 @@ DEPENDENCIES
   terser (~> 1.1)
   twitter (~> 8.0)
   typhoeus (~> 1.4)
+  ubl (~> 0.1)
   valvat (~> 1.2)
   vcr (~> 6.1)
   warden (~> 1.2)
