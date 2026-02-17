@@ -161,14 +161,6 @@ class Subscription < ApplicationRecord
     update!(batch_entitled_at: Time.current)
   end
 
-  def next_batch_billing_date(from: Time.current)
-    return nil unless link.batch_billing_enabled?
-
-    day = link.batch_billing_day.to_i
-    candidate = from.beginning_of_month + (day - 1).days
-    candidate <= from ? candidate + 1.month : candidate
-  end
-
   def license_key
     @_license_key ||= original_purchase.license_key
   end
