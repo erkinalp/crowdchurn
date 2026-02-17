@@ -28,25 +28,27 @@ class BatchBillingWorker
     end
 
     def process_subscription(subscription, link)
-      return if subscription.link.user.suspended?
-      return unless subscription.alive?(include_pending_cancellation: false)
-      return if subscription.current_subscription_price_cents == 0
-      return if subscription.charges_completed?
-      return if subscription.in_free_trial?
-      return if subscription.has_a_charge_in_progress?
+      SuoSemaphore.recurring_charge(subscription.id).lock do
+        return if link.user.suspended?
+        return unless subscription.alive?(include_pending_cancellation: false)
+        return if subscription.current_subscription_price_cents == 0
+        return if subscription.charges_completed?
+        return if subscription.in_free_trial?
+        return if subscription.has_a_charge_in_progress?
 
-      last_successful = subscription.last_successful_purchase
-      if last_successful.present?
-        return if (last_successful.created_at + subscription.period) > Time.current
-      else
-        return unless subscription.overdue_for_charge?
-      end
+        last_successful = subscription.last_successful_purchase
+        if last_successful.present?
+          return if (last_successful.created_at + subscription.period) > Time.current
+        else
+          return unless subscription.overdue_for_charge?
+        end
 
-      Rails.logger.info("BatchBillingWorker: Charging subscription #{subscription.id} for product #{link.id}")
-      purchase = subscription.charge!
+        Rails.logger.info("BatchBillingWorker: Charging subscription #{subscription.id} for product #{link.id}")
+        purchase = subscription.charge!
 
-      if purchase.successful? && link.batch_entitlement_enabled?
-        subscription.grant_batch_entitlement!
+        if purchase.successful? && link.batch_entitlement_enabled?
+          subscription.grant_batch_entitlement!
+        end
       end
     end
 end
