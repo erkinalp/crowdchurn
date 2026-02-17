@@ -219,6 +219,9 @@ class CheckoutPresenter
         is_overdue_for_charge: subscription.overdue_for_charge?,
         is_gift: subscription.gift?,
         is_installment_plan: subscription.is_installment_plan,
+        is_batch_billed: subscription.link.batch_billing_enabled?,
+        is_batch_entitled: subscription.link.batch_entitlement_enabled?,
+        batch_billing_day: subscription.link.batch_billing_enabled? ? subscription.link.batch_billing_day.to_i : nil,
       }
     }
   end

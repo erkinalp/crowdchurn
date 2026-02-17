@@ -79,6 +79,9 @@ type Props = {
     is_overdue_for_charge: boolean;
     is_gift: boolean;
     is_installment_plan: boolean;
+    is_batch_billed: boolean;
+    is_batch_entitled: boolean;
+    batch_billing_day: number | null;
   };
   contact_info: {
     email: string;
@@ -339,6 +342,15 @@ const SubscriptionManager = ({
           <Alert variant="warning">
             Your {subscriptionEntity} is paid up until {formattedSubscriptionEndDate}. Add your own payment method below
             to ensure that your {subscriptionEntity} renews.
+          </Alert>
+        </div>
+      ) : null}
+
+      {subscription.is_batch_billed ? (
+        <div>
+          <Alert role="status" variant="accent">
+            This membership is billed on day {subscription.batch_billing_day} of each month.
+            {subscription.is_batch_entitled ? " Access is granted after each billing cycle is processed." : null}
           </Alert>
         </div>
       ) : null}

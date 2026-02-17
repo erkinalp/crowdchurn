@@ -61,6 +61,8 @@ export type LayoutProps = {
       is_alive_or_restartable: boolean | null;
       in_free_trial: boolean;
       is_installment_plan: boolean;
+      is_batch_billed: boolean;
+      batch_billing_day: number | null;
     } | null;
     purchase_custom_fields: PurchaseCustomField[];
     call: Call | null;
@@ -159,6 +161,9 @@ export const Layout = ({
                   <details>
                     <summary>Membership</summary>
                     <div style={{ display: "grid" }}>
+                      {purchase.membership.is_batch_billed ? (
+                        <p>Billed on day {purchase.membership.batch_billing_day} of each month.</p>
+                      ) : null}
                       {purchase.membership.has_active_subscription ? (
                         <NavigationButton href={Routes.manage_subscription_url(purchase.membership.subscription_id)}>
                           Manage
