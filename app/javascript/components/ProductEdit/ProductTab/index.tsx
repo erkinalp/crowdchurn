@@ -430,13 +430,13 @@ export const ProductTab = () => {
                           })
                         }
                       >
-                        Charge all members on a fixed day of the month instead of individually
+                        Charge all members on a fixed billing date instead of individually
                       </Toggle>
                       {product.batch_billing_enabled ? (
                         <>
                           <fieldset>
                             <legend>
-                              <label htmlFor={`${uid}-batch-billing-day`}>Billing day of month (1–28)</label>
+                              <label htmlFor={`${uid}-batch-billing-day`}>Billing anchor day (1–28)</label>
                             </legend>
                             <input
                               id={`${uid}-batch-billing-day`}

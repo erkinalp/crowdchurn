@@ -162,7 +162,7 @@ export const Layout = ({
                     <summary>Membership</summary>
                     <div style={{ display: "grid" }}>
                       {purchase.membership.is_batch_billed ? (
-                        <p>Billed on day {purchase.membership.batch_billing_day} of each month.</p>
+                        <p>Batch billed (billing anchor: day {purchase.membership.batch_billing_day}).</p>
                       ) : null}
                       {purchase.membership.has_active_subscription ? (
                         <NavigationButton href={Routes.manage_subscription_url(purchase.membership.subscription_id)}>

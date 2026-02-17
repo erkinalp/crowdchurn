@@ -349,7 +349,7 @@ const SubscriptionManager = ({
       {subscription.is_batch_billed ? (
         <div>
           <Alert role="status" variant="accent">
-            This membership is billed on day {subscription.batch_billing_day} of each month.
+            This membership uses batch billing (billing anchor: day {subscription.batch_billing_day}).
             {subscription.is_batch_entitled ? " Access is granted after each billing cycle is processed." : null}
           </Alert>
         </div>
