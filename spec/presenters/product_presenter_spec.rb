@@ -22,8 +22,8 @@ describe ProductPresenter do
       expect(props).to match(
         {
           current_seller_currency_code: "usd",
-          native_product_types: ["digital", "course", "ebook", "membership", "bundle"],
-          service_product_types: ["call", "coffee"],
+          native_product_types: ["digital", "course", "ebook", "membership", "bread", "literal_coffee", "bundle"],
+          service_product_types: ["call", "coffee", "consultancy"],
           release_at_date:,
           show_orientation_text: true,
           eligible_for_service_products: false,
@@ -40,8 +40,8 @@ describe ProductPresenter do
       expect(props).to match(
         {
           current_seller_currency_code: "usd",
-          native_product_types: ["digital", "course", "ebook", "membership", "bundle"],
-          service_product_types: ["call", "coffee"],
+          native_product_types: ["digital", "course", "ebook", "membership", "bread", "literal_coffee", "bundle"],
+          service_product_types: ["call", "coffee", "consultancy"],
           release_at_date:,
           show_orientation_text: false,
           eligible_for_service_products: false,

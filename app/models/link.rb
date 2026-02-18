@@ -69,23 +69,30 @@ class Link < ApplicationRecord
   NATIVE_TYPES_TO_TAX_CODE = {
     "digital" => "31000",
     "course" => "86132000A0002",
-    "ebook" => "31000",
+    "ebook" => "81100",
     "newsletter" => "55111516A0310",
     "membership" => "55111516A0310",
     "podcast" => "55111516A0310",
     "audiobook" => "31000",
     "physical" => nil,
+    "print_book" => "81100",
+    "food" => "40030",
+    "bread" => "40030",
+    "literal_coffee" => "40030",
     "bundle" => "55111500A9220",
     "commission" => nil,
     "call" => nil,
     "coffee" => nil,
+    "consultancy" => "19000",
   }.freeze
   NATIVE_TYPES = NATIVE_TYPES_TO_TAX_CODE.keys.freeze
   NATIVE_TYPES.each do |native_type|
     self.const_set("NATIVE_TYPE_#{native_type.upcase}", native_type)
   end
-  SERVICE_TYPES = [NATIVE_TYPE_COMMISSION, NATIVE_TYPE_CALL, NATIVE_TYPE_COFFEE].freeze
-  LEGACY_TYPES = ["podcast", "newsletter", "audiobook"].freeze
+  SERVICE_TYPES = [NATIVE_TYPE_COMMISSION, NATIVE_TYPE_CALL, NATIVE_TYPE_COFFEE, NATIVE_TYPE_CONSULTANCY].freeze
+  PHYSICAL_TYPES = [NATIVE_TYPE_PHYSICAL, NATIVE_TYPE_PRINT_BOOK, NATIVE_TYPE_FOOD].freeze
+  OPTIONALLY_PHYSICAL_TYPES = [NATIVE_TYPE_BREAD, NATIVE_TYPE_LITERAL_COFFEE].freeze
+  LEGACY_TYPES= ["podcast", "newsletter", "audiobook"].freeze
 
   DEFAULT_BOOSTED_DISCOVER_FEE_PER_THOUSAND = 300
 
