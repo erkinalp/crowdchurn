@@ -93,7 +93,8 @@
     "krw": {
       "symbol": "₩",
       "display_format": "₩ (Korean Won)",
-      "min_price": 111000
+      "min_price": 111000,
+      "single_unit": true
     },
     "pln": {
       "symbol": "zł",
