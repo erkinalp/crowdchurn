@@ -54,7 +54,7 @@ class InvoicePresenter
     {
       invoice_number: chargeable.external_id_numeric_for_invoice,
       invoice_date: chargeable.orderable.created_at.to_date,
-      currency_code: "USD",
+      currency_code: determine_currency_code,
       supplier: {
         name: PLATFORM_SUPPLIER_NAME,
         address: GumroadAddress::STREET,
@@ -153,5 +153,12 @@ class InvoicePresenter
 
     def total_payable_cents
       total_line_extension_cents + total_tax_cents + total_shipping_cents
+    end
+
+    def determine_currency_code
+      first_purchase = chargeable.successful_purchases.first
+      return "USD" unless first_purchase
+
+      first_purchase.displayed_price_currency_type.to_s.upcase
     end
 end
