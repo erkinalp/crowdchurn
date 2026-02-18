@@ -307,7 +307,7 @@ class KillbillSubscriptionManager
       account.external_key = external_key
       account.email = email
       account.name = subscription.original_purchase&.full_name
-      account.currency = Currency::USD.upcase
+      account.currency = resolve_account_currency(subscription)
 
       created_account = account.create(
         killbill_options[:username],
@@ -347,5 +347,11 @@ class KillbillSubscriptionManager
     def extract_billing_period(plan_name)
       period = plan_name.split("-").last.upcase
       %w[MONTHLY ANNUAL WEEKLY QUARTERLY].include?(period) ? period : BILLING_PERIOD_MONTHLY
+    end
+
+    def resolve_account_currency(subscription)
+      # Use the subscription's billing_currency if set, otherwise fall back to the product's currency
+      currency = subscription.billing_currency.presence || subscription.link&.price_currency_type
+      (currency || Currency::USD).to_s.upcase
     end
 end
