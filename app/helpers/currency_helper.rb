@@ -231,7 +231,18 @@ module CurrencyHelper
   end
 
   def unit_scaling_factor(currency_type)
-    is_currency_type_single_unit?(currency_type) ? 1 : 100
+    return 1 if is_currency_type_single_unit?(currency_type)
+
+    config = get_currency_by_type(currency_type)
+    return 100 if config.nil?
+
+    subunit_to_unit = config["subunit_to_unit"] || config[:subunit_to_unit]
+    return subunit_to_unit if subunit_to_unit
+
+    decimals = config["decimals"] || config[:decimals]
+    return 10**decimals if decimals
+
+    100
   end
 
   def is_currency_type_single_unit?(currency_type = nil)
