@@ -1159,14 +1159,7 @@ const KillBill = () => {
       type: "add-payment-method",
       paymentMethod: {
         type: "killbill",
-        button: (
-          <PaymentMethodRadio paymentMethod="killbill">
-            <div className="flex w-full flex-col items-center justify-center gap-2 self-center">
-              <Icon name="outline-currency-dollar" />
-              <h4 className="text-center">Kill Bill</h4>
-            </div>
-          </PaymentMethodRadio>
-        ),
+        button: null,
       },
     });
   }, [killBillConfig]);
@@ -1284,6 +1277,20 @@ const StripePaymentRequestPayButton = ({ canPay }: { canPay: boolean }) => {
   return <StripePaymentRequestContent />;
 };
 
+const KillBillRadioOption = ({ killBillAvailable }: { killBillAvailable: boolean }) => {
+  if (!killBillAvailable) return null;
+
+  return (
+    <div className="border-t border-border">
+      <PaymentMethodRadioRow
+        paymentMethod="killbill"
+        label="Kill Bill"
+        icon={<Icon name="outline-currency-dollar" />}
+      />
+    </div>
+  );
+};
+
 const PaymentMethodsSection = ({
   isPayPalAvailable,
   isTestPurchase,
@@ -1294,7 +1301,8 @@ const PaymentMethodsSection = ({
   const [state] = useState();
   const { canPay, isGooglePay } = useStripePaymentRequest();
 
-  const hasMultiplePaymentMethods = isPayPalAvailable || canPay;
+  const killBillAvailable = state.availablePaymentMethods.some((m) => m.type === "killbill");
+  const hasMultiplePaymentMethods = isPayPalAvailable || canPay || killBillAvailable;
 
   return (
     <>
@@ -1322,6 +1330,7 @@ const PaymentMethodsSection = ({
           </div>
         ) : null}
         <StripePaymentRequestRadioOption canPay={canPay} isGooglePay={isGooglePay} />
+        <KillBillRadioOption killBillAvailable={killBillAvailable} />
       </div>
       {state.paymentMethod === "paypal" ? <PayPalContent /> : null}
       {state.paymentMethod === "card" ? <CreditCardPayButtonContent isTestPurchase={isTestPurchase} /> : null}
@@ -1406,7 +1415,7 @@ export const PaymentForm = ({
           isTestPurchase={!!isTestPurchase}
         />
       )}
-      {!isFreePurchase ? <KillBill /> : null}
+      <KillBill />
       {recaptcha.container}
     </div>
   );
