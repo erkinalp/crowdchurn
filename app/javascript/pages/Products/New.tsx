@@ -5,7 +5,7 @@ import * as React from "react";
 import { useState } from "react";
 import { cast, is } from "ts-safe-cast";
 
-import { OptionallyPhysicalProductType, RecurringProductType } from "$app/data/products";
+import { RecurringProductType } from "$app/data/products";
 import { ProductNativeType, ProductServiceType } from "$app/parsers/product";
 import { CurrencyCode, currencyCodeList, findCurrencyByCode } from "$app/utils/currency";
 import {
@@ -30,6 +30,7 @@ import { WithTooltip } from "$app/components/WithTooltip";
 const nativeTypeIcons = require.context("$assets/images/native_types/");
 
 const PHYSICAL_PRODUCT_TYPES: readonly string[] = ["physical", "print_book", "food"];
+const OPTIONALLY_PHYSICAL_PRODUCT_TYPES: readonly string[] = ["bread", "literal_coffee"];
 
 const defaultRecurrence: RecurrenceId = "monthly";
 
@@ -107,7 +108,7 @@ const NewProductPage = () => {
   const [isGeneratingUsingAi, setIsGeneratingUsingAi] = useState(false);
 
   const isRecurringBilling = is<RecurringProductType>(form.data.link.native_type);
-  const isOptionallyPhysical = is<OptionallyPhysicalProductType>(form.data.link.native_type);
+  const isOptionallyPhysical = OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(form.data.link.native_type);
   const [enableShipping, setEnableShipping] = useState(false);
 
   const selectedCurrency = findCurrencyByCode(form.data.link.price_currency_type);
@@ -116,13 +117,13 @@ const NewProductPage = () => {
     form.setData("link", {
       ...form.data.link,
       native_type: type,
-      is_physical: PHYSICAL_PRODUCT_TYPES.includes(type) || (is<OptionallyPhysicalProductType>(type) && enableShipping),
+      is_physical: PHYSICAL_PRODUCT_TYPES.includes(type) || (OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type) && enableShipping),
       is_recurring_billing: is<RecurringProductType>(type),
       subscription_duration: is<RecurringProductType>(type)
         ? form.data.link.subscription_duration || defaultRecurrence
         : null,
     });
-    if (!is<OptionallyPhysicalProductType>(type)) setEnableShipping(false);
+    if (!OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type)) setEnableShipping(false);
   };
 
   const dismissAiPromo = async () => {
@@ -244,12 +245,6 @@ const NewProductPage = () => {
     }
 
     if (!hasErrors) {
-      if (isOptionallyPhysical) {
-        form.transform((data) => ({
-          ...data,
-          link: { ...data.link, is_physical: enableShipping },
-        }));
-      }
       form.post(Routes.links_path());
     }
   };
@@ -371,20 +366,6 @@ const NewProductPage = () => {
                 <Errors errors={errors["link.name"]} label="Name" />
               </fieldset>
 
-              {isOptionallyPhysical ? (
-                <fieldset>
-                  <legend>Shipping</legend>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={enableShipping}
-                      onChange={(e) => setEnableShipping(e.target.checked)}
-                    />
-                    Requires shipping
-                  </label>
-                </fieldset>
-              ) : null}
-
               <fieldset>
                 <legend>Products</legend>
                 <ProductTypeSelector
@@ -402,6 +383,22 @@ const NewProductPage = () => {
                     onChange={handleProductTypeChange}
                     disabled={!eligible_for_service_products}
                   />
+                </fieldset>
+              ) : null}
+              {isOptionallyPhysical ? (
+                <fieldset>
+                  <legend>Shipping</legend>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={enableShipping}
+                      onChange={(e) => {
+                        setEnableShipping(e.target.checked);
+                        form.setData("link.is_physical", e.target.checked);
+                      }}
+                    />
+                    Requires shipping
+                  </label>
                 </fieldset>
               ) : null}
 
