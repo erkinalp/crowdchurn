@@ -18,8 +18,8 @@ class PurchasesController < ApplicationController
   PARAMS_TO_REMOVE_IF_BLANK = [:full_name, :email]
 
   PUBLIC_ACTIONS = %i[
-    confirm subscribe unsubscribe send_invoice generate_invoice receipt resend_receipt
-    update_subscription charge_preorder confirm_generate_invoice confirm_receipt_email
+    confirm subscribe unsubscribe receipt resend_receipt
+    update_subscription charge_preorder confirm_receipt_email
   ].freeze
   before_action :authenticate_user!, except: PUBLIC_ACTIONS
   after_action :verify_authorized, except: PUBLIC_ACTIONS
@@ -28,14 +28,12 @@ class PurchasesController < ApplicationController
   before_action :authenticate_preorder!, only: %i[charge_preorder]
   before_action :validate_purchase_request, only: [:update_subscription, :charge_preorder]
   before_action :set_purchase, only: %i[
-    update resend_receipt send_invoice generate_invoice change_can_contact cancel_preorder_by_seller receipt
+    update resend_receipt change_can_contact cancel_preorder_by_seller receipt
     revoke_access undo_revoke_access confirm_receipt_email
   ]
   before_action :verify_current_seller_is_seller_for_purchase, only: %i[update change_can_contact cancel_preorder_by_seller]
-  before_action :hide_layouts, only: %i[subscribe unsubscribe generate_invoice receipt confirm_receipt_email]
-  before_action :check_for_successful_purchase_for_vat_refund, only: [:send_invoice]
-  before_action :set_noindex_header, only: [:receipt, :generate_invoice, :confirm_generate_invoice, :confirm_receipt_email]
-  before_action :require_email_confirmation, only: [:generate_invoice, :send_invoice]
+  before_action :hide_layouts, only: %i[subscribe unsubscribe receipt confirm_receipt_email]
+  before_action :set_noindex_header, only: [:receipt, :confirm_receipt_email]
 
   def confirm
     ActiveRecord::Base.connection.stick_to_primary!
@@ -420,6 +418,8 @@ class PurchasesController < ApplicationController
     end
   end
 
+
+
   def change_can_contact
     authorize [:audience, @purchase]
 
@@ -440,7 +440,7 @@ class PurchasesController < ApplicationController
   end
 
   def confirm_receipt_email
-    @title = "Confirm Email"
+    set_meta_tag(title: "Confirm Email")
     @hide_layouts = true
   end
 
@@ -559,12 +559,6 @@ class PurchasesController < ApplicationController
       e404 if @preorder.blank?
     end
 
-    def check_for_successful_purchase_for_vat_refund
-      return if params["vat_id"].blank? || @purchase.successful?
-
-      render json: { success: false, message: "Your purchase has not been completed by PayPal yet. Please try again soon." }
-    end
-
     def skip_recaptcha?
       site_key = GlobalConfig.get("RECAPTCHA_MONEY_SITE_KEY")
 
@@ -584,17 +578,5 @@ class PurchasesController < ApplicationController
       payment_method&.card&.wallet&.type == params[:wallet_type]
     rescue Stripe::StripeError
       render_error("Sorry, something went wrong.")
-    end
-
-    def require_email_confirmation
-      return if ActiveSupport::SecurityUtils.secure_compare(@purchase.email, params[:email].to_s)
-
-      if params[:email].blank?
-        flash[:warning] = "Please enter the purchase's email address to generate the invoice."
-      else
-        flash[:alert] = "Incorrect email address. Please try again."
-      end
-
-      redirect_to confirm_generate_invoice_path(@purchase.external_id)
     end
 end

@@ -5,59 +5,21 @@ import { cast } from "ts-safe-cast";
 import { Button } from "$app/components/Button";
 import { CopyToClipboard } from "$app/components/CopyToClipboard";
 import { useCurrentSeller } from "$app/components/CurrentSeller";
+import { EmailsLayout } from "$app/components/EmailsPage/Layout";
 import { ExportSubscribersPopover } from "$app/components/Followers/ExportSubscribersPopover";
 import { Icon } from "$app/components/Icons";
-import { useLoggedInUser } from "$app/components/LoggedInUser";
-import { Popover } from "$app/components/Popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "$app/components/Popover";
+import { Search } from "$app/components/Search";
 import { showAlert } from "$app/components/server-components/Alert";
-import { PageHeader } from "$app/components/ui/PageHeader";
+import { Card, CardContent } from "$app/components/ui/Card";
 import { Placeholder, PlaceholderImage } from "$app/components/ui/Placeholder";
 import { Sheet, SheetHeader } from "$app/components/ui/Sheet";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "$app/components/ui/Table";
-import { Tabs, Tab } from "$app/components/ui/Tabs";
 import { useDebouncedCallback } from "$app/components/useDebouncedCallback";
 import { useUserAgentInfo } from "$app/components/UserAgent";
 import { WithTooltip } from "$app/components/WithTooltip";
 
 import placeholder from "$assets/images/placeholders/followers.png";
-
-const Layout = ({
-  title,
-  actions,
-  children,
-}: {
-  title: string;
-  actions?: React.ReactNode;
-  children: React.ReactNode;
-}) => {
-  const loggedInUser = useLoggedInUser();
-
-  return (
-    <div>
-      <PageHeader title={title} actions={actions}>
-        <Tabs>
-          <Tab href={Routes.published_emails_path()} isSelected={false}>
-            Published
-          </Tab>
-          {loggedInUser?.policies.installment.create ? (
-            <>
-              <Tab href={Routes.scheduled_emails_path()} isSelected={false}>
-                Scheduled
-              </Tab>
-              <Tab href={Routes.drafts_emails_path()} isSelected={false}>
-                Drafts
-              </Tab>
-            </>
-          ) : null}
-          <Tab href={Routes.followers_path()} isSelected>
-            Subscribers
-          </Tab>
-        </Tabs>
-      </PageHeader>
-      {children}
-    </div>
-  );
-};
 
 type Follower = {
   id: string;
@@ -82,14 +44,8 @@ export default function FollowersPage() {
 
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [selectedFollowerId, setSelectedFollowerId] = React.useState<string | null>(null);
-  const [searchBoxOpen, setSearchBoxOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState(email);
-  const searchInputRef = React.useRef<HTMLInputElement | null>(null);
   const selectedFollower = followers.find((follower) => follower.id === selectedFollowerId);
-
-  React.useEffect(() => {
-    if (searchBoxOpen) searchInputRef.current?.focus();
-  }, [searchBoxOpen]);
 
   const updateSearch = useDebouncedCallback((email: string) => {
     router.reload({
@@ -128,44 +84,26 @@ export default function FollowersPage() {
   const currentSeller = useCurrentSeller();
 
   return (
-    <Layout
-      title="Subscribers"
+    <EmailsLayout
+      selectedTab="subscribers"
       actions={
         <>
           {(followers.length > 0 || searchQuery.length > 0) && (
-            <Popover
-              open={searchBoxOpen}
-              onToggle={setSearchBoxOpen}
-              aria-label="Search"
-              trigger={
-                <WithTooltip tip="Search" position="bottom">
-                  <div className="button">
-                    <Icon name="solid-search" />
-                  </div>
-                </WithTooltip>
-              }
-            >
-              <input
-                ref={searchInputRef}
-                value={searchQuery}
-                autoFocus
-                type="text"
-                placeholder="Search followers"
-                onChange={(evt) => setSearchQuery(evt.target.value)}
-              />
-            </Popover>
+            <Search onSearch={setSearchQuery} value={searchQuery} placeholder="Search followers" />
           )}
-          <Popover
-            aria-label="Export"
-            trigger={
+          <Popover>
+            <PopoverAnchor>
               <WithTooltip tip="Export" position="bottom">
-                <Button aria-label="Export">
-                  <Icon aria-label="Download" name="download" />
-                </Button>
+                <PopoverTrigger aria-label="Export" asChild>
+                  <Button>
+                    <Icon aria-label="Download" name="download" />
+                  </Button>
+                </PopoverTrigger>
               </WithTooltip>
-            }
-          >
-            {(close) => <ExportSubscribersPopover closePopover={close} />}
+            </PopoverAnchor>
+            <PopoverContent sideOffset={4}>
+              <ExportSubscribersPopover />
+            </PopoverContent>
           </Popover>
 
           {currentSeller ? (
@@ -218,10 +156,10 @@ export default function FollowersPage() {
                 className={selectedFollower.can_update ? "" : "js-team-member-read-only"}
               >
                 <SheetHeader>Details</SheetHeader>
-                <div className="stack">
-                  <div>
-                    <div>
-                      <h4>Email</h4>
+                <Card>
+                  <CardContent>
+                    <div className="grow">
+                      <h4 className="font-bold">Email</h4>
                       <div>{selectedFollower.email}</div>
                       <Button
                         color="danger"
@@ -232,8 +170,8 @@ export default function FollowersPage() {
                         {deleteForm.processing ? "Removing..." : "Remove follower"}
                       </Button>
                     </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               </Sheet>
             ) : null}
           </div>
@@ -265,6 +203,6 @@ export default function FollowersPage() {
           </Placeholder>
         )}
       </div>
-    </Layout>
+    </EmailsLayout>
   );
 }

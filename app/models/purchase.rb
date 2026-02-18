@@ -71,6 +71,8 @@ class Purchase < ApplicationRecord
   attr_json_data_accessor :perceived_price_cents
   attr_json_data_accessor :recommender_model_name
   attr_json_data_accessor :custom_fee_per_thousand
+  attr_json_data_accessor :last_content_page_id
+  attr_json_data_accessor :default_offer_code_id
 
   # Virtual attribute for A/B test price enforcement - set from controller
   attr_accessor :buyer_cookie
@@ -364,6 +366,7 @@ class Purchase < ApplicationRecord
   before_create :validate_quantity
   before_create :assign_is_multiseat_license
   before_create :check_for_fraud
+  before_create :toggle_off_can_contact_if_buyer_has_unsubscribed
 
   before_save :assign_default_rental_expired
   before_save :to_mongo
@@ -829,7 +832,7 @@ class Purchase < ApplicationRecord
       "stripe_refunded" => stripe_refunded,
       "is_chargedback" => chargedback?,
       "is_chargeback_reversed" => chargeback_reversed,
-      "refunded_by" => refunding_users.map { |u| { id: u.id, email: u.email } },
+      "refunded_by" => refunding_users.map { |u| { external_id: u.external_id, email: u.email } },
       "error_code" => error_code,
       "purchase_state" => purchase_state,
       "gumroad_responsible_for_tax" => gumroad_responsible_for_tax?
@@ -1703,7 +1706,7 @@ class Purchase < ApplicationRecord
     if offer_code.present? && !has_cached_offer_code?
       self.build_purchase_offer_code_discount(offer_code:, offer_code_amount: offer_code.amount, offer_code_is_percent: offer_code.is_percent?,
                                               pre_discount_minimum_price_cents: minimum_paid_price_cents_per_unit_before_discount,
-                                              duration_in_months: link.is_tiered_membership? ? offer_code.duration_in_months : nil)
+                                              duration_in_months: link.is_recurring_billing? ? offer_code.duration_in_months : nil)
     end
 
     # Handle pricing based on product's pricing mode
@@ -2032,7 +2035,7 @@ class Purchase < ApplicationRecord
   end
 
   def does_not_count_towards_max_purchases
-    is_recurring_subscription_charge || is_additional_contribution || is_preorder_charge? || is_gift_receiver_purchase || is_updated_original_subscription_purchase || is_commission_completion_purchase
+    is_recurring_subscription_charge || is_additional_contribution || is_preorder_charge? || is_gift_receiver_purchase || is_updated_original_subscription_purchase || is_commission_completion_purchase || (is_installment_payment && !is_original_subscription_purchase)
   end
 
   # Public: Determine if this purchase is a test purchase by the links owner.
@@ -3234,37 +3237,12 @@ class Purchase < ApplicationRecord
       purchase_sales_tax_info.country_code = Compliance::Countries.find_by_name(country)&.alpha2
       purchase_sales_tax_info.ip_country_code = Compliance::Countries.find_by_name(ip_country)&.alpha2
       purchase_sales_tax_info.elected_country_code = sales_tax_country_code_election
-
-      if business_vat_id
-        if Compliance::Countries::AUS.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if AbnValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::SGP.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if GstValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::CAN.alpha2 == purchase_sales_tax_info.country_code &&
-              QUEBEC == purchase_sales_tax_info.state_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if QstValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::NOR.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if MvaValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::BHR.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if TrnValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::KEN.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if KraPinValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::OMN.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if OmanVatNumberValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::NGA.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if FirsTinValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::TZA.alpha2 == purchase_sales_tax_info.country_code
-          purchase_sales_tax_info.business_vat_id = business_vat_id if TraTinValidationService.new(business_vat_id).process
-        elsif Compliance::Countries::COUNTRIES_THAT_COLLECT_TAX_ON_ALL_PRODUCTS.include?(purchase_sales_tax_info.country_code) ||
-              Compliance::Countries::COUNTRIES_THAT_COLLECT_TAX_ON_DIGITAL_PRODUCTS_WITH_TAX_ID_PRO_VALIDATION.include?(purchase_sales_tax_info.country_code)
-          purchase_sales_tax_info.business_vat_id = business_vat_id if TaxIdValidationService.new(business_vat_id, purchase_sales_tax_info.country_code).process
-        else
-          purchase_sales_tax_info.business_vat_id = business_vat_id if VatValidationService.new(business_vat_id).process
-        end
-      end
+      purchase_sales_tax_info.business_vat_id = business_vat_id if RegionalVatIdValidationService.new(business_vat_id, country_code: purchase_sales_tax_info.country_code, state_code: purchase_sales_tax_info.state_code).process
 
       self.purchase_sales_tax_info = purchase_sales_tax_info
       self.purchase_sales_tax_info.save!
+
+      subscription&.update_business_vat_id!(purchase_sales_tax_info.business_vat_id) if purchase_sales_tax_info.business_vat_id.present?
     end
 
     def charge_discover_fee?
@@ -3545,7 +3523,7 @@ class Purchase < ApplicationRecord
     def validate_offer_code
       return if errors.present?
       # accept the offer code that was used when the buyer preordered/subscribed
-      return if is_preorder_charge? || is_recurring_subscription_charge || is_gift_receiver_purchase
+      return if is_preorder_charge? || is_recurring_subscription_charge || is_gift_receiver_purchase || (is_installment_payment && !is_original_subscription_purchase)
       return if discount_code.blank?
 
       if offer_code.nil?
@@ -3928,8 +3906,8 @@ class Purchase < ApplicationRecord
       card_and_ip_country_are_taxable ||= (ip_and_card_locations.uniq & taxable_countries).size == 1
       return true if !country_code.in?(taxable_countries) && !card_and_ip_country_are_taxable
 
-      # Reset taxes if we see an election of a taxable country and our basis locations aren't in those countries - final safety measure
-      return false if country_code.in?(taxable_countries) && (ip_and_card_locations & taxable_countries).empty?
+      # Trust buyer's country selection when IP/card are from non-taxable countries
+      return true if country_code.in?(taxable_countries) && (ip_and_card_locations & taxable_countries).empty?
 
       # Country matched
       return true if country_code.in?(ip_and_card_locations)
@@ -4118,5 +4096,13 @@ class Purchase < ApplicationRecord
       else
         fetch_installment_plan.calculate_installment_payment_price_cents(total_price_cents)
       end
+    end
+
+    def toggle_off_can_contact_if_buyer_has_unsubscribed
+      return unless new_record?
+      return unless can_contact?
+      return unless Purchase.where(email:, seller_id:, can_contact: false).exists?
+
+      self.can_contact = false
     end
 end

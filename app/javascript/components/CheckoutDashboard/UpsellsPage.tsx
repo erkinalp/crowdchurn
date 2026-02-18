@@ -22,21 +22,24 @@ import { AbortError, assertResponseError } from "$app/utils/request";
 
 import { Button } from "$app/components/Button";
 import { ProductToAdd, CartItem } from "$app/components/Checkout/cartState";
+import { CrossSellModal } from "$app/components/Checkout/CrossSellModal";
+import { UpsellModal } from "$app/components/Checkout/UpsellModal";
 import { CheckoutPreview } from "$app/components/CheckoutDashboard/CheckoutPreview";
 import { DiscountInput, InputtedDiscount } from "$app/components/CheckoutDashboard/DiscountInput";
 import { Layout, Page } from "$app/components/CheckoutDashboard/Layout";
 import { Details } from "$app/components/Details";
+import { Dropdown } from "$app/components/Dropdown";
 import { Icon } from "$app/components/Icons";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
 import { Modal } from "$app/components/Modal";
 import { Pagination, PaginationProps } from "$app/components/Pagination";
-import { Popover } from "$app/components/Popover";
 import { WithPreviewSidebar } from "$app/components/PreviewSidebar";
 import { applySelection } from "$app/components/Product/ConfigurationSelector";
+import { Search } from "$app/components/Search";
 import { Select } from "$app/components/Select";
 import { showAlert } from "$app/components/server-components/Alert";
-import { CrossSellModal, UpsellModal } from "$app/components/server-components/CheckoutPage";
 import { Skeleton } from "$app/components/Skeleton";
+import { Card, CardContent } from "$app/components/ui/Card";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import { Placeholder, PlaceholderImage } from "$app/components/ui/Placeholder";
 import { Sheet, SheetHeader } from "$app/components/ui/Sheet";
@@ -151,11 +154,6 @@ const UpsellsPage = (props: UpsellsPageProps) => {
   }, [upsells]);
 
   const [searchQuery, setSearchQuery] = React.useState<string | null>(null);
-  const [isSearchPopoverOpen, setIsSearchPopoverOpen] = React.useState(false);
-  const searchInputRef = React.useRef<HTMLInputElement | null>(null);
-  React.useEffect(() => {
-    if (isSearchPopoverOpen) searchInputRef.current?.focus();
-  }, [isSearchPopoverOpen]);
 
   const handleCancel = () => {
     setView("list");
@@ -231,32 +229,15 @@ const UpsellsPage = (props: UpsellsPageProps) => {
       pages={props.pages}
       actions={
         <>
-          {upsells.length > 0 && (
-            <Popover
-              open={isSearchPopoverOpen}
-              onToggle={setIsSearchPopoverOpen}
-              aria-label="Search"
-              trigger={
-                <div className="button">
-                  <Icon name="solid-search" />
-                </div>
-              }
-            >
-              <div className="input">
-                <Icon name="solid-search" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  placeholder="Search"
-                  value={searchQuery ?? ""}
-                  onChange={(evt) => {
-                    setSearchQuery(evt.target.value);
-                    debouncedLoadUpsells();
-                  }}
-                />
-              </div>
-            </Popover>
-          )}
+          {upsells.length > 0 || searchQuery ? (
+            <Search
+              onSearch={(query) => {
+                setSearchQuery(query);
+                debouncedLoadUpsells();
+              }}
+              value={searchQuery ?? ""}
+            />
+          ) : null}
           <Button color="accent" onClick={() => setView("create")} disabled={isReadOnly}>
             New upsell
           </Button>
@@ -394,99 +375,121 @@ const UpsellDrawer = ({
   return (
     <Sheet open onOpenChange={onClose}>
       <SheetHeader>{selectedUpsell.name}</SheetHeader>
-      <section className="stack">
-        <h3>Details</h3>
-        <div>
-          <h5>Offer text</h5>
-          {selectedUpsell.text}
-        </div>
-        {selectedUpsell.discount ? (
-          <div>
-            <h5>Discount</h5>
-            {selectedUpsell.discount.type === "percent"
-              ? `${selectedUpsell.discount.percents}%`
-              : formatPriceCentsWithCurrencySymbol(
-                  selectedUpsell.product.currency_type,
-                  selectedUpsell.discount.cents,
-                  {
-                    symbolFormat: "long",
-                  },
-                )}
-          </div>
-        ) : null}
-        {statistics ? (
-          <>
-            <div>
-              <h5>Uses</h5>
-              {statistics.uses.total}
-            </div>
-            <div>
-              <h5>Revenue</h5>
-              {formatPriceCentsWithCurrencySymbol(selectedUpsell.product.currency_type, statistics.revenue_cents, {
-                symbolFormat: "short",
-              })}
-            </div>
-          </>
-        ) : null}
-        <div>
-          <h5>Status</h5>
-          <span>{selectedUpsell.paused ? "Paused" : "Live"}</span>
-        </div>
-      </section>
+      <Card asChild>
+        <section>
+          <CardContent asChild>
+            <h3>Details</h3>
+          </CardContent>
+          <CardContent>
+            <h5 className="grow font-bold">Offer text</h5>
+            {selectedUpsell.text}
+          </CardContent>
+          {selectedUpsell.discount ? (
+            <CardContent>
+              <h5 className="grow font-bold">Discount</h5>
+              {selectedUpsell.discount.type === "percent"
+                ? `${selectedUpsell.discount.percents}%`
+                : formatPriceCentsWithCurrencySymbol(
+                    selectedUpsell.product.currency_type,
+                    selectedUpsell.discount.cents,
+                    {
+                      symbolFormat: "long",
+                    },
+                  )}
+            </CardContent>
+          ) : null}
+          {statistics ? (
+            <>
+              <CardContent>
+                <h5 className="grow font-bold">Uses</h5>
+                {statistics.uses.total}
+              </CardContent>
+              <CardContent>
+                <h5 className="grow font-bold">Revenue</h5>
+                {formatPriceCentsWithCurrencySymbol(selectedUpsell.product.currency_type, statistics.revenue_cents, {
+                  symbolFormat: "short",
+                })}
+              </CardContent>
+            </>
+          ) : null}
+          <CardContent>
+            <h5 className="grow font-bold">Status</h5>
+            <span>{selectedUpsell.paused ? "Paused" : "Live"}</span>
+          </CardContent>
+        </section>
+      </Card>
       <section className="grid auto-cols-fr grid-flow-col gap-4">
         <Button onClick={onTogglePause} disabled={isLoading || isReadOnly}>
           {selectedUpsell.paused ? "Resume upsell" : "Pause upsell"}
         </Button>
       </section>
       {selectedUpsell.cross_sell ? (
-        <section className="stack">
-          <h3>Selected products</h3>
-          {selectedUpsell.universal ? (
-            <div>
-              <h5>All products</h5>
-            </div>
-          ) : (
-            selectedUpsell.selected_products.map(({ id, name }) => (
-              <div key={id}>
-                <div>
-                  <h5>{name}</h5>
-                  {statistics
-                    ? `${statistics.uses.selected_products[id] ?? 0} ${(statistics.uses.selected_products[id] ?? 0) === 1 ? "use" : "uses"} from this product`
-                    : null}
-                </div>
-              </div>
-            ))
-          )}
-        </section>
+        <Card asChild>
+          <section>
+            <CardContent asChild>
+              <h3>Selected products</h3>
+            </CardContent>
+            {selectedUpsell.universal ? (
+              <CardContent>
+                <h5 className="grow font-bold">All products</h5>
+              </CardContent>
+            ) : (
+              selectedUpsell.selected_products.map(({ id, name }) => (
+                <CardContent key={id}>
+                  <div className="grow">
+                    <h5 className="font-bold">{name}</h5>
+                    {statistics
+                      ? `${statistics.uses.selected_products[id] ?? 0} ${(statistics.uses.selected_products[id] ?? 0) === 1 ? "use" : "uses"} from this product`
+                      : null}
+                  </div>
+                </CardContent>
+              ))
+            )}
+          </section>
+        </Card>
       ) : (
-        <section className="stack">
-          <h3>Selected product</h3>
-          <div>
-            <h5>{selectedUpsell.product.name}</h5>
-          </div>
-        </section>
+        <Card asChild>
+          <section>
+            <CardContent asChild>
+              <h3>Selected product</h3>
+            </CardContent>
+            <CardContent>
+              <h5 className="grow font-bold">{selectedUpsell.product.name}</h5>
+            </CardContent>
+          </section>
+        </Card>
       )}
       {selectedUpsell.cross_sell ? (
-        <section className="stack">
-          <h3>Offered product</h3>
-          <div>
-            <h5>{formatOfferedProductName(selectedUpsell.product.name, selectedUpsell.product.variant?.name)}</h5>
-          </div>
-        </section>
+        <Card asChild>
+          <section>
+            <CardContent asChild>
+              <h3>Offered product</h3>
+            </CardContent>
+            <CardContent>
+              <h5 className="grow font-bold">
+                {formatOfferedProductName(selectedUpsell.product.name, selectedUpsell.product.variant?.name)}
+              </h5>
+            </CardContent>
+          </section>
+        </Card>
       ) : (
-        <section className="stack">
-          <h3>Offers</h3>
-          {selectedUpsell.upsell_variants.map((upsellVariant) => (
-            <div key={upsellVariant.id}>
-              <div>
-                <h5>{`${upsellVariant.selected_variant.name} → ${upsellVariant.offered_variant.name}`}</h5>
-                {statistics
-                  ? `${statistics.uses.upsell_variants[upsellVariant.id] ?? 0} ${(statistics.uses.upsell_variants[upsellVariant.id] ?? 0) === 1 ? "use" : "uses"}`
-                  : null}
-              </div>
-            </div>
-          ))}
-        </section>
+        <Card asChild>
+          <section>
+            <CardContent asChild>
+              <h3>Offers</h3>
+            </CardContent>
+            {selectedUpsell.upsell_variants.map((upsellVariant) => (
+              <CardContent key={upsellVariant.id}>
+                <div className="grow">
+                  <h5 className="font-bold">{`${upsellVariant.selected_variant.name} → ${upsellVariant.offered_variant.name}`}</h5>
+                  {statistics
+                    ? `${statistics.uses.upsell_variants[upsellVariant.id] ?? 0} ${(statistics.uses.upsell_variants[upsellVariant.id] ?? 0) === 1 ? "use" : "uses"}`
+                    : null}
+                </div>
+              </CardContent>
+            ))}
+          </section>
+        </Card>
       )}
       <section className="grid auto-cols-fr grid-flow-row gap-4 sm:grid-flow-col">
         <Button onClick={onCreate} disabled={isLoading || isReadOnly}>
@@ -860,9 +863,9 @@ const Form = ({
                     }
                   >
                     {discount ? (
-                      <div className="dropdown">
+                      <Dropdown>
                         <DiscountInput discount={discount} setDiscount={setDiscount} currencyCode="usd" />
-                      </div>
+                      </Dropdown>
                     ) : null}
                   </Details>
                 </fieldset>

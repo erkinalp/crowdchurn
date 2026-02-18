@@ -32,12 +32,14 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
 
     if params[:signed_blob_id].present?
       @application.file.attach(params[:signed_blob_id])
+    elsif params.has_key?(:signed_blob_id) && @application.file.attached?
+      @application.file.purge
     end
 
     if @application.save
       redirect_to edit_oauth_application_path(@application.external_id), notice: "Application created."
     else
-      redirect_to settings_advanced_path, alert: @application.errors.full_messages.to_sentence
+      redirect_to settings_advanced_path, alert: @application.errors.full_messages.to_sentence, inertia: { errors: { base: @application.errors.full_messages } }
     end
   end
 
@@ -46,7 +48,7 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
   end
 
   def edit
-    @title = "Update application"
+    set_meta_tag(title: "Update application")
     authorize([:settings, :authorized_applications, @application])
 
     settings_presenter = SettingsPresenter.new(pundit_user:)
@@ -61,13 +63,16 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
     @application.redirect_uri = @application_params[:redirect_uri] if @application_params[:redirect_uri].present?
     if params[:signed_blob_id].present?
       @application.file.attach(params[:signed_blob_id])
+    elsif params.has_key?(:signed_blob_id) && @application.file.attached?
+      @application.file.purge
     end
 
     if @application.save
       redirect_to edit_oauth_application_path(@application.external_id), notice: "Application updated."
     else
       redirect_to edit_oauth_application_path(@application.external_id),
-                  alert: @application.errors.full_messages.to_sentence
+                  alert: @application.errors.full_messages.to_sentence,
+                  inertia: { errors: { base: @application.errors.full_messages } }
     end
   end
 

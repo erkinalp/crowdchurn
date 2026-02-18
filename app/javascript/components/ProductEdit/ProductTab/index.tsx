@@ -39,9 +39,9 @@ import { VersionsEditor } from "$app/components/ProductEdit/ProductTab/VersionsE
 import { RefundPolicySelector } from "$app/components/ProductEdit/RefundPolicy";
 import { useProductEditContext } from "$app/components/ProductEdit/state";
 import { ToggleSettingRow } from "$app/components/SettingRow";
-import { Toggle } from "$app/components/Toggle";
 import { TypeSafeOptionSelect } from "$app/components/TypeSafeOptionSelect";
 import { Alert } from "$app/components/ui/Alert";
+import { Switch } from "$app/components/ui/Switch";
 
 export const ProductTab = () => {
   const uid = React.useId();
@@ -61,18 +61,12 @@ export const ProductTab = () => {
     googleCalendarEnabled,
     seller_refund_policy_enabled,
     cancellationDiscountsEnabled,
+    aiGenerated,
   } = useProductEditContext();
   const [initialProduct] = React.useState(product);
 
   const [thumbnail, setThumbnail] = React.useState(initialThumbnail);
-  const [showAiNotification, setShowAiNotification] = React.useState(false);
-
-  React.useEffect(() => {
-    if (window.location.hash === "#ai-generated") {
-      setShowAiNotification(true);
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
-  }, []);
+  const [showAiNotification, setShowAiNotification] = React.useState(aiGenerated);
 
   const { isUploading, setImagesUploading } = useImageUpload();
 
@@ -97,7 +91,10 @@ export const ProductTab = () => {
                     <strong>Your AI product is ready!</strong> Take a moment to check out the product and content tabs.
                     Tweak things and make it your own—this is your time to shine!
                   </div>
-                  <button className="self-center underline" onClick={() => setShowAiNotification(false)}>
+                  <button
+                    className="cursor-pointer self-center underline all-unset"
+                    onClick={() => setShowAiNotification(false)}
+                  >
                     close
                   </button>
                 </div>
@@ -128,7 +125,7 @@ export const ProductTab = () => {
                   <legend>
                     <label htmlFor={`${uid}-url`}>URL</label>
                     <CopyToClipboard text={url}>
-                      <button type="button" className="font-normal underline">
+                      <button type="button" className="cursor-pointer font-normal underline all-unset">
                         Copy URL
                       </button>
                     </CopyToClipboard>
@@ -401,37 +398,33 @@ export const ProductTab = () => {
                     <>
                       <FreeTrialSelector />
                       {cancellationDiscountsEnabled ? <CancellationDiscountSelector /> : null}
-                      <Toggle
-                        value={product.should_include_last_post}
-                        onChange={(should_include_last_post) => updateProduct({ should_include_last_post })}
-                      >
-                        New members will be emailed this product's last published post
-                      </Toggle>
-                      <Toggle
-                        value={product.should_show_all_posts}
-                        onChange={(should_show_all_posts) => updateProduct({ should_show_all_posts })}
-                      >
-                        New members will get access to all posts you have published
-                      </Toggle>
-                      <Toggle
-                        value={product.block_access_after_membership_cancellation}
-                        onChange={(block_access_after_membership_cancellation) =>
-                          updateProduct({ block_access_after_membership_cancellation })
+                      <Switch
+                        checked={product.should_include_last_post}
+                        onChange={(e) => updateProduct({ should_include_last_post: e.target.checked })}
+                        label="New members will be emailed this product's last published post"
+                      />
+                      <Switch
+                        checked={product.should_show_all_posts}
+                        onChange={(e) => updateProduct({ should_show_all_posts: e.target.checked })}
+                        label="New members will get access to all posts you have published"
+                      />
+                      <Switch
+                        checked={product.block_access_after_membership_cancellation}
+                        onChange={(e) =>
+                          updateProduct({ block_access_after_membership_cancellation: e.target.checked })
                         }
-                      >
-                        Members will lose access when their memberships end
-                      </Toggle>
-                      <Toggle
-                        value={product.batch_billing_enabled}
-                        onChange={(batch_billing_enabled) =>
+                        label="Members will lose access when their memberships end"
+                      />
+                      <Switch
+                        checked={product.batch_billing_enabled}
+                        onChange={(e) =>
                           updateProduct({
-                            batch_billing_enabled,
-                            ...(!batch_billing_enabled && { batch_entitlement_enabled: false }),
+                            batch_billing_enabled: e.target.checked,
+                            ...(!e.target.checked && { batch_entitlement_enabled: false }),
                           })
                         }
-                      >
-                        Charge all members on a fixed billing date instead of individually
-                      </Toggle>
+                        label="Charge all members on a fixed billing date instead of individually"
+                      />
                       {product.batch_billing_enabled ? (
                         <>
                           <fieldset>
@@ -451,12 +444,11 @@ export const ProductTab = () => {
                               }
                             />
                           </fieldset>
-                          <Toggle
-                            value={product.batch_entitlement_enabled}
-                            onChange={(batch_entitlement_enabled) => updateProduct({ batch_entitlement_enabled })}
-                          >
-                            Delay content access until batch invoice is processed
-                          </Toggle>
+                          <Switch
+                            checked={product.batch_entitlement_enabled}
+                            onChange={(e) => updateProduct({ batch_entitlement_enabled: e.target.checked })}
+                            label="Delay content access until batch invoice is processed"
+                          />
                         </>
                       ) : null}
                       <DurationEditor />
@@ -468,40 +460,42 @@ export const ProductTab = () => {
                         maxPurchaseCount={product.max_purchase_count}
                         setMaxPurchaseCount={(value) => updateProduct({ max_purchase_count: value })}
                       />
-                      <Toggle
-                        value={product.quantity_enabled}
-                        onChange={(newValue) => updateProduct({ quantity_enabled: newValue })}
-                      >
-                        Allow customers to choose a quantity
-                      </Toggle>
+                      <Switch
+                        checked={product.quantity_enabled}
+                        onChange={(e) => updateProduct({ quantity_enabled: e.target.checked })}
+                        label="Allow customers to choose a quantity"
+                      />
                     </>
                   ) : null}
                   {product.variants.length > 0 ? (
-                    <Toggle
-                      value={product.hide_sold_out_variants}
-                      onChange={(newValue) => updateProduct({ hide_sold_out_variants: newValue })}
-                    >
-                      Hide sold out versions
-                    </Toggle>
+                    <Switch
+                      checked={product.hide_sold_out_variants}
+                      onChange={(e) => updateProduct({ hide_sold_out_variants: e.target.checked })}
+                      label="Hide sold out versions"
+                    />
                   ) : null}
-                  <Toggle
-                    value={product.should_show_sales_count}
-                    onChange={(newValue) => updateProduct({ should_show_sales_count: newValue })}
-                  >
-                    {product.native_type === "membership"
-                      ? "Publicly show the number of members on your product page"
-                      : "Publicly show the number of sales on your product page"}
-                  </Toggle>
+                  <Switch
+                    checked={product.should_show_sales_count}
+                    onChange={(e) => updateProduct({ should_show_sales_count: e.target.checked })}
+                    label={
+                      product.native_type === "membership"
+                        ? "Publicly show the number of members on your product page"
+                        : "Publicly show the number of sales on your product page"
+                    }
+                  />
                   {product.native_type !== "physical" ? (
-                    <Toggle
-                      value={product.is_epublication}
-                      onChange={(newValue) => updateProduct({ is_epublication: newValue })}
-                    >
-                      Mark product as e-publication for VAT purposes{" "}
-                      <a href="/help/article/10-dealing-with-vat" target="_blank" rel="noreferrer">
-                        Learn more
-                      </a>
-                    </Toggle>
+                    <Switch
+                      checked={product.is_epublication}
+                      onChange={(e) => updateProduct({ is_epublication: e.target.checked })}
+                      label={
+                        <>
+                          Mark product as e-publication for VAT purposes{" "}
+                          <a href="/help/article/10-dealing-with-vat" target="_blank" rel="noreferrer">
+                            Learn more
+                          </a>
+                        </>
+                      }
+                    />
                   ) : null}
                   {!seller_refund_policy_enabled ? (
                     <RefundPolicySelector
@@ -513,12 +507,11 @@ export const ProductTab = () => {
                       setShowPreview={setShowRefundPolicyPreview}
                     />
                   ) : null}
-                  <Toggle
-                    value={product.require_shipping}
-                    onChange={(newValue) => updateProduct({ require_shipping: newValue })}
-                  >
-                    Require shipping information
-                  </Toggle>
+                  <Switch
+                    checked={product.require_shipping}
+                    onChange={(e) => updateProduct({ require_shipping: e.target.checked })}
+                    label="Require shipping information"
+                  />
                 </fieldset>
                 {product.native_type === "membership" ? (
                   <fieldset>

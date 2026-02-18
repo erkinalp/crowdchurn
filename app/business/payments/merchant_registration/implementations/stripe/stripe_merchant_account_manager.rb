@@ -166,6 +166,12 @@ module StripeMerchantAccountManager
     end
 
     if last_user_compliance_info&.is_business? && user_compliance_info.is_individual?
+      # Clear structure first - Stripe rejects company[structure] when business_type is "individual"
+      if last_user_compliance_info.country_code == Compliance::Countries::USA.alpha2 &&
+        last_user_compliance_info.business_type == UserComplianceInfo::BusinessTypes::SOLE_PROPRIETORSHIP
+        Stripe::Account.update(stripe_account.id, { company: { structure: "" } })
+      end
+
       # Set the company's name to the individual's first and last name so that this is used as the Stripe account name and during payouts
       # Ref: https://github.com/gumroad/web/issues/19882
       diff_attributes[:company] = { name: user_compliance_info.first_and_last_name }
@@ -292,6 +298,8 @@ module StripeMerchantAccountManager
     bank_account.stripe_external_account_id = stripe_external_account.id
     bank_account.stripe_fingerprint = stripe_external_account.fingerprint
     bank_account.save!
+
+    CheckPaymentAddressWorker.perform_async(bank_account.user_id)
   end
 
   private_class_method
@@ -450,12 +458,16 @@ module StripeMerchantAccountManager
                            last_name_kana: user_compliance_info.last_name_kana,
                            address_kanji: {
                              line1: user_compliance_info.building_number,
-                             line2: user_compliance_info.street_address_kanji,
+                             town: user_compliance_info.street_address_kanji,
+                             state: user_compliance_info.state,
+                             country: "JP",
                              postal_code: user_compliance_info.zip_code
                            },
                            address_kana: {
-                             line1: user_compliance_info.building_number,
-                             line2: user_compliance_info.street_address_kana,
+                             line1: user_compliance_info.building_number_kana,
+                             town: user_compliance_info.street_address_kana,
+                             state: prefecture_kana(user_compliance_info.state),
+                             country: "JP",
                              postal_code: user_compliance_info.zip_code
                            }
                          })
@@ -524,12 +536,16 @@ module StripeMerchantAccountManager
                            name_kana: user_compliance_info.business_name_kana,
                            address_kanji: {
                              line1: user_compliance_info.business_building_number,
-                             line2: user_compliance_info.business_street_address_kanji,
+                             town: user_compliance_info.business_street_address_kanji,
+                             state: user_compliance_info.business_state,
+                             country: "JP",
                              postal_code: user_compliance_info.legal_entity_zip_code
                            },
                            address_kana: {
-                             line1: user_compliance_info.business_building_number,
-                             line2: user_compliance_info.business_street_address_kana,
+                             line1: user_compliance_info.business_building_number_kana,
+                             town: user_compliance_info.business_street_address_kana,
+                             state: prefecture_kana(user_compliance_info.business_state),
+                             country: "JP",
                              postal_code: user_compliance_info.legal_entity_zip_code
                            }
                          }
@@ -802,6 +818,10 @@ module StripeMerchantAccountManager
       email_sent_at = Time.current
       new_requests.each { |request| request.record_email_sent!(email_sent_at) }
     end
+  end
+
+  def self.prefecture_kana(kanji)
+    Compliance::Countries.japan_prefecture_kana(kanji)
   end
 
   def self.handle_new_user_compliance_info(user_compliance_info)

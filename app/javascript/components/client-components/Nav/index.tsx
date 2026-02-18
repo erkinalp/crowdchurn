@@ -19,7 +19,7 @@ import { useCurrentSeller } from "$app/components/CurrentSeller";
 import { useAppDomain, useDiscoverUrl } from "$app/components/DomainSettings";
 import { Icon } from "$app/components/Icons";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
-import { Nav as NavFramework, NavLink, NavSection } from "$app/components/Nav";
+import { Nav as NavFramework, NavSection } from "$app/components/Nav";
 import { useRunOnce } from "$app/components/useRunOnce";
 
 type Props = {
@@ -112,7 +112,7 @@ export const Nav = (props: Props) => {
           text="Products"
           icon="archive-fill"
           href={Routes.products_url(routeParams)}
-          additionalPatterns={[Routes.bundle_path(".", routeParams).slice(0, -1)]}
+          additionalPatterns={["/bundles/"]}
         />
         {loggedInUser?.policies.collaborator.create ? (
           <ClientNavLink text="Collaborators" icon="deal-fill" href={Routes.collaborators_url(routeParams)} />
@@ -135,17 +135,28 @@ export const Nav = (props: Props) => {
           text="Analytics"
           icon="bar-chart-fill"
           href={Routes.sales_dashboard_url(routeParams)}
-          additionalPatterns={[Routes.audience_dashboard_url(routeParams), Routes.dashboard_utm_links_url(routeParams)]}
+          additionalPatterns={[
+            Routes.audience_dashboard_url(routeParams),
+            Routes.dashboard_utm_links_url(routeParams),
+            Routes.churn_dashboard_url(routeParams),
+          ]}
         />
         {loggedInUser?.policies.balance.index ? (
           <ClientNavLink text="Payouts" icon="bank" href={Routes.balance_url(routeParams)} />
         ) : null}
         {loggedInUser?.policies.community.index ? (
-          <NavLink text="Community" icon="solid-chat-alt" href={Routes.community_path(routeParams)} />
+          <ClientNavLink
+            text="Community"
+            icon="solid-chat-alt"
+            href={Routes.communities_path()}
+            onClick={() => {
+              sessionStorage.setItem("communities:referrer", window.location.pathname + window.location.search);
+            }}
+          />
         ) : null}
       </NavSection>
       <NavSection>
-        <NavLink text="Discover" icon="solid-search" href={discoverUrl} exactHrefMatch />
+        <ClientNavLink text="Discover" icon="solid-search" href={discoverUrl} exactHrefMatch />
         {currentSeller?.id === loggedInUser?.id ? (
           <ClientNavLink
             text="Library"

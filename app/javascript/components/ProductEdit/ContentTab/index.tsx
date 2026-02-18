@@ -21,13 +21,14 @@ import { generatePageIcon } from "$app/utils/rich_content_page";
 import { Button } from "$app/components/Button";
 import { InputtedDiscount } from "$app/components/CheckoutDashboard/DiscountInput";
 import { ComboBox } from "$app/components/ComboBox";
-import { PageList, PageListLayout, PageListItem } from "$app/components/Download/PageListLayout";
+import { PageList, PageListItem, PageListLayout } from "$app/components/Download/PageListLayout";
+import { EntityInfo } from "$app/components/DownloadPage/Layout";
 import { EvaporateUploaderProvider, useEvaporateUploader } from "$app/components/EvaporateUploader";
 import { FileKindIcon } from "$app/components/FileRowContent";
 import { Icon } from "$app/components/Icons";
 import { LoadingSpinner } from "$app/components/LoadingSpinner";
 import { Modal } from "$app/components/Modal";
-import { Popover } from "$app/components/Popover";
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 import { FileEmbedGroup } from "$app/components/ProductEdit/ContentTab/FileEmbedGroup";
 import { Layout } from "$app/components/ProductEdit/Layout";
 import { ExistingFileEntry, FileEntry, useProductEditContext, Variant } from "$app/components/ProductEdit/state";
@@ -44,22 +45,25 @@ import {
 import { S3UploadConfigProvider, useS3UploadConfig } from "$app/components/S3UploadConfig";
 import { Separator } from "$app/components/Separator";
 import { showAlert } from "$app/components/server-components/Alert";
-import { EntityInfo } from "$app/components/server-components/DownloadPage/Layout";
 import { TestimonialSelectModal } from "$app/components/TestimonialSelectModal";
 import { FileUpload } from "$app/components/TiptapExtensions/FileUpload";
 import { uploadImages } from "$app/components/TiptapExtensions/Image";
 import { LicenseKey, LicenseProvider } from "$app/components/TiptapExtensions/LicenseKey";
 import { LinkMenuItem } from "$app/components/TiptapExtensions/Link";
 import { LongAnswer } from "$app/components/TiptapExtensions/LongAnswer";
-import { EmbedMediaForm, insertMediaEmbed, ExternalMediaFileEmbed } from "$app/components/TiptapExtensions/MediaEmbed";
+import { EmbedMediaForm, ExternalMediaFileEmbed, insertMediaEmbed } from "$app/components/TiptapExtensions/MediaEmbed";
 import { MoreLikeThis } from "$app/components/TiptapExtensions/MoreLikeThis";
 import { MoveNode } from "$app/components/TiptapExtensions/MoveNode";
 import { Posts, PostsProvider } from "$app/components/TiptapExtensions/Posts";
 import { ShortAnswer } from "$app/components/TiptapExtensions/ShortAnswer";
 import { UpsellCard } from "$app/components/TiptapExtensions/UpsellCard";
+import { Card, CardContent } from "$app/components/ui/Card";
+import { Checkbox } from "$app/components/ui/Checkbox";
+import { InputGroup } from "$app/components/ui/InputGroup";
+import { Label } from "$app/components/ui/Label";
 import { Row, RowContent, Rows } from "$app/components/ui/Rows";
-import { Tabs, Tab } from "$app/components/ui/Tabs";
-import { UpsellSelectModal, Product, ProductOption } from "$app/components/UpsellSelectModal";
+import { Tab, Tabs } from "$app/components/ui/Tabs";
+import { Product, ProductOption, UpsellSelectModal } from "$app/components/UpsellSelectModal";
 import { useConfigureEvaporate } from "$app/components/useConfigureEvaporate";
 import { useIsAboveBreakpoint } from "$app/components/useIsAboveBreakpoint";
 import { useRefToLatest } from "$app/components/useRefToLatest";
@@ -90,6 +94,50 @@ export const extensions = (productId: string, extraExtensions: TiptapNode[] = []
     MoreLikeThis.configure({ productId }),
   ].filter((ext) => !extraExtensions.some((existing) => existing.name === ext.name)),
 ];
+
+const FileUploadMenu = ({
+  existingFiles,
+  onEmbedMedia,
+  onUploadFile,
+  onSelectExistingFiles,
+  onUploadFromDropbox,
+}: {
+  existingFiles: ExistingFileEntry[];
+  onEmbedMedia: () => void;
+  onUploadFile: (target: HTMLInputElement) => void;
+  onSelectExistingFiles: () => void;
+  onUploadFromDropbox: () => void;
+}) => (
+  <div role="menu" aria-label="Image and file uploader">
+    <PopoverClose asChild>
+      <div role="menuitem" onClick={onEmbedMedia}>
+        <Icon name="media" />
+        <span>Embed media</span>
+      </div>
+    </PopoverClose>
+    <PopoverClose asChild>
+      <label role="menuitem">
+        <input type="file" name="file" multiple onChange={(e) => onUploadFile(e.target)} />
+        <Icon name="paperclip" />
+        <span>Computer files</span>
+      </label>
+    </PopoverClose>
+    {existingFiles.length > 0 ? (
+      <PopoverClose asChild>
+        <div role="menuitem" onClick={onSelectExistingFiles}>
+          <Icon name="files-earmark" />
+          <span>Existing product files</span>
+        </div>
+      </PopoverClose>
+    ) : null}
+    <PopoverClose asChild>
+      <div role="menuitem" onClick={onUploadFromDropbox}>
+        <Icon name="dropbox" />
+        <span>Dropbox files</span>
+      </div>
+    </PopoverClose>
+  </div>
+);
 
 const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | null }) => {
   const { id, product, updateProduct, seller, save, existingFiles, setExistingFiles, uniquePermalink, filesById } =
@@ -220,7 +268,6 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
   ]);
   const editor = useRichTextEditor({
     ariaLabel: "Content editor",
-    placeholder: "Enter the content you want to sell. Upload your files or start typing.",
     initialValue,
     editable: true,
     extensions: contentEditorExtensions,
@@ -246,7 +293,9 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
         node.remove();
       }
     });
-    updateProduct({ files: [...product.files.filter((f) => !newFiles.includes(f)), ...newFiles] });
+    if (newFiles.length > 0) {
+      updateProduct({ files: [...product.files.filter((f) => !newFiles.includes(f)), ...newFiles] });
+    }
     const description = generateJSON(
       new XMLSerializer().serializeToString(fragment),
       baseEditorOptions(contentEditorExtensions).extensions,
@@ -494,35 +543,16 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
               <>
                 <LinkMenuItem editor={editor} />
                 <PopoverMenuItem name="Upload files" icon="upload-fill">
-                  {(close) => (
-                    <div role="menu" aria-label="Image and file uploader" onClick={close}>
-                      <div role="menuitem" onClick={() => setShowEmbedModal(true)}>
-                        <Icon name="media" />
-                        <span>Embed media</span>
-                      </div>
-                      <label role="menuitem">
-                        <input type="file" name="file" multiple onChange={(e) => uploadFileInput(e.target)} />
-                        <Icon name="paperclip" />
-                        <span>Computer files</span>
-                      </label>
-                      {existingFiles.length > 0 ? (
-                        <div
-                          role="menuitem"
-                          onClick={() => {
-                            setSelectingExistingFiles({ selected: [], query: "", isLoading: true });
-                            void fetchLatestExistingFiles();
-                          }}
-                        >
-                          <Icon name="files-earmark" />
-                          <span>Existing product files</span>
-                        </div>
-                      ) : null}
-                      <div role="menuitem" onClick={uploadFromDropbox}>
-                        <Icon name="dropbox" />
-                        <span>Dropbox files</span>
-                      </div>
-                    </div>
-                  )}
+                  <FileUploadMenu
+                    existingFiles={existingFiles}
+                    onEmbedMedia={() => setShowEmbedModal(true)}
+                    onUploadFile={uploadFileInput}
+                    onSelectExistingFiles={() => {
+                      setSelectingExistingFiles({ selected: [], query: "", isLoading: true });
+                      void fetchLatestExistingFiles();
+                    }}
+                    onUploadFromDropbox={uploadFromDropbox}
+                  />
                 </PopoverMenuItem>
                 {selectingExistingFiles ? (
                   <Modal
@@ -641,108 +671,106 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
                 </Modal>
                 <Separator aria-orientation="vertical" />
                 <Popover
-                  trigger={
-                    <div className="toolbar-item">
-                      Insert <Icon name="outline-cheveron-down" />
-                    </div>
-                  }
                   open={insertMenuState != null}
-                  onToggle={(open) => setInsertMenuState(open ? "open" : null)}
+                  onOpenChange={(open) => setInsertMenuState(open ? "open" : null)}
                 >
-                  <div role="menu" onClick={() => setInsertMenuState(null)}>
-                    {insertMenuState === "inputs" ? (
-                      <>
-                        <div
-                          role="menuitem"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setInsertMenuState("open");
-                          }}
-                        >
-                          <Icon name="outline-cheveron-left" />
-                          <span>Back</span>
-                        </div>
-                        <div role="menuitem" onClick={() => editor.chain().focus().insertShortAnswer({}).run()}>
-                          <Icon name="card-text" />
-                          <span>Short answer</span>
-                        </div>
-                        <div role="menuitem" onClick={() => editor.chain().focus().insertLongAnswer({}).run()}>
-                          <Icon name="file-text" />
-                          <span>Long answer</span>
-                        </div>
-                        <div role="menuitem" onClick={() => editor.chain().focus().insertFileUpload({}).run()}>
-                          <Icon name="folder-plus" />
-                          <span>Upload file</span>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div role="menuitem" onClick={() => setAddingButton({ label: "", url: "" })}>
-                          <Icon name="button" />
-                          <span>Button</span>
-                        </div>
-                        <div role="menuitem" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
-                          <Icon name="horizontal-rule" />
-                          <span>Divider</span>
-                        </div>
-                        <div
-                          role="menuitem"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setInsertMenuState("inputs");
-                          }}
-                          className="flex items-center"
-                        >
-                          <Icon name="input-cursor-text" />
-                          <span>Input</span>
-                          <Icon name="outline-cheveron-right" className="ml-auto" />
-                        </div>
-                        <div role="menuitem" onClick={onInsertMoreLikeThis}>
-                          <Icon name="grid" />
-                          <span>More like this</span>
-                        </div>
-                        <div role="menuitem" onClick={onInsertPosts}>
-                          <Icon name="file-earmark-medical" />
-                          <span>List of posts</span>
-                        </div>
-                        <div role="menuitem" onClick={onInsertLicense}>
-                          <Icon name="outline-key" />
-                          <span>License key</span>
-                        </div>
-                        <div role="menuitem" onClick={() => setShowInsertPostModal(true)}>
-                          <Icon name="twitter" />
-                          <span>Twitter post</span>
-                        </div>
-                        <div
-                          role="menuitem"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowUpsellModal(true);
-                          }}
-                        >
-                          <Icon name="cart-plus" />
-                          <span>Upsell</span>
-                        </div>
-                        <div
-                          role="menuitem"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowReviewModal(true);
-                          }}
-                        >
-                          <Icon name="solid-star" />
-                          <span>Review</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <PopoverTrigger className="toolbar-item all-unset">
+                    Insert <Icon name="outline-cheveron-down" />
+                  </PopoverTrigger>
+                  <PopoverContent sideOffset={4} className="border-0 p-0 shadow-none">
+                    <div role="menu" onClick={() => setInsertMenuState(null)}>
+                      {insertMenuState === "inputs" ? (
+                        <>
+                          <div
+                            role="menuitem"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setInsertMenuState("open");
+                            }}
+                          >
+                            <Icon name="outline-cheveron-left" />
+                            <span>Back</span>
+                          </div>
+                          <div role="menuitem" onClick={() => editor.chain().focus().insertShortAnswer({}).run()}>
+                            <Icon name="card-text" />
+                            <span>Short answer</span>
+                          </div>
+                          <div role="menuitem" onClick={() => editor.chain().focus().insertLongAnswer({}).run()}>
+                            <Icon name="file-text" />
+                            <span>Long answer</span>
+                          </div>
+                          <div role="menuitem" onClick={() => editor.chain().focus().insertFileUpload({}).run()}>
+                            <Icon name="folder-plus" />
+                            <span>Upload file</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div role="menuitem" onClick={() => setAddingButton({ label: "", url: "" })}>
+                            <Icon name="button" />
+                            <span>Button</span>
+                          </div>
+                          <div role="menuitem" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
+                            <Icon name="horizontal-rule" />
+                            <span>Divider</span>
+                          </div>
+                          <div
+                            role="menuitem"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setInsertMenuState("inputs");
+                            }}
+                            className="flex items-center"
+                          >
+                            <Icon name="input-cursor-text" />
+                            <span>Input</span>
+                            <Icon name="outline-cheveron-right" className="ml-auto" />
+                          </div>
+                          <div role="menuitem" onClick={onInsertMoreLikeThis}>
+                            <Icon name="grid" />
+                            <span>More like this</span>
+                          </div>
+                          <div role="menuitem" onClick={onInsertPosts}>
+                            <Icon name="file-earmark-medical" />
+                            <span>List of posts</span>
+                          </div>
+                          <div role="menuitem" onClick={onInsertLicense}>
+                            <Icon name="outline-key" />
+                            <span>License key</span>
+                          </div>
+                          <div role="menuitem" onClick={() => setShowInsertPostModal(true)}>
+                            <Icon name="twitter" />
+                            <span>Twitter post</span>
+                          </div>
+                          <div
+                            role="menuitem"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowUpsellModal(true);
+                            }}
+                          >
+                            <Icon name="cart-plus" />
+                            <span>Upsell</span>
+                          </div>
+                          <div
+                            role="menuitem"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowReviewModal(true);
+                            }}
+                          >
+                            <Icon name="solid-star" />
+                            <span>Review</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </PopoverContent>
                 </Popover>
-                <>
-                  <Separator aria-orientation="vertical" />
-                  <button className="toolbar-item" onClick={handleCreatePageClick}>
-                    <Icon name="plus" /> Page
-                  </button>
-                </>
+                <Separator aria-orientation="vertical" />
+                <button className="toolbar-item cursor-pointer all-unset" onClick={handleCreatePageClick}>
+                  <Icon name="plus" /> Page
+                </button>
               </>
             }
           />
@@ -763,7 +791,7 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
                     <>
                       {isDesktop ? null : (
                         <PageListItem asChild className="tailwind-override text-left">
-                          <button onClick={() => setPagesExpanded(!pagesExpanded)}>
+                          <button className="cursor-pointer all-unset" onClick={() => setPagesExpanded(!pagesExpanded)}>
                             <span className="flex-1">
                               <strong>Table of contents:</strong> {titleWithFallback(selectedPage?.title)}
                             </span>
@@ -843,22 +871,40 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
                 ) : null}
                 {isDesktop ? (
                   <>
-                    <div className="stack">
-                      <ReviewForm permalink="" purchaseId="" review={null} preview />
-                    </div>
-                    <div className="stack">
+                    <Card>
+                      <ReviewForm
+                        permalink=""
+                        purchaseId=""
+                        review={null}
+                        preview
+                        className="flex flex-wrap items-center justify-between gap-4 p-4"
+                      />
+                    </Card>
+                    <Card>
                       {product.native_type === "membership" ? (
-                        <details>
-                          <summary inert>Membership</summary>
-                        </details>
+                        <CardContent asChild details>
+                          <details>
+                            <summary className="grow grid-flow-col grid-cols-[1fr_auto] before:col-start-2" inert>
+                              Membership
+                            </summary>
+                          </details>
+                        </CardContent>
                       ) : null}
-                      <details>
-                        <summary inert>Receipt</summary>
-                      </details>
-                      <details>
-                        <summary inert>Library</summary>
-                      </details>
-                    </div>
+                      <CardContent asChild details>
+                        <details>
+                          <summary inert className="grow grid-flow-col grid-cols-[1fr_auto] before:col-start-2">
+                            Receipt
+                          </summary>
+                        </details>
+                      </CardContent>
+                      <CardContent asChild details>
+                        <details>
+                          <summary inert className="grow grid-flow-col grid-cols-[1fr_auto] before:col-start-2">
+                            Library
+                          </summary>
+                        </details>
+                      </CardContent>
+                    </Card>
                     <EntityInfo
                       entityName={selectedVariant ? `${product.name} - ${selectedVariant.name}` : product.name}
                       creator={seller}
@@ -869,7 +915,36 @@ const ContentTabContent = ({ selectedVariantId }: { selectedVariantId: string | 
             )
           }
         >
-          <EditorContent className="rich-text grid h-full flex-1" editor={editor} data-gumroad-ignore />
+          <div className="relative h-full flex-1">
+            {editor?.isEmpty ? (
+              <div className="pointer-events-none absolute inset-0 flex items-start">
+                <p className="flex flex-wrap items-center gap-1 text-muted">
+                  <span>Enter the content you want to sell.</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button small className="pointer-events-auto">
+                        Upload your files
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent sideOffset={4} className="pointer-events-auto border-0 p-0 shadow-none">
+                      <FileUploadMenu
+                        existingFiles={existingFiles}
+                        onEmbedMedia={() => setShowEmbedModal(true)}
+                        onUploadFile={uploadFileInput}
+                        onSelectExistingFiles={() => {
+                          setSelectingExistingFiles({ selected: [], query: "", isLoading: true });
+                          void fetchLatestExistingFiles();
+                        }}
+                        onUploadFromDropbox={uploadFromDropbox}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <span>or start typing.</span>
+                </p>
+              </div>
+            ) : null}
+            <EditorContent className="rich-text grid h-full flex-1" editor={editor} data-gumroad-ignore />
+          </div>
         </PageListLayout>
       </div>
       {confirmingDeletePage !== null ? (
@@ -1049,17 +1124,15 @@ export const ContentTab = () => {
                   <>
                     <hr className="relative left-1/2 my-2 w-screen max-w-none -translate-x-1/2 border-border lg:hidden" />
                     <ComboBox<Variant>
-                      // TODO: Currently needed to get the icon on the selected option even though this is not multiple select. We should fix this in the design system
-                      multiple
                       input={(props) => (
-                        <div {...props} className="input h-full min-h-auto" aria-label="Select a version">
-                          <span className="fake-input text-singleline">
+                        <InputGroup {...props} className="cursor-pointer py-3" aria-label="Select a version">
+                          <span className="text-singleline flex-1">
                             {selectedVariant && !product.has_same_rich_content_for_all_variants
                               ? `Editing: ${selectedVariant.name || "Untitled"}`
                               : "Editing: All versions"}
                           </span>
                           <Icon name="outline-cheveron-down" />
-                        </div>
+                        </InputGroup>
                       )}
                       options={product.variants}
                       option={(item, props, index) => (
@@ -1073,7 +1146,7 @@ export const ContentTab = () => {
                             aria-selected={item.id === selectedVariantId}
                             inert={product.has_same_rich_content_for_all_variants}
                           >
-                            <div>
+                            <div className="flex-1">
                               <h4>{item.name || "Untitled"}</h4>
                               {item.id === selectedVariant?.id ? (
                                 <small>Editing</small>
@@ -1094,12 +1167,14 @@ export const ContentTab = () => {
                                 <small className="text-muted">No content yet</small>
                               )}
                             </div>
+                            {item.id === selectedVariant?.id && (
+                              <Icon name="solid-check-circle" className="ml-auto text-success" />
+                            )}
                           </div>
                           {index === product.variants.length - 1 ? (
-                            <div className="option">
-                              <label style={{ alignItems: "center" }}>
-                                <input
-                                  type="checkbox"
+                            <div className="flex cursor-pointer items-center px-4 py-2">
+                              <Label className="items-center">
+                                <Checkbox
                                   checked={product.has_same_rich_content_for_all_variants}
                                   onChange={() => {
                                     if (!product.has_same_rich_content_for_all_variants && product.variants.length > 1)
@@ -1108,7 +1183,7 @@ export const ContentTab = () => {
                                   }}
                                 />
                                 <small>Use the same content for all versions</small>
-                              </label>
+                              </Label>
                             </div>
                           ) : null}
                         </>

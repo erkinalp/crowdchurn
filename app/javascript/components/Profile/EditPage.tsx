@@ -13,10 +13,10 @@ import { Button, NavigationButton } from "$app/components/Button";
 import { useAppDomain } from "$app/components/DomainSettings";
 import { Icon } from "$app/components/Icons";
 import { Modal } from "$app/components/Modal";
+import { ProfileProps, TabWithId, useTabs } from "$app/components/Profile";
 import { SectionLayout } from "$app/components/Profile/Sections";
 import { ImageUploadSettingsContext } from "$app/components/RichTextEditor";
 import { showAlert } from "$app/components/server-components/Alert";
-import { ProfileProps, TabWithId, useTabs } from "$app/components/server-components/Profile";
 import PlainTextStarterKit from "$app/components/TiptapExtensions/PlainTextStarterKit";
 import { Row, RowActions, RowContent, RowDragHandle, Rows } from "$app/components/ui/Rows";
 import { Tabs, Tab } from "$app/components/ui/Tabs";
@@ -274,14 +274,14 @@ export const EditProfile = (props: Props) => {
             <ImageUploadSettingsContext.Provider value={imageUploadSettings}>
               <EditSection section={section} />
             </ImageUploadSettingsContext.Provider>
-            {i === visibleSections.length - 1 ? <AddSectionButton index={i + 1} position="top" /> : null}
+            {i === visibleSections.length - 1 ? <AddSectionButton index={i + 1} side="top" /> : null}
           </SectionLayout>
         ))
       ) : (
         <SectionLayout className="grid flex-1">
           <AddSectionButton index={0} />
           <FollowFormBlock creatorProfile={props.creator_profile} />
-          <AddSectionButton index={0} position="top" />
+          <AddSectionButton index={0} side="top" />
         </SectionLayout>
       )}
     </SectionReducerContext.Provider>
