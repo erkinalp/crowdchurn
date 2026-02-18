@@ -14,6 +14,7 @@ class MerchantAccount < ApplicationRecord
   has_many :charges
 
   attr_json_data_accessor :meta
+  attr_json_data_accessor :unclaimed_balance_collection_transfer_id
 
   # Kill Bill configuration accessors
   # Non-sensitive fields stored directly in meta

@@ -14,7 +14,7 @@ import { DateRangePicker } from "$app/components/DateRangePicker";
 import { ExportSubscribersPopover } from "$app/components/Followers/ExportSubscribersPopover";
 import { Icon } from "$app/components/Icons";
 import { LoadingSpinner } from "$app/components/LoadingSpinner";
-import { Popover } from "$app/components/Popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 import { Placeholder, PlaceholderImage } from "$app/components/ui/Placeholder";
 import { useOnChange } from "$app/components/useOnChange";
 import { WithTooltip } from "$app/components/WithTooltip";
@@ -44,21 +44,25 @@ function Audience() {
       selectedTab="following"
       actions={
         hasContent ? (
-          <>
-            <Popover
-              aria-label="Export"
-              trigger={
+          <div className="flex w-full gap-2">
+            <Popover>
+              <PopoverAnchor>
                 <WithTooltip tip="Export" position="bottom">
-                  <Button aria-label="Export">
-                    <Icon aria-label="Download" name="download" />
-                  </Button>
+                  <PopoverTrigger aria-label="Export" asChild>
+                    <Button>
+                      <Icon aria-label="Download" name="download" />
+                    </Button>
+                  </PopoverTrigger>
                 </WithTooltip>
-              }
-            >
-              {(close) => <ExportSubscribersPopover closePopover={close} />}
+              </PopoverAnchor>
+              <PopoverContent sideOffset={4}>
+                <ExportSubscribersPopover />
+              </PopoverContent>
             </Popover>
-            <DateRangePicker {...dateRange} />
-          </>
+            <div className="flex-1">
+              <DateRangePicker {...dateRange} />
+            </div>
+          </div>
         ) : null
       }
     >

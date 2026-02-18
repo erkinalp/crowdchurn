@@ -5,8 +5,11 @@ class LinksController < ApplicationController
           ActionView::Helpers::AssetUrlHelper, CustomDomainConfig, AffiliateCookie,
           CreateDiscoverSearch, DiscoverCuratedProducts, FetchProductByUniquePermalink
 
+  include PageMeta::Favicon, PageMeta::Product
+
   DEFAULT_PRICE = 500
-  PER_PAGE = 50
+
+  prepend_before_action :disable_third_party_analytics!, only: :cart_items_count
 
   skip_before_action :check_suspended, only: %i[index show edit destroy increment_views track_user_action]
 
@@ -21,88 +24,46 @@ class LinksController < ApplicationController
 
   before_action :set_affiliate_cookie, only: [:show]
 
-  before_action :hide_layouts, only: %i[show]
   before_action :fetch_product, only: %i[increment_views track_user_action]
   before_action :ensure_seller_is_not_deleted, only: [:show]
   before_action :check_if_needs_redirect, only: [:show]
   before_action :prepare_product_page, only: %i[show]
-  before_action :set_frontend_performance_sensitive, only: %i[show]
   before_action :ensure_domain_belongs_to_seller, only: [:show]
   before_action :fetch_product_and_enforce_ownership, only: %i[destroy]
   before_action :fetch_product_and_enforce_access, only: %i[update publish unpublish release_preorder update_sections]
 
-  layout "inertia", only: [:index, :new]
+  layout "inertia", only: [:index, :new, :show, :cart_items_count]
 
   def index
     authorize Link
 
-    @guid = SecureRandom.hex
-    @title = "Products"
+    set_meta_tag(title: "Products")
 
-    @memberships_pagination, @memberships = paginated_memberships(page: 1)
-    @products_pagination, @products = paginated_products(page: 1)
-
-    @price = current_seller.links.last.try(:price_formatted_without_dollar_sign) ||
-             Money.new(DEFAULT_PRICE, current_seller.currency_type).format(
-               no_cents_if_whole: true, symbol: false
-             )
-
-    @user_compliance_info = current_seller.fetch_or_build_user_compliance_info
-    @react_products_page_props = DashboardProductsPagePresenter.new(
-      pundit_user:,
-      memberships: @memberships,
-      memberships_pagination: @memberships_pagination,
-      products: @products,
-      products_pagination: @products_pagination
-    ).page_props
-
-    render inertia: "Products/Index",
-           props: { react_products_page_props: @react_products_page_props }
-  end
-
-  def memberships_paged
-    authorize Link, :index?
-
-    pagination, memberships = paginated_memberships(page: paged_params[:page].to_i, query: params[:query])
-    react_products_page_props = DashboardProductsPagePresenter.new(
-      pundit_user:,
-      memberships:,
-      memberships_pagination: pagination,
-      products: nil,
-      products_pagination: nil)
-    .memberships_table_props
-
-    render json: {
-      pagination: react_products_page_props[:memberships_pagination],
-      entries: react_products_page_props[:memberships]
-    }
-  end
-
-  def products_paged
-    authorize Link, :index?
-
-    pagination, products = paginated_products(page: paged_params[:page].to_i, query: params[:query])
-    react_products_page_props = DashboardProductsPagePresenter.new(
-      pundit_user:,
-      memberships: nil,
-      memberships_pagination: nil,
-      products:,
-      products_pagination: pagination
-    ).products_table_props
-
-    render json: {
-      pagination: react_products_page_props[:products_pagination],
-      entries: react_products_page_props[:products]
+    render inertia: "Products/Index", props: {
+      archived_products_count: -> { products_page_presenter.page_props[:archived_products_count] },
+      can_create_product: -> { products_page_presenter.page_props[:can_create_product] },
+      products_data: -> {
+        {
+          products: products_page_presenter.products_table_props[:products],
+          pagination: products_page_presenter.products_table_props[:products_pagination],
+          sort: products_page_presenter.products_sort,
+        }
+      },
+      memberships_data: -> {
+        {
+          memberships: products_page_presenter.memberships_table_props[:memberships],
+          pagination: products_page_presenter.memberships_table_props[:memberships_pagination],
+          sort: products_page_presenter.memberships_sort,
+        }
+      },
     }
   end
 
   def new
     authorize Link
 
-    props = ProductPresenter.new_page_props(current_seller:)
-    @title = "What are you creating?"
-
-    render inertia: "Products/New", props:
+    set_meta_tag(title: "What are you creating?")
+    render inertia: "Products/New", props: ProductPresenter.new_page_props(current_seller:)
   end
 
   def create
@@ -129,32 +90,23 @@ class LinksController < ApplicationController
     @product.is_bundle = @product.native_type == Link::NATIVE_TYPE_BUNDLE
     @product.json_data[:custom_button_text_option] = "donate_prompt" if @product.native_type == Link::NATIVE_TYPE_COFFEE
 
+    ai_generated = params[:link][:ai_prompt].present? && Feature.active?(:ai_product_generation, current_seller)
+
     begin
       @product.save!
 
-      if params[:link][:ai_prompt].present? && Feature.active?(:ai_product_generation, current_seller)
+      if ai_generated
         generate_product_details_using_ai
       end
     rescue ActiveRecord::RecordNotSaved, ActiveRecord::RecordInvalid, Link::LinkInvalid
-      @error_message = if @product&.errors&.any?
-        @product.errors.full_messages.first
-      elsif @preorder_link&.errors&.any?
-        @preorder_link.errors.full_messages[0]
-      else
-        "Sorry, something went wrong."
-      end
-      return respond_to do |format|
-        response = { success: false, error_message: @error_message }
-        format.json { render json: response }
-        format.html { render html: "<textarea>#{response.to_json}</textarea>" }
-      end
+      return redirect_to new_product_path, alert: @product.errors.to_hash.transform_values(&:to_sentence).first, inertia: inertia_errors(@product)
     end
 
     create_user_event("add_product")
-    respond_to do |format|
-      response = { success: true, redirect_to: edit_link_path(@product) }
-      format.html { render plain: response.to_json.to_s }
-      format.json { render json: response }
+    if ai_generated
+      redirect_to edit_link_path(@product, ai_generated: true), status: :see_other
+    else
+      redirect_to edit_link_path(@product), status: :see_other
     end
   end
 
@@ -171,7 +123,7 @@ class LinksController < ApplicationController
       buyer_cookie: ensure_experiment_cookie
     ).call
 
-    @show_user_favicon = true
+    set_favicon_meta_tags(@product.user)
 
     if params[:wanted] == "true"
       params[:option] ||= params[:variant] && @product.options.find { |o| o[:name] == params[:variant] }&.[](:id)
@@ -183,13 +135,20 @@ class LinksController < ApplicationController
 
       unless (@product.customizable_price || cart_item[:option]&.[](:is_pwyw)) &&
              (params[:price].blank? || params[:price] < cart_item[:price])
-        redirect_to checkout_index_url(**params.permit!, host: DOMAIN, product: @product.unique_permalink,
-                                                         rent: cart_item[:rental], recurrence: cart_item[:recurrence],
-                                                         price: cart_item[:price],
-                                                         code: params[:offer_code] || params[:code],
-                                                         affiliate_id: params[:affiliate_id] || params[:a],
-                                                         referrer: params[:referrer] || request.referrer),
-                    allow_other_host: true
+        discount_result = BestOfferCodeService.new(
+          product: @product,
+          url_code: params[:offer_code] || params[:code],
+          quantity: (params[:quantity] || 1).to_i
+        ).result
+        code = discount_result&.dig(:code) if discount_result&.dig(:valid)
+        redirect_params = params.permit!.except(:code, :offer_code)
+        return redirect_to checkout_url(**redirect_params, host: DOMAIN, product: @product.unique_permalink,
+                                                           rent: cart_item[:rental], recurrence: cart_item[:recurrence],
+                                                           price: cart_item[:price],
+                                                           code: code,
+                                                           affiliate_id: params[:affiliate_id] || params[:a],
+                                                           referrer: params[:referrer] || request.referrer),
+                           allow_other_host: true
       end
     end
 
@@ -200,7 +159,6 @@ class LinksController < ApplicationController
     @pay_with_card_enabled = @product.user.pay_with_card_enabled?
     presenter = ProductPresenter.new(pundit_user:, product: @product, request:)
     presenter_props = { recommended_by: params[:recommended_by], discount_code: params[:offer_code] || params[:code], quantity: (params[:quantity] || 1).to_i, layout: params[:layout], seller_custom_domain_url: }
-    @product_props = params[:embed] || params[:overlay] ? presenter.product_props(**presenter_props) : presenter.product_page_props(**presenter_props)
     @body_class = "iframe" if params[:overlay] || params[:embed]
 
     if ["search", "discover"].include?(params[:recommended_by])
@@ -211,29 +169,50 @@ class LinksController < ApplicationController
       )
     end
 
-    if params[:layout] == Product::Layout::DISCOVER
-      @discover_props = { taxonomy_path: @product.taxonomy&.ancestry_path&.join("/"), taxonomies_for_nav: }
-    end
-
     set_noindex_header if !@product.alive?
+
     respond_to do |format|
-      format.html
+      format.html do
+        case params[:layout]
+        when Product::Layout::PROFILE
+          render inertia: "Products/Profile/Show", props: presenter.profile_product_props(**presenter_props)
+        when Product::Layout::DISCOVER
+          if request.headers["X-Inertia-Partial-Data"] == "autocomplete_results"
+            return render inertia: "Products/Discover/Show", props: {
+              autocomplete_results: Discover::AutocompletePresenter.new(
+                query: params[:query],
+                user: logged_in_user,
+                browser_guid: cookies[:_gumroad_guid]
+              ).props
+            }
+          end
+          discover_props = { taxonomy_path: @product.taxonomy&.ancestry_path&.join("/"), taxonomies_for_nav: }
+          render inertia: "Products/Discover/Show", props: presenter.discover_product_props(discover_props:, **presenter_props)
+        else
+          if params[:embed] || params[:overlay]
+            render inertia: "Products/Iframe/Show", props: presenter.iframe_product_props(**presenter_props)
+          else
+            render inertia: "Products/Show", props: presenter.product_page_props(**presenter_props)
+          end
+        end
+      end
       format.json { render json: @product.as_json }
       format.any { e404 }
     end
   end
 
   def cart_items_count
-    @hide_layouts = true
-    @disable_third_party_analytics = true
+    render inertia: "Products/CartItemsCount", props: {
+      cart: CartPresenter.new(logged_in_user:, ip: request.remote_ip, browser_guid: cookies[:_gumroad_guid]).cart_props
+    }
   end
 
   def search
     search_params = params
-    on_profile = search_params[:user_id].present?
-    if on_profile
+    in_section = search_params[:user_id].present?
+    if in_section
       user = User.find_by_external_id(search_params[:user_id])
-      section = user && user.seller_profile_products_sections.on_profile.find_by_external_id(search_params[:section_id])
+      section = user && user.seller_profile_products_sections.find_by_external_id(search_params[:section_id])
       return render json: { total: 0, filetypes_data: [], tags_data: [], products: [] } if section.nil?
       search_params[:section] = section
       search_params[:is_alive_on_profile] = true
@@ -252,7 +231,7 @@ class LinksController < ApplicationController
       search_params[:include_taxonomy_descendants] = true
     end
 
-    if on_profile
+    if in_section
       recommended_by = search_params[:recommended_by]
     else
       recommended_by = RecommendationType::GUMROAD_SEARCH_RECOMMENDATION
@@ -265,10 +244,10 @@ class LinksController < ApplicationController
         product:,
         request:,
         recommended_by:,
-        target: on_profile ? Product::Layout::PROFILE : Product::Layout::DISCOVER,
-        show_seller: !on_profile,
-        query: (search_params[:query] unless on_profile),
-        offer_code: (search_params[:offer_code] unless on_profile)
+        target: in_section ? Product::Layout::PROFILE : Product::Layout::DISCOVER,
+        show_seller: !in_section,
+        query: (search_params[:query] unless in_section),
+        offer_code: (search_params[:offer_code] unless in_section)
       )
     end
     render json: results
@@ -333,11 +312,12 @@ class LinksController < ApplicationController
     fetch_product_by_unique_permalink
     authorize @product
 
-    redirect_to bundle_path(@product.external_id) if @product.is_bundle?
+    redirect_to edit_bundle_product_path(@product.external_id) if @product.is_bundle?
 
-    @title = @product.name
+    set_meta_tag(title: @product.name)
 
-    @presenter = ProductPresenter.new(product: @product, pundit_user:)
+    ai_generated = params[:ai_generated] == "true"
+    @presenter = ProductPresenter.new(product: @product, pundit_user:, ai_generated:)
   end
 
   def update
@@ -369,7 +349,8 @@ class LinksController < ApplicationController
           :call_limitation_info,
           :installment_plan,
           :community_chat_enabled,
-          :currency_prices
+          :currency_prices,
+          :default_offer_code_id
         ))
         @product.description = SaveContentUpsellsService.new(seller: @product.user, content: product_permitted_params[:description], old_content: @product.description_was).from_html
         @product.skus_enabled = false
@@ -423,6 +404,7 @@ class LinksController < ApplicationController
         update_call_limitation_info
         update_installment_plan
         update_currency_prices
+        update_default_offer_code
 
         Product::SavePostPurchaseCustomFieldsService.new(@product).perform
 
@@ -568,6 +550,18 @@ class LinksController < ApplicationController
       @product = product_by_custom_domain
     end
 
+    def product_by_custom_domain
+      @_product_by_custom_domain ||= begin
+        product = CustomDomain.find_by_host(request.host)&.product
+        general_permalink = product&.general_permalink
+        if general_permalink.blank?
+          nil
+        else
+          Link.fetch_leniently(general_permalink, user: product.user)
+        end
+      end
+    end
+
     # *** DO NOT USE THIS METHOD for actions that respond to non-subdomain URLs ***
     #
     # Used for actions where a product's general (custom or unique) permalink is used to identify the product.
@@ -614,7 +608,9 @@ class LinksController < ApplicationController
 
     def prepare_product_page
       @user                  = @product.user
-      @title                 = @product.name
+      set_meta_tag(title: @product.name)
+      set_product_page_meta(@product)
+      set_meta_tag(tag_name: "style", inner_content: @product.user.seller_profile.custom_styles.to_s, head_key: "custom_styles")
       @body_id               = "product_page"
       @is_on_product_page    = true
       @debug                 = params[:debug] && !Rails.env.production?
@@ -637,29 +633,40 @@ class LinksController < ApplicationController
                                    :refund_policy, :taxonomy_id)
     end
 
-    def paged_params
-      params.permit(:page, sort: [:key, :direction])
+    def products_page_presenter
+      @products_page_presenter ||= DashboardProductsPagePresenter.new(
+        pundit_user:,
+        query: index_params[:query],
+        products_page: index_params[:products_page],
+        products_sort: index_params[:products_sort],
+        memberships_page: index_params[:memberships_page],
+        memberships_sort: index_params[:memberships_sort]
+      )
     end
 
-    def paginated_memberships(page:, query: nil)
-      memberships = current_seller.products.membership.visible_and_not_archived
-      memberships = memberships.where("name like ?", "%#{query}%") if query.present?
+    def index_params
+      @index_params ||= begin
+        permitted = params.permit(
+          :query, :products_page, :memberships_page,
+          :products_sort_key, :products_sort_direction,
+          :memberships_sort_key, :memberships_sort_direction
+        )
 
-      sort_and_paginate_products(**paged_params[:sort].to_h.symbolize_keys, page:, collection: memberships, per_page: PER_PAGE, user_id: current_seller.id)
+        {
+          query: permitted[:query],
+          products_page: permitted[:products_page],
+          products_sort: extract_sort_params(:products, permitted),
+          memberships_page: permitted[:memberships_page],
+          memberships_sort: extract_sort_params(:memberships, permitted)
+        }
+      end
     end
 
-    def paginated_products(page:, query: nil)
-      products = current_seller
-        .products
-        .includes([
-                    thumbnail: { file_attachment: { blob: { variant_records: { image_attachment: :blob } } } },
-                    thumbnail_alive: { file_attachment: { blob: { variant_records: { image_attachment: :blob } } } },
-                  ])
-        .non_membership
-        .visible_and_not_archived
-      products = products.where("links.name like ?", "%#{query}%") if query.present?
-
-      sort_and_paginate_products(**paged_params[:sort].to_h.symbolize_keys, page:, collection: products, per_page: PER_PAGE, user_id: current_seller.id)
+    def extract_sort_params(prefix, permitted)
+      key = permitted[:"#{prefix}_sort_key"]
+      direction = permitted[:"#{prefix}_sort_direction"]
+      return nil unless %w[name display_price_cents successful_sales_count revenue status].include?(key)
+      { key:, direction: direction == "desc" ? "desc" : "asc" }
     end
 
     def update_removed_file_attributes
@@ -743,6 +750,25 @@ class LinksController < ApplicationController
       if product_permitted_params[:installment_plan].present?
         @product.create_installment_plan!(product_permitted_params[:installment_plan])
       end
+    end
+
+    def update_default_offer_code
+      default_offer_code_id = product_permitted_params[:default_offer_code_id]
+
+      return @product.default_offer_code = nil if default_offer_code_id.blank?
+
+      offer_code = @product.user.offer_codes.alive.find_by_external_id!(default_offer_code_id)
+
+      raise Link::LinkInvalid, "Offer code cannot be expired" if offer_code.inactive?
+      raise Link::LinkInvalid, "Offer code must be associated with this product or be universal" unless valid_for_product?(offer_code)
+
+      @product.default_offer_code = offer_code
+    rescue ActiveRecord::RecordNotFound
+      raise Link::LinkInvalid, "Invalid offer code"
+    end
+
+    def valid_for_product?(offer_code)
+      offer_code.universal? || @product.offer_codes.where(id: offer_code.id).exists?
     end
 
     def toggle_community_chat!(enabled)

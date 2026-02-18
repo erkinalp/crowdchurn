@@ -19,7 +19,9 @@ type HeaderProps = {
 
 const Header = ({ user, isAffiliateUser = false, url }: HeaderProps) => {
   const displayName = user.name || `User ${user.username}`;
-  const adminUserUrl = isAffiliateUser ? Routes.admin_affiliate_url(user.id) : Routes.admin_user_url(user.id);
+  const adminUserUrl = isAffiliateUser
+    ? Routes.admin_affiliate_url(user.external_id)
+    : Routes.admin_user_url(user.external_id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -37,9 +39,9 @@ const Header = ({ user, isAffiliateUser = false, url }: HeaderProps) => {
             </li>
             {user.username ? (
               <li>
-                <Link href={user.subdomain_with_protocol} target="_blank" rel="noopener noreferrer nofollow">
+                <a href={user.subdomain_with_protocol} target="_blank" rel="noopener noreferrer nofollow">
                   {user.username}
-                </Link>
+                </a>
               </li>
             ) : null}
             {user.form_email ? (
@@ -70,11 +72,11 @@ const Header = ({ user, isAffiliateUser = false, url }: HeaderProps) => {
               </li>
             ) : null}
             <li>
-              <Link href={Routes.admin_user_payouts_url(user)}>Payouts</Link>
+              <Link href={Routes.admin_user_payouts_url(user.external_id)}>Payouts</Link>
             </li>
           </ul>
 
-          <AdminUserStats user_id={user.id} />
+          <AdminUserStats user_external_id={user.external_id} />
         </div>
       </div>
     </div>

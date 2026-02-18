@@ -8,6 +8,10 @@ import { Button } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
 import { showAlert } from "$app/components/server-components/Alert";
 import { Alert } from "$app/components/ui/Alert";
+import { Fieldset, FieldsetTitle } from "$app/components/ui/Fieldset";
+import { FormSection } from "$app/components/ui/FormSection";
+import { InputGroup } from "$app/components/ui/InputGroup";
+import { Label } from "$app/components/ui/Label";
 
 export type PayPalConnect = {
   email: string | null;
@@ -46,13 +50,16 @@ const PayPalConnectSection = ({
   });
 
   return (
-    <section className="p-4! md:p-8!">
-      <header>
-        <h2>PayPal</h2>
-        <a href="/help/article/275-paypal-connect" target="_blank" rel="noreferrer">
-          Learn more
-        </a>
-      </header>
+    <FormSection
+      header={
+        <>
+          <h2>PayPal</h2>
+          <a href="/help/article/275-paypal-connect" target="_blank" rel="noreferrer">
+            Learn more
+          </a>
+        </>
+      }
+    >
       <div className="flex flex-col gap-4">
         {!paypalConnect.charge_processor_merchant_id ? (
           <>
@@ -65,15 +72,17 @@ const PayPalConnectSection = ({
             {paypalConnect.show_paypal_connect ? (
               <>
                 <div>
-                  <a
-                    className="button button-paypal paypal-connect"
-                    href={Routes.connect_paypal_path({
-                      referer: Routes.settings_payments_path(),
-                    })}
-                    inert={isFormDisabled || !paypalConnect.allow_paypal_connect}
-                  >
-                    Connect with Paypal
-                  </a>
+                  <Button asChild color="paypal" disabled={isFormDisabled || !paypalConnect.allow_paypal_connect}>
+                    <a
+                      href={Routes.connect_paypal_path({
+                        referer: Routes.settings_payments_path(),
+                      })}
+                      inert={isFormDisabled || !paypalConnect.allow_paypal_connect}
+                    >
+                      <span className="brand-icon brand-icon-paypal" />
+                      Connect with Paypal
+                    </a>
+                  </Button>
                 </div>
                 {!paypalConnect.allow_paypal_connect ? (
                   <Alert variant="warning">
@@ -92,21 +101,20 @@ const PayPalConnectSection = ({
           <>
             <p>{connectAccountFeeInfoText}</p>
             <div className="grid gap-8">
-              <fieldset>
-                <legend>
-                  <label>PayPal account</label>
-                </legend>
-                <div className="input input-wrapper">
-                  <div className="fake-input">{paypalConnect.charge_processor_merchant_id}</div>
+              <Fieldset>
+                <FieldsetTitle>
+                  <Label>PayPal account</Label>
+                </FieldsetTitle>
+                <InputGroup readOnly>
+                  <span className="flex-1">{paypalConnect.charge_processor_merchant_id}</span>
                   <Icon name="solid-check-circle" className="text-success" />
-                </div>
-              </fieldset>
+                </InputGroup>
+              </Fieldset>
               {paypalConnect.show_paypal_connect ? (
                 <>
                   <p>
                     <Button
-                      color="danger"
-                      className="button-paypal"
+                      color="paypal"
                       aria-label="Disconnect PayPal account"
                       disabled={isFormDisabled || !paypalConnect.paypal_disconnect_allowed}
                       onClick={disconnectPayPal}
@@ -130,15 +138,17 @@ const PayPalConnectSection = ({
             {paypalConnect.show_paypal_connect ? (
               <>
                 <p>
-                  <a
-                    className="button button-paypal paypal-connect"
-                    href={Routes.connect_paypal_path({
-                      referer: Routes.settings_payments_path(),
-                    })}
-                    inert={isFormDisabled || !paypalConnect.allow_paypal_connect}
-                  >
-                    Connect with Paypal
-                  </a>
+                  <Button asChild color="paypal" disabled={isFormDisabled || !paypalConnect.allow_paypal_connect}>
+                    <a
+                      href={Routes.connect_paypal_path({
+                        referer: Routes.settings_payments_path(),
+                      })}
+                      inert={isFormDisabled || !paypalConnect.allow_paypal_connect}
+                    >
+                      <span className="brand-icon brand-icon-paypal" />
+                      Connect with Paypal
+                    </a>
+                  </Button>
                 </p>
                 {!paypalConnect.allow_paypal_connect ? (
                   <Alert variant="warning">
@@ -159,7 +169,7 @@ const PayPalConnectSection = ({
           </>
         )}
       </div>
-    </section>
+    </FormSection>
   );
 };
 export default PayPalConnectSection;

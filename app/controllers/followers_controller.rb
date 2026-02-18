@@ -4,6 +4,7 @@ class FollowersController < ApplicationController
   layout "inertia"
   include CustomDomainConfig
   include Pagy::Backend
+  include PageMeta::Post
 
   PUBLIC_ACTIONS = %i[new create from_embed_form confirm cancel].freeze
   before_action :authenticate_user!, except: PUBLIC_ACTIONS
@@ -18,8 +19,9 @@ class FollowersController < ApplicationController
     authorize [:audience, Follower]
 
     create_user_event("followers_view")
-    @on_posts_page = true
-    @title = "Subscribers"
+
+    set_meta_tag(title: "Subscribers")
+    set_meta_tag(property: "og:title", content: "Posts")
 
     email = params[:email].to_s.strip
 
@@ -44,13 +46,34 @@ class FollowersController < ApplicationController
 
   def create
     follower = create_follower(params)
-    return render json: { success: false, message: "Sorry, something went wrong." } if follower.nil?
-    return render json: { success: false, message: follower.errors.full_messages.to_sentence } if follower.errors.present?
 
-    if follower.confirmed?
-      render json: { success: true, message: "You are now following #{follower.user.name_or_username}!" }
-    else
-      render json: { success: true, message: "Check your inbox to confirm your follow request." }
+    respond_to do |format|
+      format.html do
+        return redirect_to custom_domain_subscribe_path, alert: "Sorry, something went wrong." if follower.nil?
+        return redirect_to custom_domain_subscribe_path, alert: follower.errors.full_messages.to_sentence if follower.errors.present?
+
+        message = follower.confirmed? ?
+          "You are now following #{follower.user.name_or_username}!" :
+          "Check your inbox to confirm your follow request."
+
+        redirect_to custom_domain_subscribe_path, notice: message, status: :see_other
+      end
+      format.json do
+        if follower.nil?
+          render json: { success: false, message: "Sorry, something went wrong." }, status: :unprocessable_entity
+          return
+        end
+        if follower.errors.present?
+          render json: { success: false, message: follower.errors.full_messages.to_sentence }, status: :unprocessable_entity
+          return
+        end
+
+        message = follower.confirmed? ?
+          "You are now following #{follower.user.name_or_username}!" :
+          "Check your inbox to confirm your follow request."
+
+        render json: { success: true, message: }
+      end
     end
   end
 
@@ -60,14 +83,19 @@ class FollowersController < ApplicationController
 
   def from_embed_form
     @follower = create_follower(params, source: Follower::From::EMBED_FORM)
-    @hide_layouts = true
 
-    return unless @follower.nil? || @follower.errors.present?
+    if @follower.nil? || @follower.errors.present?
+      message = @follower&.errors&.full_messages&.to_sentence || "Something went wrong. Please try to follow the creator again."
+      flash[:warning] = message
+      user = User.find_by_external_id(params[:seller_id])
+      e404 unless user.try(:username)
+      return redirect_to user.profile_url, allow_other_host: true
+    end
 
-    flash[:warning] = "Something went wrong. Please try to follow the creator again."
-    user = User.find_by_external_id(params[:seller_id])
-    e404 unless user.try(:username)
-    redirect_to user.profile_url, allow_other_host: true
+    message = @follower.confirmed? ?
+      "You are now following #{@follower.user.name_or_username}!" :
+      "Check your inbox to confirm your follow request."
+    render inertia: "Followers/FromEmbedForm", props: { success: true, message: }
   end
 
   def confirm
@@ -90,9 +118,8 @@ class FollowersController < ApplicationController
   def cancel
     follower_id = @follower.external_id
     @follower.mark_deleted!
-    @hide_layouts = true
     respond_to do |format|
-      format.html
+      format.html { render inertia: "Followers/Cancel" }
       format.json do
         render json: {
           success: true,

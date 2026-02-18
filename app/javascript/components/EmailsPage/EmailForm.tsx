@@ -9,6 +9,7 @@ import { cast } from "ts-safe-cast";
 import { AudienceType, getRecipientCount, InstallmentFormContext, Installment } from "$app/data/installments";
 import { type EmailTab, TYPE_TO_TAB } from "$app/data/installments";
 import { assertDefined } from "$app/utils/assert";
+import { classNames } from "$app/utils/classNames";
 import Countdown from "$app/utils/countdown";
 import { ALLOWED_EXTENSIONS } from "$app/utils/file";
 import { asyncVoid } from "$app/utils/promise";
@@ -29,7 +30,7 @@ import {
 import { EvaporateUploaderProvider } from "$app/components/EvaporateUploader";
 import { Icon } from "$app/components/Icons";
 import { LoadingSpinner } from "$app/components/LoadingSpinner";
-import { Popover } from "$app/components/Popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "$app/components/Popover";
 import { PriceInput } from "$app/components/PriceInput";
 import { ImageUploadSettingsContext, RichTextEditor } from "$app/components/RichTextEditor";
 import { S3UploadConfigProvider } from "$app/components/S3UploadConfig";
@@ -39,6 +40,7 @@ import { InvalidNameForEmailDeliveryWarning } from "$app/components/server-compo
 import { TagInput } from "$app/components/TagInput";
 import { UpsellCard } from "$app/components/TiptapExtensions/UpsellCard";
 import { Alert } from "$app/components/ui/Alert";
+import { Card, CardContent } from "$app/components/ui/Card";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import { useConfigureEvaporate } from "$app/components/useConfigureEvaporate";
 import { useDebouncedCallback } from "$app/components/useDebouncedCallback";
@@ -682,25 +684,28 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
         actions={
           <>
             {channel.email && channel.profile ? (
-              <Popover
-                trigger={
-                  <Button disabled={isBusy}>
-                    <Icon name="eye-fill" />
-                    Preview
-                    <Icon name="outline-cheveron-down" />
-                  </Button>
-                }
-              >
-                <div className="grid gap-3">
-                  <Button disabled={isBusy} onClick={() => save("save_and_preview_post")}>
-                    <Icon name="file-earmark-medical-fill" />
-                    Preview Post
-                  </Button>
-                  <Button disabled={isBusy} onClick={() => save("save_and_preview_email")}>
-                    <Icon name="envelope-fill" />
-                    Preview Email
-                  </Button>
-                </div>
+              <Popover>
+                <PopoverAnchor>
+                  <PopoverTrigger disabled={isBusy} asChild>
+                    <Button>
+                      <Icon name="eye-fill" />
+                      Preview
+                      <Icon name="outline-cheveron-down" />
+                    </Button>
+                  </PopoverTrigger>
+                </PopoverAnchor>
+                <PopoverContent sideOffset={4}>
+                  <div className="grid gap-3">
+                    <Button disabled={isBusy} onClick={() => save("save_and_preview_post")}>
+                      <Icon name="file-earmark-medical-fill" />
+                      Preview Post
+                    </Button>
+                    <Button disabled={isBusy} onClick={() => save("save_and_preview_email")}>
+                      <Icon name="envelope-fill" />
+                      Preview Email
+                    </Button>
+                  </div>
+                </PopoverContent>
               </Popover>
             ) : (
               <Button
@@ -711,79 +716,84 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                 Preview
               </Button>
             )}
-            <Link href={getCancelPath()} className="button" inert={isBusy ? true : undefined}>
-              <Icon name="x-square" />
-              Cancel
-            </Link>
-            <Popover
-              trigger={
-                <Button disabled={isBusy}>
-                  {channel.profile ? "Publish" : "Send"}
-                  <Icon name="outline-cheveron-down" />
-                </Button>
-              }
-            >
-              <div className="grid gap-3">
-                <div style={{ display: "grid", gridTemplateColumns: "1fr max-content" }}>
-                  {isPublishing && secondsLeftToPublish > 0 ? (
-                    <>
-                      <Button color="accent" disabled>
-                        {channel.profile ? "Publishing" : "Sending"} in {secondsLeftToPublish}...
-                      </Button>
+            <Button asChild>
+              <Link href={getCancelPath()} inert={isBusy ? true : undefined}>
+                <Icon name="x-square" />
+                Cancel
+              </Link>
+            </Button>
+            <Popover>
+              <PopoverAnchor>
+                <PopoverTrigger disabled={isBusy} asChild>
+                  <Button>
+                    {channel.profile ? "Publish" : "Send"}
+                    <Icon name="outline-cheveron-down" />
+                  </Button>
+                </PopoverTrigger>
+              </PopoverAnchor>
+              <PopoverContent>
+                <div className="grid gap-3">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr max-content" }}>
+                    {isPublishing && secondsLeftToPublish > 0 ? (
+                      <>
+                        <Button color="accent" disabled>
+                          {channel.profile ? "Publishing" : "Sending"} in {secondsLeftToPublish}...
+                        </Button>
+                        <Button
+                          style={{ marginLeft: "var(--spacer-2)" }}
+                          onClick={() => {
+                            if (publishCountdownRef.current) {
+                              publishCountdownRef.current.abort();
+                              publishCountdownRef.current = null;
+                            }
+                            finishPublishing();
+                          }}
+                        >
+                          <Icon name="x" />
+                        </Button>
+                      </>
+                    ) : (
                       <Button
-                        style={{ marginLeft: "var(--spacer-2)" }}
+                        color="accent"
                         onClick={() => {
-                          if (publishCountdownRef.current) {
-                            publishCountdownRef.current.abort();
-                            publishCountdownRef.current = null;
-                          }
-                          finishPublishing();
+                          if (!validate("save_and_publish")) return;
+
+                          setIsPublishing(true);
+                          publishCountdownRef.current = new Countdown(
+                            DEFAULT_SECONDS_LEFT_TO_PUBLISH,
+                            (secondsLeft) => {
+                              setSecondsLeftToPublish(secondsLeft);
+                            },
+                            () => {
+                              publishCountdownRef.current = null;
+                              save("save_and_publish");
+                            },
+                          );
                         }}
                       >
-                        <Icon name="x" />
+                        {channel.profile ? "Publish now" : "Send now"}
                       </Button>
-                    </>
-                  ) : (
-                    <Button
-                      color="accent"
-                      onClick={() => {
-                        if (!validate("save_and_publish")) return;
-
-                        setIsPublishing(true);
-                        publishCountdownRef.current = new Countdown(
-                          DEFAULT_SECONDS_LEFT_TO_PUBLISH,
-                          (secondsLeft) => {
-                            setSecondsLeftToPublish(secondsLeft);
-                          },
-                          () => {
-                            publishCountdownRef.current = null;
-                            save("save_and_publish");
-                          },
-                        );
+                    )}
+                  </div>
+                  <Separator>OR</Separator>
+                  <fieldset className={cx({ danger: invalidFields.has("scheduleDate") })}>
+                    <DateInput
+                      withTime
+                      aria-label="Schedule date"
+                      value={scheduleDate}
+                      min={new Date()}
+                      disabled={isPublished}
+                      onChange={(date) => {
+                        if (date) setScheduleDate(date);
+                        markFieldAsValid("scheduleDate");
                       }}
-                    >
-                      {channel.profile ? "Publish now" : "Send now"}
-                    </Button>
-                  )}
+                    />
+                  </fieldset>
+                  <Button disabled={isPublished || isBusy} onClick={() => save("save_and_schedule")}>
+                    Schedule
+                  </Button>
                 </div>
-                <Separator>OR</Separator>
-                <fieldset className={cx({ danger: invalidFields.has("scheduleDate") })}>
-                  <DateInput
-                    withTime
-                    aria-label="Schedule date"
-                    value={scheduleDate}
-                    min={new Date()}
-                    disabled={isPublished}
-                    onChange={(date) => {
-                      if (date) setScheduleDate(date);
-                      markFieldAsValid("scheduleDate");
-                    }}
-                  />
-                </fieldset>
-                <Button disabled={isPublished || isBusy} onClick={() => save("save_and_schedule")}>
-                  Schedule
-                </Button>
-              </div>
+              </PopoverContent>
             </Popover>
             <Button color="accent" disabled={isBusy} onClick={() => save()}>
               Save
@@ -795,9 +805,9 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
         {currentSeller.isNameInvalidForEmailDelivery && channel.email ? <InvalidNameForEmailDeliveryWarning /> : null}
 
         <div className="grid grid-cols-1 items-start gap-x-16 gap-y-8 lg:grid-cols-[var(--grid-cols-sidebar)]">
-          <div className="stack">
-            <div>
-              <fieldset role="group">
+          <Card>
+            <CardContent>
+              <fieldset className="grow basis-0" role="group">
                 <legend>
                   <div>Audience</div>
                   {hasAudience ? (
@@ -857,9 +867,9 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                   </label>
                 ) : null}
               </fieldset>
-            </div>
-            <div>
-              <fieldset role="group" className={cx({ danger: invalidFields.has("channel") })}>
+            </CardContent>
+            <CardContent>
+              <fieldset role="group" className={classNames({ danger: invalidFields.has("channel") }, "grow basis-0")}>
                 <legend>Channel</legend>
                 {hasAudience ? (
                   <label htmlFor={`${uid}-channel_email`}>
@@ -877,32 +887,23 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                     />
                   </label>
                 ) : null}
-                <label htmlFor={`${uid}-channel_profile`}>
-                  Post to profile
-                  <WithTooltip
-                    tip={
-                      audienceType === "everyone"
-                        ? "This post will be visible to anyone who visits your profile."
-                        : audienceType === "customers"
-                          ? "This post will be visible to your logged-in customers only."
-                          : audienceType === "followers"
-                            ? "This post will be visible to your logged-in followers only."
-                            : "This post will be visible to your logged-in affiliates only."
-                    }
-                    position="top"
-                  >
-                    (?)
-                  </WithTooltip>
-                  <input
-                    id={`${uid}-channel_profile`}
-                    type="checkbox"
-                    checked={channel.profile}
-                    onChange={(event) => {
-                      setChannel((prev) => ({ ...prev, profile: event.target.checked }));
-                      markFieldAsValid("channel");
-                    }}
-                  />
-                </label>
+                {audienceType === "everyone" ? (
+                  <label htmlFor={`${uid}-channel_profile`}>
+                    Post to profile
+                    <WithTooltip tip="This post will be visible to anyone who visits your profile." position="top">
+                      (?)
+                    </WithTooltip>
+                    <input
+                      id={`${uid}-channel_profile`}
+                      type="checkbox"
+                      checked={channel.profile}
+                      onChange={(event) => {
+                        setChannel((prev) => ({ ...prev, profile: event.target.checked }));
+                        markFieldAsValid("channel");
+                      }}
+                    />
+                  </label>
+                ) : null}
                 {audienceType === "everyone" && channel.profile ? (
                   context.profile_sections.length > 0 ? (
                     <>
@@ -938,10 +939,10 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                   )
                 ) : null}
               </fieldset>
-            </div>
+            </CardContent>
             {audienceType === "affiliates" ? (
-              <div>
-                <fieldset role="group">
+              <CardContent>
+                <fieldset className="grow basis-0" role="group">
                   <legend>Affiliated products</legend>
                   <label htmlFor={`${uid}-all_affiliated_products`}>
                     All products
@@ -964,11 +965,11 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                     isDisabled={isPublished}
                   />
                 </fieldset>
-              </div>
+              </CardContent>
             ) : null}
             {audienceType === "customers" || audienceType === "followers" ? (
-              <div>
-                <fieldset>
+              <CardContent>
+                <fieldset className="grow basis-0">
                   <legend>
                     <label htmlFor={`${uid}-bought`}>Bought</label>
                   </legend>
@@ -981,11 +982,11 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                     isDisabled={isPublished}
                   />
                 </fieldset>
-              </div>
+              </CardContent>
             ) : null}
             {hasAudience && audienceType !== "affiliates" ? (
-              <div>
-                <fieldset>
+              <CardContent>
+                <fieldset className="grow basis-0">
                   <legend>
                     <label htmlFor={`${uid}-not_bought`}>Has not yet bought</label>
                   </legend>
@@ -1000,16 +1001,17 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                     maxTags={1}
                   />
                 </fieldset>
-              </div>
+              </CardContent>
             ) : null}
             {audienceType === "customers" ? (
-              <div>
+              <CardContent>
                 <div
                   style={{
                     display: "grid",
                     gap: "var(--spacer-4)",
                     gridTemplateColumns: "repeat(auto-fit, minmax(var(--dynamic-grid), 1fr)",
                   }}
+                  className="grow"
                 >
                   <fieldset className={cx({ danger: invalidFields.has("paidMoreThan") })}>
                     <legend>
@@ -1047,16 +1049,17 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                     />
                   </fieldset>
                 </div>
-              </div>
+              </CardContent>
             ) : null}
             {hasAudience ? (
-              <div>
+              <CardContent>
                 <div
                   style={{
                     display: "grid",
                     gap: "var(--spacer-4)",
                     gridTemplateColumns: "repeat(auto-fit, minmax(var(--dynamic-grid), 1fr))",
                   }}
+                  className="grow"
                 >
                   <fieldset className={cx({ danger: invalidFields.has("afterDate") })}>
                     <legend>
@@ -1094,11 +1097,11 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                     <small>11:59 {context.timezone}</small>
                   </fieldset>
                 </div>
-              </div>
+              </CardContent>
             ) : null}
             {audienceType === "customers" ? (
-              <div>
-                <fieldset>
+              <CardContent>
+                <fieldset className="grow basis-0">
                   <legend>
                     <label htmlFor={`${uid}-from_country`}>From</label>
                   </legend>
@@ -1116,10 +1119,10 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                     ))}
                   </select>
                 </fieldset>
-              </div>
+              </CardContent>
             ) : null}
-            <div>
-              <fieldset role="group">
+            <CardContent>
+              <fieldset className="grow basis-0" role="group">
                 <legend>Engagement</legend>
                 <label htmlFor={`${uid}-allow_comments`}>
                   Allow comments
@@ -1131,8 +1134,8 @@ export const EmailForm = ({ context, installment }: EmailFormProps) => {
                   />
                 </label>
               </fieldset>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
           <S3UploadConfigProvider value={s3UploadConfig}>
             <EvaporateUploaderProvider value={evaporateUploader}>
               <div className="grid gap-6">

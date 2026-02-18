@@ -9,9 +9,11 @@ import DateTimeWithRelativeTooltip from "$app/components/Admin/DateTimeWithRelat
 import { Form } from "$app/components/Admin/Form";
 import { NoIcon, BooleanIcon } from "$app/components/Admin/Icons";
 import AdminResendReceiptForm from "$app/components/Admin/Purchases/ResendReceiptForm";
+import { Button } from "$app/components/Button";
 import { CopyToClipboard } from "$app/components/CopyToClipboard";
 import { Icon } from "$app/components/Icons";
 import { showAlert } from "$app/components/server-components/Alert";
+import { Input } from "$app/components/ui/Input";
 
 import { type RefundPolicy, RefundPolicyTitle } from "./RefundPolicy";
 import { type PurchaseStatesInfo, PurchaseStates } from "./States";
@@ -65,7 +67,7 @@ export type Purchase = PurchaseStatesInfo & {
   external_id_numeric: number;
   quantity: number;
   refunds: {
-    user: { id: number; name: string | null } | null;
+    user: { external_id: string; name: string | null } | null;
     status: string;
     created_at: string;
   }[];
@@ -237,9 +239,9 @@ const Info = ({ purchase }: { purchase: Purchase }) => (
       <dd>
         {purchase.stripe_transaction ? (
           purchase.stripe_transaction.search_url ? (
-            <Link href={purchase.stripe_transaction.search_url} target="_blank">
+            <a href={purchase.stripe_transaction.search_url} target="_blank" rel="noreferrer noopener">
               {purchase.stripe_transaction.id}
-            </Link>
+            </a>
           ) : (
             purchase.stripe_transaction.id
           )
@@ -273,8 +275,8 @@ const Info = ({ purchase }: { purchase: Purchase }) => (
                   <li>
                     Refunder:
                     {refund.user ? (
-                      <Link href={Routes.admin_user_path(refund.user.id)}>
-                        {refund.user.name || `User ${refund.user.id}`}
+                      <Link href={Routes.admin_user_path(refund.user.external_id)}>
+                        {refund.user.name || `User ${refund.user.external_id}`}
                       </Link>
                     ) : (
                       "(unknown)"
@@ -306,9 +308,9 @@ const Info = ({ purchase }: { purchase: Purchase }) => (
             {purchase.card.fingerprint_search_url ? (
               <>
                 {" | "}
-                <Link href={purchase.card.fingerprint_search_url} target="_blank">
+                <a href={purchase.card.fingerprint_search_url} target="_blank" rel="noreferrer noopener">
                   {purchase.stripe_fingerprint}
-                </Link>
+                </a>
               </>
             ) : null}
           </dd>
@@ -348,9 +350,13 @@ const Info = ({ purchase }: { purchase: Purchase }) => (
         <>
           <dt>Manage Membership URL</dt>
           <dd>
-            <Link href={Routes.manage_subscription_url(purchase.subscription.external_id)} target="_blank">
+            <a
+              href={Routes.manage_subscription_url(purchase.subscription.external_id)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               {Routes.manage_subscription_url(purchase.subscription.external_id)}
-            </Link>
+            </a>
           </dd>
         </>
       ) : null}
@@ -502,10 +508,10 @@ const GiftInfo = ({ purchaseExternalId, gift }: { purchaseExternalId: string; gi
         >
           {(isLoading) => (
             <div className="flex gap-2">
-              <input type="text" className="flex-1" name="giftee_email" placeholder="Enter new giftee email" required />
-              <button type="submit" className="button" disabled={isLoading}>
+              <Input type="text" className="flex-1" name="giftee_email" placeholder="Enter new giftee email" required />
+              <Button type="submit" disabled={isLoading}>
                 {isLoading ? "Updating..." : "Update"}
-              </button>
+              </Button>
             </div>
           )}
         </Form>
@@ -633,9 +639,11 @@ const ActionButtons = ({ purchase }: { purchase: Purchase }) => (
       />
     ) : null}
     {purchase.successful ? (
-      <Link href={Routes.receipt_purchase_path(purchase.external_id)} target="_blank" className="button small">
-        Go to Receipt
-      </Link>
+      <Button asChild small>
+        <a href={Routes.receipt_purchase_path(purchase.external_id)} target="_blank" rel="noopener noreferrer">
+          Go to Receipt
+        </a>
+      </Button>
     ) : null}
   </div>
 );
@@ -650,9 +658,9 @@ const PurchaseUrlRedirect = ({
   <>
     <dt>{label}</dt>
     <dd>
-      <Link href={url_redirect.download_page_url} target="_blank">
+      <a href={url_redirect.download_page_url} target="_blank" rel="noreferrer noopener">
         {url_redirect.download_page_url}
-      </Link>{" "}
+      </a>{" "}
       ({url_redirect.uses} uses)
     </dd>
   </>
