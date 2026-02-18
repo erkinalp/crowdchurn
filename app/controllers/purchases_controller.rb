@@ -278,7 +278,7 @@ class PurchasesController < ApplicationController
       country: ISO3166::Country[params["country_code"]]&.common_name
     }
     additional_notes = params[:additional_notes]&.strip
-    invoice_format = params[:format].presence || "pdf"
+    invoice_format = params[:export_format].presence || "pdf"
 
     raw_vat_id = params["vat_id"].present? ? params["vat_id"] : nil
     if raw_vat_id
@@ -359,30 +359,30 @@ class PurchasesController < ApplicationController
     render json: { success: true, message:, file_location: file_url }
   end
 
-  def generate_electronic_invoice(format, address_fields, additional_notes, business_vat_id)
+  def generate_electronic_invoice(invoice_format, address_fields, additional_notes, business_vat_id)
     xml_content = ElectronicInvoiceGenerator.generate(
-      format: format,
+      format: invoice_format,
       chargeable: @chargeable,
       address_fields: address_fields,
       additional_notes: additional_notes,
       business_vat_id: business_vat_id
     )
 
-    file_extension = electronic_invoice_file_extension(format)
+    file_extension = electronic_invoice_file_extension(invoice_format)
     filename = "invoice-#{@chargeable.external_id_numeric_for_invoice}.#{file_extension}"
     s3_obj = @chargeable.upload_invoice_xml(xml_content, filename: filename)
 
-    message = +"The #{format_display_name(format)} invoice will be downloaded automatically."
+    message = +"The #{format_display_name(invoice_format)} invoice will be downloaded automatically."
     if business_vat_id
       notice = tax_refund_notice
       message << " " << notice
     end
     file_url = s3_obj.presigned_url(:get, expires_in: SignedUrlHelper::SIGNED_S3_URL_VALID_FOR_MAXIMUM.to_i)
-    render json: { success: true, message:, file_location: file_url, format: format }
+    render json: { success: true, message:, file_location: file_url, export_format: invoice_format }
   end
 
-  def electronic_invoice_file_extension(format)
-    case format
+  def electronic_invoice_file_extension(invoice_format)
+    case invoice_format
     when "peppol" then "peppol.xml"
     when "xrechnung" then "xrechnung.xml"
     when "zugferd" then "zugferd.xml"
@@ -391,8 +391,8 @@ class PurchasesController < ApplicationController
     end
   end
 
-  def format_display_name(format)
-    case format
+  def format_display_name(invoice_format)
+    case invoice_format
     when "peppol" then "PEPPOL"
     when "xrechnung" then "XRechnung"
     when "zugferd" then "ZUGFeRD"
