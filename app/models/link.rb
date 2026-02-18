@@ -76,14 +76,14 @@ class Link < ApplicationRecord
     "audiobook" => "31000",
     "physical" => nil,
     "print_book" => "81100",
-    "food" => nil,
-    "bread" => nil,
-    "literal_coffee" => nil,
+    "food" => "40030",
+    "bread" => "40030",
+    "literal_coffee" => "40030",
     "bundle" => "55111500A9220",
     "commission" => nil,
     "call" => nil,
     "coffee" => nil,
-    "consultancy" => nil,
+    "consultancy" => "19000",
   }.freeze
   NATIVE_TYPES = NATIVE_TYPES_TO_TAX_CODE.keys.freeze
   NATIVE_TYPES.each do |native_type|

@@ -5,7 +5,7 @@ import * as React from "react";
 import { useState } from "react";
 import { cast, is } from "ts-safe-cast";
 
-import { CreateProductData, RecurringProductType, createProduct } from "$app/data/products";
+import { CreateProductData, OptionallyPhysicalProductType, RecurringProductType, createProduct } from "$app/data/products";
 import { ProductNativeType, ProductServiceType } from "$app/parsers/product";
 import { CurrencyCode, currencyCodeList, findCurrencyByCode } from "$app/utils/currency";
 import {
@@ -74,6 +74,8 @@ const NewProductPage = ({
   const [numberOfContentPages, setNumberOfContentPages] = useState<number | null>(null);
 
   const isRecurringBilling = is<RecurringProductType>(productType);
+  const isOptionallyPhysical = is<OptionallyPhysicalProductType>(productType);
+  const [enableShipping, setEnableShipping] = useState(false);
 
   const selectedCurrency = findCurrencyByCode(currencyCode);
 
@@ -181,7 +183,7 @@ const NewProductPage = ({
     try {
       const requestData = {
         link: cast<CreateProductData>({
-          is_physical: PHYSICAL_PRODUCT_TYPES.includes(productType),
+          is_physical: PHYSICAL_PRODUCT_TYPES.includes(productType) || (isOptionallyPhysical && enableShipping),
           is_recurring_billing: isRecurringBilling,
           name,
           description,
@@ -341,6 +343,19 @@ const NewProductPage = ({
                   onChange={setProductType}
                 />
               </fieldset>
+              {isOptionallyPhysical ? (
+                <fieldset>
+                  <legend>Shipping</legend>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={enableShipping}
+                      onChange={(e) => setEnableShipping(e.target.checked)}
+                    />
+                    Requires shipping
+                  </label>
+                </fieldset>
+              ) : null}
               {service_product_types.length > 0 ? (
                 <fieldset>
                   <legend>Services</legend>

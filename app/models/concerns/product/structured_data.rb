@@ -31,7 +31,7 @@ module Product::StructuredData
       book_files.map do |file|
         work_example = {
           "@type" => "Book",
-          "bookFormat" => "EBook",
+          "bookFormat" => native_type == Link::NATIVE_TYPE_PRINT_BOOK ? "Hardcover" : "EBook",
           "name" => "#{name} (#{file.filetype.upcase})"
         }
 
