@@ -8,6 +8,20 @@ describe KillbillSubscriptionManager do
   let(:seller) { create(:user) }
   let(:product) { create(:subscription_product, user: seller, price_cents: 1000, price_currency_type: "usd") }
   let(:subscription) { create(:subscription, link: product, billing_currency: "usd") }
+  let(:merchant_account) do
+    instance_double(
+      MerchantAccount,
+      killbill_instance_url: "http://localhost:8080",
+      killbill_username: "admin",
+      killbill_password: "password",
+      killbill_api_key: "test-api-key",
+      killbill_api_secret: "test-api-secret"
+    )
+  end
+
+  before do
+    allow(KillBill::Client).to receive(:url=)
+  end
 
   let(:mock_account) do
     double(
@@ -21,7 +35,7 @@ describe KillbillSubscriptionManager do
   let(:account_class) { class_double("KillBill::Client::Model::Account").as_stubbed_const }
 
   describe "#resolve_account_currency" do
-    subject { described_class.new }
+    subject { described_class.new(merchant_account) }
 
     context "when subscription has billing_currency set" do
       let(:subscription) { create(:subscription, link: product, billing_currency: "eur") }
@@ -72,7 +86,7 @@ describe KillbillSubscriptionManager do
   end
 
   describe "#get_or_create_account" do
-    subject { described_class.new }
+    subject { described_class.new(merchant_account) }
 
     before do
       allow(account_class).to receive(:find_by_external_key).and_raise(

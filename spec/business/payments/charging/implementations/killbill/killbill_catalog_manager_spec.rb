@@ -6,9 +6,23 @@ describe KillbillCatalogManager do
   include CurrencyHelper
 
   let(:seller) { create(:user) }
+  let(:merchant_account) do
+    instance_double(
+      MerchantAccount,
+      killbill_instance_url: "http://localhost:8080",
+      killbill_username: "admin",
+      killbill_password: "password",
+      killbill_api_key: "test-api-key",
+      killbill_api_secret: "test-api-secret"
+    )
+  end
+
+  before do
+    allow(KillBill::Client).to receive(:url=)
+  end
 
   describe "#currencies_for_product" do
-    subject { described_class.new }
+    subject { described_class.new(merchant_account) }
 
     context "with legacy pricing mode" do
       let(:product) { create(:subscription_product, user: seller, price_currency_type: "usd", pricing_mode: :legacy) }
@@ -58,7 +72,7 @@ describe KillbillCatalogManager do
   end
 
   describe "#build_recurring_prices_for_currencies" do
-    subject { described_class.new }
+    subject { described_class.new(merchant_account) }
 
     let(:price) { create(:price, link: product, price_cents: 1000, currency: "usd", recurrence: "monthly") }
 
@@ -117,7 +131,7 @@ describe KillbillCatalogManager do
   end
 
   describe "#price_cents_to_decimal" do
-    subject { described_class.new }
+    subject { described_class.new(merchant_account) }
 
     it "converts cents to decimal for standard currencies" do
       expect(subject.send(:price_cents_to_decimal, 1000, "usd")).to eq(10.0)
@@ -130,7 +144,7 @@ describe KillbillCatalogManager do
   end
 
   describe "#generate_catalog_for_product" do
-    subject { described_class.new }
+    subject { described_class.new(merchant_account) }
 
     context "with multi-currency product" do
       let(:product) { create(:subscription_product, user: seller, price_cents: 1000, price_currency_type: "usd", pricing_mode: :gross) }

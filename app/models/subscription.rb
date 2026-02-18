@@ -215,26 +215,32 @@ class Subscription < ApplicationRecord
     return base_price_cents if billing_currency.blank? || link.blank?
 
     pricing_mode = link.pricing_mode&.to_sym
-    return base_price_cents if pricing_mode == :legacy || pricing_mode.nil?
+    return base_price_cents if pricing_mode.nil? || pricing_mode == :legacy
 
     product_currency = link.price_currency_type.to_s.downcase
     target_currency = billing_currency.to_s.downcase
 
-    # If same currency, no conversion needed
     return base_price_cents if target_currency == product_currency
 
     case pricing_mode
     when :gross
-      # For gross mode, convert using FX rates to maintain purchasing power
       base_units = get_base_currency_units(product_currency, base_price_cents)
       base_currency_to_display_currency(target_currency, base_units)
     when :multi_currency
-      # For multi_currency mode, look up explicit price for the billing currency
       resolved = link.resolve_price_for_buyer(
         buyer_currency: target_currency,
         recurrence: recurrence
       )
-      resolved&.dig(:price_cents) || base_price_cents
+      if resolved&.dig(:price_cents)
+        resolved[:price_cents]
+      else
+        Rails.logger.warn(
+          "[Subscription##{id}] No explicit #{target_currency.upcase} price found for " \
+          "product #{link.id} in multi_currency mode. Falling back to base_price_cents " \
+          "(#{base_price_cents} #{product_currency.upcase}), which may charge the wrong amount."
+        )
+        base_price_cents
+      end
     else
       base_price_cents
     end

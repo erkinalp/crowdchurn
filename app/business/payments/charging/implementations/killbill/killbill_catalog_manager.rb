@@ -208,18 +208,24 @@ class KillbillCatalogManager
     end
 
     def currencies_for_product(product)
-      case product.pricing_mode&.to_sym
+      pricing_mode = product.pricing_mode&.to_sym
+
+      case pricing_mode
       when :gross
-        # For gross mode, include all supported currencies for FX conversion
         SUPPORTED_CATALOG_CURRENCIES
       when :multi_currency
-        # For multi_currency mode, include currencies that have explicit prices
         explicit_currencies = product.prices.is_buy.alive.pluck(:currency).uniq.map(&:upcase)
-        # Always include the product's default currency
         default_currency = product.price_currency_type.to_s.upcase
-        ([default_currency] + explicit_currencies).uniq & SUPPORTED_CATALOG_CURRENCIES
+        all_currencies = ([default_currency] + explicit_currencies).uniq
+        dropped = all_currencies - SUPPORTED_CATALOG_CURRENCIES
+        if dropped.any?
+          Rails.logger.warn(
+            "[KillbillCatalogManager] Dropping unsupported currencies #{dropped.join(', ')} " \
+            "for product #{product.id} (#{product.name}). Supported: #{SUPPORTED_CATALOG_CURRENCIES.join(', ')}"
+          )
+        end
+        all_currencies & SUPPORTED_CATALOG_CURRENCIES
       else
-        # For legacy mode, only include the product's default currency
         [product.price_currency_type.to_s.upcase]
       end
     end
@@ -237,7 +243,9 @@ class KillbillCatalogManager
     end
 
     def resolve_price_for_currency(product, price, target_currency, product_currency, base_price_cents)
-      case product.pricing_mode&.to_sym
+      pricing_mode = product.pricing_mode&.to_sym
+
+      case pricing_mode
       when :gross
         # For gross mode, convert using FX rates
         if target_currency == product_currency
@@ -342,8 +350,8 @@ class KillbillCatalogManager
                   xml.unit "UNLIMITED"
                   xml.number(-1)
                 end
-                xml.billingPeriod plan[:billing_period]
                 xml.recurring do
+                  xml.billingPeriod plan[:billing_period]
                   xml.recurringPrice do
                     plan[:phases].select { |p| p[:type] == PHASE_TYPE_EVERGREEN }.each do |phase|
                       phase[:recurring_prices].each do |price_entry|
