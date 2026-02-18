@@ -232,8 +232,9 @@ module CurrencyHelper
 
   def unit_scaling_factor(currency_type)
     return 1 if is_currency_type_single_unit?(currency_type)
+    return 100 if is_crypto_currency?(currency_type)
 
-    config = get_currency_by_type(currency_type)
+    config = CURRENCY_CHOICES[currency_type.to_s.downcase]
     return 100 if config.nil?
 
     subunit_to_unit = config["subunit_to_unit"] || config[:subunit_to_unit]
