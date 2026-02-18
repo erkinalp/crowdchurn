@@ -181,7 +181,7 @@ const NewProductPage = ({
     try {
       const requestData = {
         link: cast<CreateProductData>({
-          is_physical: productType === "physical",
+          is_physical: PHYSICAL_PRODUCT_TYPES.includes(productType),
           is_recurring_billing: isRecurringBilling,
           name,
           description,
@@ -432,10 +432,16 @@ const NewProductPage = ({
 
 export default NewProductPage;
 
-const PRODUCT_TYPES = {
+const PHYSICAL_PRODUCT_TYPES: readonly string[] = ["physical", "print_book", "food"];
+
+const PRODUCT_TYPES: Record<ProductNativeType, { description: string; title: string }> = {
   audiobook: {
     description: "Let customers listen to your audio content.",
     title: "Audiobook",
+  },
+  bread: {
+    description: "Sell fresh bread, optionally brewed on-site with a bread maker.",
+    title: "Bread",
   },
   bundle: {
     description: "Sell two or more existing products for a new price",
@@ -448,6 +454,10 @@ const PRODUCT_TYPES = {
   coffee: {
     description: "Boost your support and accept tips from customers.",
     title: "Coffee",
+  },
+  consultancy: {
+    description: "Offer B2C consultancy services to your customers.",
+    title: "Consultancy",
   },
   commission: {
     description: "Sell custom services with 50% deposit upfront, 50% upon completion.",
@@ -465,6 +475,14 @@ const PRODUCT_TYPES = {
     description: "Offer a book or comic in PDF, ePub, and Mobi formats.",
     title: "E-book",
   },
+  food: {
+    description: "Sell food products that require shipping.",
+    title: "Food",
+  },
+  literal_coffee: {
+    description: "Sell real coffee — optionally auto-brewed on purchase.",
+    title: "Literal coffee",
+  },
   membership: {
     description: "Start a membership business around your fans.",
     title: "Membership",
@@ -480,6 +498,10 @@ const PRODUCT_TYPES = {
   podcast: {
     description: "Make episodes available for streaming and direct downloads.",
     title: "Podcast",
+  },
+  print_book: {
+    description: "Sell a printed book with shipping.",
+    title: "Print book",
   },
 };
 

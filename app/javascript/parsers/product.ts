@@ -24,10 +24,14 @@ export type ProductNativeType =
   | "podcast"
   | "audiobook"
   | "physical"
+  | "print_book"
+  | "food"
+  | "bread"
+  | "literal_coffee"
   | "bundle"
   | ProductServiceType;
 
-export type ProductServiceType = "commission" | "call" | "coffee";
+export type ProductServiceType = "commission" | "call" | "coffee" | "consultancy";
 
 export type Ratings = { count: number; average: number };
 

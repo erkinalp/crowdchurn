@@ -5,7 +5,7 @@ module Product::StructuredData
   include ActionView::Helpers::SanitizeHelper
 
   def structured_data
-    return {} unless native_type == Link::NATIVE_TYPE_EBOOK
+    return {} unless native_type.in?([Link::NATIVE_TYPE_EBOOK, Link::NATIVE_TYPE_PRINT_BOOK])
 
     data = {
       "@context" => "https://schema.org",

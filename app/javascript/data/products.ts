@@ -68,12 +68,15 @@ export type Product = {
 };
 
 export type RecurringProductType = "membership" | "newsletter" | "podcast";
+export type PhysicalProductType = "physical" | "print_book" | "food";
+export type OptionallyPhysicalProductType = "bread" | "literal_coffee";
 export type OneTimeDigitalProductType =
   | "audiobook"
   | "bundle"
   | "call"
   | "coffee"
   | "commission"
+  | "consultancy"
   | "course"
   | "digital"
   | "ebook";
@@ -91,7 +94,14 @@ type CreateProductDataBase = {
 type CreateProductDataPhysical = {
   is_recurring_billing: false;
   is_physical: true;
-  native_type: "physical";
+  native_type: PhysicalProductType;
+  subscription_duration: null;
+} & CreateProductDataBase;
+
+type CreateProductDataOptionallyPhysical = {
+  is_recurring_billing: false;
+  is_physical: boolean;
+  native_type: OptionallyPhysicalProductType;
   subscription_duration: null;
 } & CreateProductDataBase;
 
@@ -111,6 +121,7 @@ type CreateProductDataRecurring = {
 
 export type CreateProductData =
   | CreateProductDataPhysical
+  | CreateProductDataOptionallyPhysical
   | CreateProductDataOneTimeDigital
   | CreateProductDataRecurring;
 
