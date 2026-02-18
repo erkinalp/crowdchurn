@@ -16,6 +16,31 @@ CrowdChurn is a self-hostable e-commerce platform that enables creators to sell 
   - [Common Development Tasks](#common-development-tasks)
   - [Linting](#linting)
 
+## Differences from Upstream Gumroad
+
+CrowdChurn is a fork of [antiwork/gumroad](https://github.com/antiwork/gumroad) tailored for **self-hosted, multi-merchant deployments**. The upstream project targets gumroad.com as a single-tenant SaaS; CrowdChurn diverges in several key areas.
+
+### Architecture
+
+| Area | Upstream (Gumroad) | CrowdChurn |
+|---|---|---|
+| **View layer** | Fully migrated to [Inertia.js](https://inertiajs.com/) — React components rendered via `render inertia:` from Rails controllers. All ERB templates for buyer/seller pages have been removed. | Same Inertia-based pages for buyer/seller flows, **plus** retained ERB-based admin views (`app/views/admin/`) for platform-level management of users, products, payouts, compliance, and merchant accounts. |
+| **Admin UI** | Removed from the open-source repo (managed internally at gumroad.com). | Preserved — includes user search, product stats, payout management, compliance review, fraud flagging, merchant account views, and sales reports. Essential for operating a multi-merchant platform. |
+| **Invoice generation** | Removed from open-source. | Preserved — supports PDF invoices and electronic formats (UBL, PEPPOL, XRechnung, ZUGFeRD, e-Fatura). |
+
+### Additional Features
+
+| Feature | Description |
+|---|---|
+| **Kill Bill payments** | Alternative payment processor via [Kill Bill](https://killbill.io/). Supports card and cryptocurrency payments through Kill Bill plugins. Uses `instance_base_currency` for FlowOfFunds. |
+| **Multi-currency billing** | Sellers can set prices in multiple fiat currencies and cryptocurrencies per product. Managed via `currency_prices` on products. |
+| **A/B testing** | `ProductExperimentService` allows running pricing/variant experiments with cookie-based cohort assignment. |
+| **Batch billing** | Charge all members on a fixed billing anchor date instead of individual renewal dates. Configurable per-product with optional delayed content access (`batch_entitlement_enabled`). |
+
+### Naming Conventions
+
+Upstream uses "buyer" and "seller" (per [CONTRIBUTING.md](CONTRIBUTING.md)). CrowdChurn follows the same convention but renames vendor-specific references (e.g. `gumroad` in variable names) to generic platform terms where appropriate for self-hosting.
+
 ## Getting Started
 
 ### Prerequisites
