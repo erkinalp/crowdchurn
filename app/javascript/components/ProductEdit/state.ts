@@ -139,6 +139,9 @@ export type Product = {
   should_include_last_post: boolean;
   should_show_all_posts: boolean;
   block_access_after_membership_cancellation: boolean;
+  batch_billing_enabled: boolean;
+  batch_entitlement_enabled: boolean;
+  batch_billing_day: number;
   duration_in_months: number | null;
   subscription_duration: RecurrenceId | null;
   integrations: {

@@ -421,6 +421,44 @@ export const ProductTab = () => {
                       >
                         Members will lose access when their memberships end
                       </Toggle>
+                      <Toggle
+                        value={product.batch_billing_enabled}
+                        onChange={(batch_billing_enabled) =>
+                          updateProduct({
+                            batch_billing_enabled,
+                            ...(!batch_billing_enabled && { batch_entitlement_enabled: false }),
+                          })
+                        }
+                      >
+                        Charge all members on a fixed billing date instead of individually
+                      </Toggle>
+                      {product.batch_billing_enabled ? (
+                        <>
+                          <fieldset>
+                            <legend>
+                              <label htmlFor={`${uid}-batch-billing-day`}>Billing anchor day (1–28)</label>
+                            </legend>
+                            <input
+                              id={`${uid}-batch-billing-day`}
+                              type="number"
+                              min={1}
+                              max={28}
+                              value={product.batch_billing_day}
+                              onChange={(evt) =>
+                                updateProduct({
+                                  batch_billing_day: Math.max(1, Math.min(28, Number(evt.target.value))),
+                                })
+                              }
+                            />
+                          </fieldset>
+                          <Toggle
+                            value={product.batch_entitlement_enabled}
+                            onChange={(batch_entitlement_enabled) => updateProduct({ batch_entitlement_enabled })}
+                          >
+                            Delay content access until batch invoice is processed
+                          </Toggle>
+                        </>
+                      ) : null}
                       <DurationEditor />
                     </>
                   ) : null}

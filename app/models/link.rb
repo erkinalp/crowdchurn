@@ -40,6 +40,8 @@ class Link < ApplicationRecord
             31 => :DEPRECATED_excluded_from_mobile_app_discover,
             32 => :moderated_by_iffy,
             33 => :hide_sold_out_variants,
+            34 => :batch_billing_enabled,
+            35 => :batch_entitlement_enabled,
             :column => "flags",
             :flag_query_mode => :bit_operator,
             check_for_column: false
@@ -184,6 +186,8 @@ class Link < ApplicationRecord
   validate :custom_permalink_of_licensed_product, if: :custom_permalink_or_is_licensed_changed?
   validate :max_purchase_count_is_greater_than_or_equal_to_inventory_sold
   validate :free_trial_only_enabled_if_recurring_billing
+  validate :batch_billing_only_enabled_if_recurring_billing
+  validate :batch_billing_day_in_range
   validates :native_type, inclusion: { in: NATIVE_TYPES }
   validates :discover_fee_per_thousand, inclusion: { in: [100, *(300..1000)], message: "must be between 30% and 100%" }
   validates :free_trial_duration_unit, presence: true, if: :free_trial_enabled?
@@ -233,6 +237,7 @@ class Link < ApplicationRecord
   attr_json_data_accessor :main_section_index, default: -> { 0 }
   attr_json_data_accessor :custom_view_content_button_text
   attr_json_data_accessor :custom_receipt_text
+  attr_json_data_accessor :batch_billing_day, default: -> { 1 }
 
   scope :alive,                           -> { where(purchase_disabled_at: nil, banned_at: nil, deleted_at: nil) }
   scope :visible,                         -> { where(deleted_at: nil) }
@@ -1260,6 +1265,25 @@ class Link < ApplicationRecord
     def free_trial_only_enabled_if_recurring_billing
       if !is_recurring_billing && (free_trial_enabled? || free_trial_duration_unit.present? || free_trial_duration_amount.present?)
         errors.add(:base, "Free trials are only allowed for subscription products.")
+      end
+    end
+
+    def batch_billing_only_enabled_if_recurring_billing
+      if !is_recurring_billing && (batch_billing_enabled? || batch_entitlement_enabled?)
+        errors.add(:base, "Batch billing and batch entitlement are only allowed for subscription products.")
+      end
+
+      if batch_entitlement_enabled? && !batch_billing_enabled?
+        errors.add(:base, "Batch entitlement requires batch billing to be enabled.")
+      end
+    end
+
+    def batch_billing_day_in_range
+      return unless batch_billing_enabled?
+
+      day = batch_billing_day.to_i
+      unless day.between?(1, 28)
+        errors.add(:base, "Batch billing day must be between 1 and 28.")
       end
     end
 

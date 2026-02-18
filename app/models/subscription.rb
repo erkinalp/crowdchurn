@@ -146,9 +146,19 @@ class Subscription < ApplicationRecord
   def grant_access_to_product?
     if is_installment_plan?
       !cancelled_or_failed?
+    elsif link.batch_entitlement_enabled?
+      batch_entitled? && (alive? || !link.block_access_after_membership_cancellation)
     else
       alive? || !link.block_access_after_membership_cancellation
     end
+  end
+
+  def batch_entitled?
+    batch_entitled_at.present?
+  end
+
+  def grant_batch_entitlement!
+    update!(batch_entitled_at: Time.current)
   end
 
   def license_key

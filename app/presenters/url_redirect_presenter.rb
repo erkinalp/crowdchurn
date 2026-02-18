@@ -91,6 +91,8 @@ class UrlRedirectPresenter
             is_alive_or_restartable: purchase.subscription.alive_or_restartable?,
             in_free_trial: purchase.subscription.in_free_trial?,
             is_installment_plan: purchase.subscription.is_installment_plan,
+            is_batch_billed: purchase.link.batch_billing_enabled?,
+            batch_billing_day: purchase.link.batch_billing_enabled? ? purchase.link.batch_billing_day.to_i : nil,
           } : nil,
           purchase_custom_fields: purchase.purchase_custom_fields.is_post_purchase.with_attached_files.where.not(custom_field_id: nil).map do |purchase_custom_field|
             field_data = {

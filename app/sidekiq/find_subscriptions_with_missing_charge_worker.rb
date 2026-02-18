@@ -17,7 +17,7 @@ class FindSubscriptionsWithMissingChargeWorker
       .where("subscriptions.id % 10 = ?", batch_number)
       .includes(link: :user)
     susbcriptions.find_in_batches do |subscriptions|
-      subscriptions.reject! { |subscription| subscription.link.user.suspended? || subscription.has_a_charge_in_progress? }
+      subscriptions.reject! { |subscription| subscription.link.user.suspended? || subscription.has_a_charge_in_progress? || subscription.link.batch_billing_enabled? }
       next if subscriptions.empty?
 
       subscriptions = Subscription.where(id: subscriptions.map(&:id)).includes(:original_purchase).to_a

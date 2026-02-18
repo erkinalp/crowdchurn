@@ -3844,6 +3844,9 @@ class Purchase < ApplicationRecord
       elsif is_free_trial_purchase?
         subscription.schedule_charge(subscription.free_trial_ends_at)
         FreeTrialExpiringReminderWorker.perform_at(subscription.free_trial_ends_at - Subscription::FREE_TRIAL_EXPIRING_REMINDER_EMAIL, subscription_id)
+      elsif link.batch_billing_enabled?
+        subscription.grant_batch_entitlement! if link.batch_entitlement_enabled? && !subscription.batch_entitled?
+        subscription.schedule_renewal_reminder
       else
         subscription.schedule_renewal_reminder
         subscription.schedule_charge(succeeded_at + subscription.period)
