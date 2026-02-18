@@ -440,7 +440,7 @@ const PRODUCT_TYPES: Record<ProductNativeType, { description: string; title: str
     title: "Audiobook",
   },
   bread: {
-    description: "Sell fresh bread, optionally brewed on-site with a bread maker.",
+    description: "Sell fresh bread, optionally baked on-site with a bread maker.",
     title: "Bread",
   },
   bundle: {
