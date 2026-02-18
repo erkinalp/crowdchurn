@@ -160,19 +160,11 @@ module ElectronicInvoiceGenerator
       end
 
       def subunits_to_units(subunits)
-        factor = subunit_to_unit_factor
-        (subunits.to_f / factor).round(2)
+        (subunits.to_f / subunit_to_unit_factor).round(2)
       end
 
       def subunit_to_unit_factor
-        @subunit_to_unit_factor ||= begin
-          code = currency_code.to_s.downcase
-          if is_currency_type_single_unit?(code)
-            1
-          else
-            100
-          end
-        end
+        @subunit_to_unit_factor ||= unit_scaling_factor(currency_code)
       end
   end
 end
