@@ -64,7 +64,7 @@ class Link < ApplicationRecord
   METADATA_CACHE_NAMESPACE = :product_metadata_cache
   REQUIRE_CAPTCHA_FOR_SELLERS_YOUNGER_THAN = 6.months
 
-  # Tax categories: https://developers.taxjar.com/api/reference/#get-list-tax-categories
+  # Tax categories: https://docs.stripe.com/tax/tax-codes
   # Categories mapping choices: https://www.notion.so/gumroad/System-support-for-US-sales-tax-collection-on-Gumroad-MPF-sales-9fa88740bf3c4453b476b7fa0a7af1e7#3404578361074b4ca24a6fb63464f522
   NATIVE_TYPES_TO_TAX_CODE = {
     "digital" => "31000",
@@ -77,8 +77,8 @@ class Link < ApplicationRecord
     "physical" => nil,
     "print_book" => "81100",
     "food" => "40030",
-    "bread" => "40040",
-    "literal_coffee" => "40050",
+    "bread" => "4004002",
+    "literal_coffee" => "41050006",
     "bundle" => "55111500A9220",
     "commission" => nil,
     "call" => nil,
