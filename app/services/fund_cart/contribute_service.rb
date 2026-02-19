@@ -14,7 +14,7 @@ class FundCart::ContributeService
     amount_cents = purchase.price_cents
 
     fund_cart.with_lock do
-      fund_cart.update!(balance_cents: fund_cart.balance_cents + amount_cents)
+      fund_cart.update!(balance_subunits: fund_cart.balance_subunits + amount_cents)
     end
 
     FundCart::AllocateFundsService.new(fund_cart: fund_cart).perform

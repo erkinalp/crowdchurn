@@ -8,6 +8,7 @@ class FundCart < ApplicationRecord
   has_many :fund_cart_items, dependent: :destroy
 
   validates :currency, presence: true
+  validates :balance_subunits, numericality: { greater_than_or_equal_to: 0 }
   validate :currency_matches_link
 
   ITEM_TYPE_PRIORITY = {
