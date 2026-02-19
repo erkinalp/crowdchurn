@@ -5,7 +5,6 @@ import * as React from "react";
 import { useState } from "react";
 import { cast, is } from "ts-safe-cast";
 
-import { RecurringProductType } from "$app/data/products";
 import { ProductNativeType, ProductServiceType } from "$app/parsers/product";
 import { CurrencyCode, currencyCodeList, findCurrencyByCode } from "$app/utils/currency";
 import {
@@ -31,6 +30,7 @@ const nativeTypeIcons = require.context("$assets/images/native_types/");
 
 const PHYSICAL_PRODUCT_TYPES: readonly string[] = ["physical", "print_book", "food"];
 const OPTIONALLY_PHYSICAL_PRODUCT_TYPES: readonly string[] = ["bread", "literal_coffee"];
+const RECURRING_PRODUCT_TYPES: readonly string[] = ["membership", "newsletter", "podcast"];
 
 const defaultRecurrence: RecurrenceId = "monthly";
 
@@ -107,7 +107,7 @@ const NewProductPage = () => {
   const [aiPopoverOpen, setAiPopoverOpen] = useState(false);
   const [isGeneratingUsingAi, setIsGeneratingUsingAi] = useState(false);
 
-  const isRecurringBilling = is<RecurringProductType>(form.data.link.native_type);
+  const isRecurringBilling = RECURRING_PRODUCT_TYPES.includes(form.data.link.native_type);
   const isOptionallyPhysical = OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(form.data.link.native_type);
   const [enableShipping, setEnableShipping] = useState(false);
 
@@ -118,8 +118,8 @@ const NewProductPage = () => {
       ...form.data.link,
       native_type: type,
       is_physical: PHYSICAL_PRODUCT_TYPES.includes(type) || (OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type) && enableShipping),
-      is_recurring_billing: is<RecurringProductType>(type),
-      subscription_duration: is<RecurringProductType>(type)
+      is_recurring_billing: RECURRING_PRODUCT_TYPES.includes(type),
+      subscription_duration: RECURRING_PRODUCT_TYPES.includes(type)
         ? form.data.link.subscription_duration || defaultRecurrence
         : null,
     });
@@ -197,10 +197,11 @@ const NewProductPage = () => {
             ? aiData.currency_code
             : form.data.link.price_currency_type,
           is_physical: PHYSICAL_PRODUCT_TYPES.includes(aiData.native_type),
-          is_recurring_billing: is<RecurringProductType>(aiData.native_type),
+          is_recurring_billing: RECURRING_PRODUCT_TYPES.includes(aiData.native_type),
           subscription_duration: subscriptionDuration,
         });
 
+        setEnableShipping(false);
         setAiPopoverOpen(false);
         setAiPromoVisible(false);
 
