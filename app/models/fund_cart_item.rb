@@ -11,6 +11,7 @@ class FundCartItem < ApplicationRecord
   validate :product_not_from_same_seller
   validate :product_not_fund_cart
   validate :product_not_recurring_subscription
+  validate :product_currency_matches_fund_cart
 
   scope :pending, -> { where(state: "pending") }
   scope :purchased, -> { where(state: "purchased") }
@@ -45,6 +46,14 @@ class FundCartItem < ApplicationRecord
 
       if product.is_recurring_billing?
         errors.add(:product, "cannot be a recurring subscription")
+      end
+    end
+
+    def product_currency_matches_fund_cart
+      return if fund_cart.blank? || product.blank?
+
+      if product.price_currency_type != fund_cart.currency
+        errors.add(:product, "must be priced in the same currency as the fund cart")
       end
     end
 end
