@@ -34,6 +34,13 @@ describe FundCartItem do
       expect(item.errors.full_messages).to include("Product cannot be a recurring subscription")
     end
 
+    it "validates product currency matches fund cart currency" do
+      eur_product = create(:product, user: other_seller, price_currency_type: "eur")
+      item = build(:fund_cart_item, fund_cart: fund_cart, product: eur_product)
+      expect(item).to be_invalid
+      expect(item.errors.full_messages).to include("Product must be priced in the same currency as the fund cart")
+    end
+
     it "is valid with a product from another seller that is not fund_cart or recurring" do
       valid_product = create(:product, user: other_seller)
       item = build(:fund_cart_item, fund_cart: fund_cart, product: valid_product)
