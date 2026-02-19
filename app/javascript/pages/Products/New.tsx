@@ -5,7 +5,6 @@ import * as React from "react";
 import { useState } from "react";
 import { cast, is } from "ts-safe-cast";
 
-import { RecurringProductType } from "$app/data/products";
 import { ProductNativeType, ProductServiceType } from "$app/parsers/product";
 import { CurrencyCode, currencyCodeList, findCurrencyByCode } from "$app/utils/currency";
 import {
@@ -28,6 +27,10 @@ import { Pill } from "$app/components/ui/Pill";
 import { WithTooltip } from "$app/components/WithTooltip";
 
 const nativeTypeIcons = require.context("$assets/images/native_types/");
+
+const PHYSICAL_PRODUCT_TYPES: readonly string[] = ["physical", "print_book", "food"];
+const OPTIONALLY_PHYSICAL_PRODUCT_TYPES: readonly string[] = ["bread", "literal_coffee"];
+const RECURRING_PRODUCT_TYPES: readonly string[] = ["membership", "newsletter", "podcast"];
 
 const defaultRecurrence: RecurrenceId = "monthly";
 
@@ -104,7 +107,9 @@ const NewProductPage = () => {
   const [aiPopoverOpen, setAiPopoverOpen] = useState(false);
   const [isGeneratingUsingAi, setIsGeneratingUsingAi] = useState(false);
 
-  const isRecurringBilling = is<RecurringProductType>(form.data.link.native_type);
+  const isRecurringBilling = RECURRING_PRODUCT_TYPES.includes(form.data.link.native_type);
+  const isOptionallyPhysical = OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(form.data.link.native_type);
+  const [enableShipping, setEnableShipping] = useState(false);
 
   const selectedCurrency = findCurrencyByCode(form.data.link.price_currency_type);
 
@@ -112,12 +117,13 @@ const NewProductPage = () => {
     form.setData("link", {
       ...form.data.link,
       native_type: type,
-      is_physical: type === "physical",
-      is_recurring_billing: is<RecurringProductType>(type),
-      subscription_duration: is<RecurringProductType>(type)
+      is_physical: PHYSICAL_PRODUCT_TYPES.includes(type) || (OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type) && enableShipping),
+      is_recurring_billing: RECURRING_PRODUCT_TYPES.includes(type),
+      subscription_duration: RECURRING_PRODUCT_TYPES.includes(type)
         ? form.data.link.subscription_duration || defaultRecurrence
         : null,
     });
+    if (!OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type)) setEnableShipping(false);
   };
 
   const dismissAiPromo = async () => {
@@ -190,11 +196,12 @@ const NewProductPage = () => {
           price_currency_type: is<CurrencyCode>(aiData.currency_code)
             ? aiData.currency_code
             : form.data.link.price_currency_type,
-          is_physical: aiData.native_type === "physical",
-          is_recurring_billing: is<RecurringProductType>(aiData.native_type),
+          is_physical: PHYSICAL_PRODUCT_TYPES.includes(aiData.native_type),
+          is_recurring_billing: RECURRING_PRODUCT_TYPES.includes(aiData.native_type),
           subscription_duration: subscriptionDuration,
         });
 
+        setEnableShipping(false);
         setAiPopoverOpen(false);
         setAiPromoVisible(false);
 
@@ -379,6 +386,22 @@ const NewProductPage = () => {
                   />
                 </fieldset>
               ) : null}
+              {isOptionallyPhysical ? (
+                <fieldset>
+                  <legend>Shipping</legend>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={enableShipping}
+                      onChange={(e) => {
+                        setEnableShipping(e.target.checked);
+                        form.setData("link.is_physical", e.target.checked);
+                      }}
+                    />
+                    Requires shipping
+                  </label>
+                </fieldset>
+              ) : null}
 
               <fieldset className={cx({ danger: !!errors["link.price_range"] || !!errors["link.base"] })}>
                 <legend>
@@ -506,11 +529,31 @@ const PRODUCT_TYPES = {
     description: "Sell anything that requires shipping something.",
     title: "Physical good",
   },
+  print_book: {
+    description: "Sell printed books with ISBN tracking and shipping.",
+    title: "Print book",
+  },
+  food: {
+    description: "Sell food products that require shipping.",
+    title: "Food",
+  },
+  bread: {
+    description: "Sell fresh baked bread, optionally with shipping.",
+    title: "Bread",
+  },
+  literal_coffee: {
+    description: "Sell real coffee — can auto-brew on purchase.",
+    title: "Literal coffee",
+  },
   podcast: {
     description: "Make episodes available for streaming and direct downloads.",
     title: "Podcast",
   },
-};
+  consultancy: {
+    description: "Offer B2C consultancy services to your clients.",
+    title: "Consultancy",
+  },
+} satisfies Record<ProductNativeType, { description: string; title: string }>;
 
 const ProductTypeSelector = ({
   selectedType,
