@@ -553,6 +553,10 @@ const PRODUCT_TYPES = {
     description: "Offer B2C consultancy services to your clients.",
     title: "Consultancy",
   },
+  fund_cart: {
+    description: "Let supporters crowdfund items from your shopping list.",
+    title: "Fund cart",
+  },
 } satisfies Record<ProductNativeType, { description: string; title: string }>;
 
 const ProductTypeSelector = ({

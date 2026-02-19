@@ -29,9 +29,10 @@ export type ProductNativeType =
   | "bread"
   | "literal_coffee"
   | "bundle"
-  | ProductServiceType;
+  | ProductServiceType
+  | "fund_cart";
 
-export type ProductServiceType = "commission" | "call" | "coffee" | "consultancy";
+export type ProductServiceType = "commission" | "call" | "coffee" | "consultancy" | "fund_cart";
 
 export type Ratings = { count: number; average: number };
 
