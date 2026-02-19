@@ -15,6 +15,12 @@ describe FundCart do
       expect(fund_cart.errors.full_messages).to include("Currency must match the product's currency")
     end
 
+    it "validates balance_subunits is not negative" do
+      fund_cart = build(:fund_cart, balance_subunits: -1)
+      expect(fund_cart).to be_invalid
+      expect(fund_cart.errors.full_messages).to include("Balance subunits must be greater than or equal to 0")
+    end
+
     it "is valid with matching currency" do
       product = create(:fund_cart_product)
       fund_cart = build(:fund_cart, link: product, user: product.user, currency: product.price_currency_type)

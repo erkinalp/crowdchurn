@@ -9,7 +9,7 @@ FactoryBot.define do
   factory :fund_cart do
     association :link, factory: :fund_cart_product
     user { link.user }
-    balance_cents { 0 }
+    balance_subunits { 0 }
     currency { "usd" }
   end
 

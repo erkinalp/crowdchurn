@@ -15,13 +15,13 @@ class FundCart::AllocateFundsService
         product = item.product
         total_cost = product.price_cents
 
-        next if total_cost > fund_cart.balance_cents
+        next if total_cost > fund_cart.balance_subunits
         next if total_cost <= 0
 
         purchase = create_purchase_for_item(product)
         next if purchase.blank?
 
-        fund_cart.update!(balance_cents: fund_cart.balance_cents - total_cost)
+        fund_cart.update!(balance_subunits: fund_cart.balance_subunits - total_cost)
         item.mark_purchased!(purchase)
       end
     end

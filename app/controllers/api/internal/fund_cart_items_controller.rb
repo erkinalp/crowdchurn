@@ -9,7 +9,7 @@ class Api::Internal::FundCartItemsController < Api::Internal::BaseController
     items = @fund_cart.fund_cart_items.includes(:product).order(created_at: :desc)
     render json: {
       items: items.map { |item| item_json(item) },
-      balance_cents: @fund_cart.balance_cents,
+      balance_subunits: @fund_cart.balance_subunits,
       currency: @fund_cart.currency,
     }
   end

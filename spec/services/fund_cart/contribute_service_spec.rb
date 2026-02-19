@@ -11,7 +11,7 @@ describe FundCart::ContributeService do
 
       expect do
         described_class.new(purchase: purchase).perform
-      end.to change { fund_cart.reload.balance_cents }.from(0).to(5000)
+      end.to change { fund_cart.reload.balance_subunits }.from(0).to(5000)
     end
 
     it "accumulates balance from multiple contributions" do
@@ -21,7 +21,7 @@ describe FundCart::ContributeService do
       described_class.new(purchase: purchase_1).perform
       described_class.new(purchase: purchase_2).perform
 
-      expect(fund_cart.reload.balance_cents).to eq(5000)
+      expect(fund_cart.reload.balance_subunits).to eq(5000)
     end
 
     it "returns early when fund cart is not found" do
