@@ -3,6 +3,8 @@
 require "spec_helper"
 
 describe Api::Internal::FundCartItemsController, type: :request do
+  include Devise::Test::IntegrationHelpers
+
   let(:seller) { create(:user, :eligible_for_service_products) }
   let(:fund_cart_product) { create(:fund_cart_product, user: seller) }
   let(:fund_cart) { fund_cart_product.fund_cart }
