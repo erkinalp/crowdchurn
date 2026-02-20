@@ -29,8 +29,7 @@ export type ProductNativeType =
   | "bread"
   | "literal_coffee"
   | "bundle"
-  | ProductServiceType
-  | "fund_cart";
+  | ProductServiceType;
 
 export type ProductServiceType = "commission" | "call" | "coffee" | "consultancy" | "fund_cart";
 
