@@ -965,7 +965,7 @@ Rails.application.routes.draw do
 
         resources :ai_product_details_generations, only: [:create]
 
-        resources :fund_carts, only: [], param: :fund_cart_id do
+        resources :fund_carts, only: [] do
           resources :items, only: [:index, :create, :destroy], controller: "fund_cart_items"
         end
       end
