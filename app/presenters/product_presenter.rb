@@ -295,6 +295,7 @@ class ProductPresenter
       end,
       dropbox_api_key: DROPBOX_PICKER_API_KEY,
       ai_generated:,
+      fund_cart_id: product.native_type == Link::NATIVE_TYPE_FUND_CART ? product.fund_cart&.external_id : nil,
     }
   end
 

@@ -17,6 +17,7 @@ import { Seller } from "$app/components/Product";
 import { ContentTab } from "$app/components/ProductEdit/ContentTab";
 import { getDownloadUrl } from "$app/components/ProductEdit/ContentTab/FileEmbed";
 import { Page } from "$app/components/ProductEdit/ContentTab/PageTab";
+import { FundCartItemsPanel } from "$app/components/ProductEdit/FundCartItemsPanel";
 import { ProductTab } from "$app/components/ProductEdit/ProductTab";
 import { ReceiptTab } from "$app/components/ProductEdit/ReceiptTab";
 import { RefundPolicy } from "$app/components/ProductEdit/RefundPolicy";
@@ -55,6 +56,10 @@ const routes: RouteObject[] = [
     element: <ReceiptTab />,
     handle: "receipt",
   },
+  {
+    path: "/products/:id/edit/fund_cart",
+    handle: "fund_cart",
+  },
 ];
 
 type Props = {
@@ -87,6 +92,7 @@ type Props = {
   seller_refund_policy: Pick<RefundPolicy, "title" | "fine_print">;
   cancellation_discounts_enabled: boolean;
   ai_generated: boolean;
+  fund_cart_id: string | null;
 };
 
 const buildFilesById = (productId: string, files: Props["product"]["files"]) =>
@@ -162,7 +168,13 @@ const ProductEditPage = (props: Props) => {
       return updated;
     });
   const [existingFiles, setExistingFiles] = React.useState(props.existing_files);
-  const [router] = React.useState(() => createBrowserRouter(routes));
+  const [router] = React.useState(() => {
+    const fundCartRoute = routes.find((r) => r.handle === "fund_cart");
+    if (fundCartRoute && props.fund_cart_id) {
+      fundCartRoute.element = <FundCartItemsPanel fundCartId={props.fund_cart_id} currencyCode={props.currency_type} />;
+    }
+    return createBrowserRouter(routes);
+  });
 
   const [saving, setSaving] = React.useState(false);
   const [imagesUploading, setImagesUploading] = React.useState<Set<File>>(new Set());
