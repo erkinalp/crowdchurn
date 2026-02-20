@@ -237,6 +237,7 @@ export const Layout = ({
   };
 
   const isCoffee = product.native_type === "coffee";
+  const isFundCart = product.native_type === "fund_cart";
 
   return (
     <>
@@ -308,6 +309,13 @@ export const Layout = ({
                 Receipt
               </Link>
             </Tab>
+            {isFundCart ? (
+              <Tab asChild isSelected={tab === "fund_cart"}>
+                <Link to={`${rootPath}/fund_cart`} onClick={onTabClick}>
+                  Fund Cart
+                </Link>
+              </Tab>
+            ) : null}
             <Tab asChild isSelected={tab === "share"}>
               <Link
                 to={`${rootPath}/share`}

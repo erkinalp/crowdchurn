@@ -84,6 +84,10 @@ Rails.application.routes.draw do
       end
       resources :subscribers, only: [:show]
 
+      resources :fund_carts, only: [:index, :show] do
+        resources :items, controller: "fund_cart_items", only: [:index, :create, :destroy]
+      end
+
       put "/resource_subscriptions", to: "resource_subscriptions#create"
       delete "/resource_subscriptions/:id", to: "resource_subscriptions#destroy"
       get "/resource_subscriptions", to: "resource_subscriptions#index"

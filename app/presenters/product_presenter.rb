@@ -294,6 +294,7 @@ class ProductPresenter
         }
       end,
       ai_generated:,
+      fund_cart_id: product.native_type == Link::NATIVE_TYPE_FUND_CART ? product.fund_cart&.external_id : nil,
     }
   end
 
