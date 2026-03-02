@@ -174,6 +174,8 @@ class Link < ApplicationRecord
   has_many :alive_public_files, -> { alive }, class_name: "PublicFile", as: :resource
   has_many :communities, as: :resource, dependent: :destroy
   has_one :active_community, -> { alive }, class_name: "Community", as: :resource
+  has_many :community_products, foreign_key: :product_id, dependent: :destroy
+  has_many :shared_communities, through: :community_products, source: :community
   has_many :surveys, as: :surveyable, dependent: :destroy
   has_many :message_templates, as: :templateable, dependent: :destroy
   has_many :product_experiments, foreign_key: :product_id, dependent: :destroy
@@ -1161,18 +1163,22 @@ class Link < ApplicationRecord
     offer_codes.is_cancellation_discount.alive.first
   end
 
-  def toggle_community_chat!(enable)
+  def toggle_community_chat!(enable, shared_community_id: nil)
     if enable
       return if community_chat_enabled?
 
       transaction do
         update!(community_chat_enabled: true)
-        return if active_community.present?
-        community = communities.deleted.order(deleted_at: :asc).last
-        if community.present?
-          community.mark_undeleted!
+        if shared_community_id.present?
+          link_to_shared_community!(shared_community_id)
         else
-          communities.create!(seller: user)
+          return if active_community.present?
+          community = communities.deleted.order(deleted_at: :asc).last
+          if community.present?
+            community.mark_undeleted!
+          else
+            communities.create!(seller: user)
+          end
         end
       end
     else
@@ -1180,7 +1186,45 @@ class Link < ApplicationRecord
 
       transaction do
         update!(community_chat_enabled: false)
+        # Remove from any shared communities
+        community_products.destroy_all
         communities.alive.each(&:mark_deleted!)
+      end
+    end
+  end
+
+  def effective_community
+    # First check for a shared community via the join table
+    shared = shared_communities.alive.first
+    return shared if shared.present?
+
+    # Fall back to the product's own community
+    active_community
+  end
+
+  def link_to_shared_community!(community_external_id)
+    community = Community.alive.find_by_external_id!(community_external_id)
+    raise ArgumentError, "Community must belong to the same seller" unless community.seller_id == user_id
+
+    # Remove existing own community if present
+    communities.alive.each(&:mark_deleted!)
+    # Remove any existing shared community links
+    community_products.destroy_all
+    # Add to the shared community
+    community.add_product!(self)
+  end
+
+  def unlink_from_shared_community!
+    transaction do
+      community_products.destroy_all
+      # Re-create own community if chat is still enabled
+      if community_chat_enabled?
+        community = communities.deleted.order(deleted_at: :asc).last
+        if community.present?
+          community.mark_undeleted!
+        else
+          communities.create!(seller: user)
+        end
       end
     end
   end

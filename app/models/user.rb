@@ -1010,7 +1010,7 @@ class User < ApplicationRecord
     # Communities owned by the seller
     seller_communities = self.seller_communities.alive.includes(:resource).to_a
 
-    # Communities of the products the user has purchased
+    # Communities of the products the user has purchased (via direct resource association)
     buyer_communities = Community.alive.includes(:resource).joins(
       "INNER JOIN links ON communities.resource_type = 'Link' AND communities.resource_id = links.id"
     ).joins(
@@ -1019,7 +1019,18 @@ class User < ApplicationRecord
       "purchases.purchase_state = 'successful' AND (purchases.purchaser_id = ? OR purchases.email = ?)", id, email
     ).to_a
 
-    (seller_communities + buyer_communities).map do
+    # Communities accessible via shared community links (community_products join table)
+    shared_buyer_communities = Community.alive.includes(:resource).joins(
+      "INNER JOIN community_products ON community_products.community_id = communities.id"
+    ).joins(
+      "INNER JOIN links ON community_products.product_id = links.id"
+    ).joins(
+      "INNER JOIN purchases ON purchases.link_id = links.id"
+    ).where(
+      "purchases.purchase_state = 'successful' AND (purchases.purchaser_id = ? OR purchases.email = ?)", id, email
+    ).to_a
+
+    (seller_communities + buyer_communities + shared_buyer_communities).map do
       _1.resource.alive? && Feature.active?(:communities, _1.seller) && _1.resource.community_chat_enabled? ? _1.id : nil
     end.compact.uniq
   end

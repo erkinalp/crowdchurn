@@ -349,6 +349,7 @@ class LinksController < ApplicationController
           :call_limitation_info,
           :installment_plan,
           :community_chat_enabled,
+          :shared_community_id,
           :currency_prices,
           :default_offer_code_id
         ))
@@ -414,7 +415,7 @@ class LinksController < ApplicationController
         end
         @product.description = SavePublicFilesService.new(resource: @product, files_params: product_permitted_params[:public_files], content: @product.description).process
         @product.save!
-        toggle_community_chat!(product_permitted_params[:community_chat_enabled])
+        toggle_community_chat!(product_permitted_params[:community_chat_enabled], shared_community_id: product_permitted_params[:shared_community_id])
         @product.generate_product_files_archives!
       end
     rescue ActiveRecord::RecordNotSaved, ActiveRecord::RecordInvalid, Link::LinkInvalid => e
@@ -771,11 +772,11 @@ class LinksController < ApplicationController
       offer_code.universal? || @product.offer_codes.where(id: offer_code.id).exists?
     end
 
-    def toggle_community_chat!(enabled)
+    def toggle_community_chat!(enabled, shared_community_id: nil)
       return unless Feature.active?(:communities, current_seller)
       return if [Link::NATIVE_TYPE_COFFEE, Link::NATIVE_TYPE_BUNDLE].include?(@product.native_type)
 
-      @product.toggle_community_chat!(enabled)
+      @product.toggle_community_chat!(enabled, shared_community_id:)
     end
 
     def update_currency_prices

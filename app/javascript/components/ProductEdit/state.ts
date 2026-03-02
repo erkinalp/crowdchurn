@@ -114,6 +114,11 @@ export type OfferCode = {
   discount: Discount;
 };
 
+export type AvailableCommunity = {
+  id: string;
+  name: string;
+  product_name: string;
+};
 
 export type Product = {
   name: string;
@@ -181,6 +186,8 @@ export type Product = {
   public_files: PublicFileWithStatus[];
   audio_previews_enabled: boolean;
   community_chat_enabled: boolean | null;
+  shared_community_id: string | null;
+  available_communities: AvailableCommunity[];
   pricing_mode: PricingMode;
   currency_prices: CurrencyPrice[];
 } & (

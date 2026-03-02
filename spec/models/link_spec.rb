@@ -4798,6 +4798,112 @@ describe Link, :vcr do
           end.not_to change { product.reload.community_chat_enabled }
         end.not_to change { product.communities.count }
       end
+
+      it "removes shared community links when disabling" do
+        shared_product = create(:product, user: product.user)
+        shared_community = create(:community, seller: product.user, resource: shared_product)
+        create(:community_product, community: shared_community, product: product)
+
+        expect do
+          product.toggle_community_chat!(false)
+        end.to change { product.reload.community_chat_enabled }.from(true).to(false)
+          .and change { product.reload.community_products.count }.from(1).to(0)
+      end
+    end
+
+    context "when using shared communities" do
+      let(:seller) { create(:user) }
+      let(:product1) { create(:product, user: seller) }
+      let(:product2) { create(:product, user: seller) }
+
+      before do
+        product1.toggle_community_chat!(true)
+      end
+
+      it "links a product to an existing community via shared_community_id" do
+        community = product1.active_community
+
+        product2.toggle_community_chat!(true, shared_community_id: community.external_id)
+
+        expect(product2.reload.community_chat_enabled).to be true
+        expect(product2.shared_communities).to include(community)
+        expect(community.linked_products).to include(product2)
+      end
+
+      it "raises an error when trying to share a community from a different seller" do
+        other_seller = create(:user)
+        other_product = create(:product, user: other_seller)
+        other_product.toggle_community_chat!(true)
+        other_community = other_product.active_community
+
+        expect do
+          product2.toggle_community_chat!(true, shared_community_id: other_community.external_id)
+        end.to raise_error(ArgumentError, "Community must belong to the same seller")
+      end
+    end
+  end
+
+  describe "#effective_community" do
+    let(:seller) { create(:user) }
+    let(:product) { create(:product, user: seller) }
+
+    it "returns the product's own active community when no shared community exists" do
+      product.toggle_community_chat!(true)
+
+      expect(product.effective_community).to eq(product.active_community)
+    end
+
+    it "returns the shared community when one is linked" do
+      other_product = create(:product, user: seller)
+      other_product.toggle_community_chat!(true)
+      shared_community = other_product.active_community
+
+      product.toggle_community_chat!(true, shared_community_id: shared_community.external_id)
+
+      expect(product.effective_community).to eq(shared_community)
+    end
+
+    it "returns nil when community chat is disabled" do
+      expect(product.effective_community).to be_nil
+    end
+  end
+
+  describe "#link_to_shared_community!" do
+    let(:seller) { create(:user) }
+    let(:product1) { create(:product, user: seller) }
+    let(:product2) { create(:product, user: seller) }
+
+    it "links to a shared community and marks own community as deleted" do
+      product1.toggle_community_chat!(true)
+      product2.toggle_community_chat!(true)
+
+      own_community = product2.active_community
+      shared_community = product1.active_community
+
+      product2.link_to_shared_community!(shared_community.external_id)
+
+      expect(own_community.reload.deleted_at).not_to be_nil
+      expect(product2.shared_communities.alive).to include(shared_community)
+    end
+  end
+
+  describe "#unlink_from_shared_community!" do
+    let(:seller) { create(:user) }
+    let(:product1) { create(:product, user: seller) }
+    let(:product2) { create(:product, user: seller) }
+
+    it "removes shared community link and re-creates own community" do
+      product1.toggle_community_chat!(true)
+      shared_community = product1.active_community
+
+      product2.toggle_community_chat!(true, shared_community_id: shared_community.external_id)
+      expect(product2.community_products.count).to eq(1)
+
+      product2.unlink_from_shared_community!
+
+      expect(product2.community_products.count).to eq(0)
+      expect(product2.reload.active_community).to be_present
+      expect(product2.active_community).not_to eq(shared_community)
     end
   end
 end

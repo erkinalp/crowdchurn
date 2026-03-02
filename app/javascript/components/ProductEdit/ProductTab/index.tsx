@@ -209,15 +209,40 @@ export const ProductTab = () => {
                 <h2>Integrations</h2>
                 <fieldset>
                   {product.community_chat_enabled === null ? null : (
-                    <ToggleSettingRow
-                      label="Invite your customers to your Gumroad community chat"
-                      value={product.community_chat_enabled}
-                      onChange={(newValue) => updateProduct({ community_chat_enabled: newValue })}
-                      help={{
-                        label: "Learn more",
-                        url: "/help/article/347-gumroad-community",
-                      }}
-                    />
+                    <>
+                      <ToggleSettingRow
+                        label="Invite your customers to your Gumroad community chat"
+                        value={product.community_chat_enabled}
+                        onChange={(newValue) => updateProduct({ community_chat_enabled: newValue })}
+                        help={{
+                          label: "Learn more",
+                          url: "/help/article/347-gumroad-community",
+                        }}
+                      />
+                      {product.community_chat_enabled && product.available_communities.length > 0 ? (
+                        <fieldset>
+                          <legend>
+                            <label htmlFor={`${uid}-shared-community`}>Community</label>
+                          </legend>
+                          <select
+                            id={`${uid}-shared-community`}
+                            value={product.shared_community_id ?? ""}
+                            onChange={(e) =>
+                              updateProduct({
+                                shared_community_id: e.target.value || null,
+                              })
+                            }
+                          >
+                            <option value="">New community (this product only)</option>
+                            {product.available_communities.map((community) => (
+                              <option key={community.id} value={community.id}>
+                                {community.name} (from {community.product_name})
+                              </option>
+                            ))}
+                          </select>
+                        </fieldset>
+                      ) : null}
+                    </>
                   )}
                   <CircleIntegrationEditor
                     integration={product.integrations.circle}
