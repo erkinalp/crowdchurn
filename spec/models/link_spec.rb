@@ -4840,6 +4840,38 @@ describe Link, :vcr do
           product2.toggle_community_chat!(true, shared_community_id: other_community.external_id)
         end.to raise_error(ArgumentError, "Community must belong to the same seller")
       end
+
+      it "switches from own community to a shared community when chat is already enabled" do
+        product2.toggle_community_chat!(true)
+        own_community = product2.active_community
+        shared_community = product1.active_community
+
+        product2.toggle_community_chat!(true, shared_community_id: shared_community.external_id)
+
+        expect(own_community.reload.deleted_at).not_to be_nil
+        expect(product2.shared_communities.alive).to include(shared_community)
+      end
+
+      it "switches from shared community back to own community" do
+        shared_community = product1.active_community
+        product2.toggle_community_chat!(true, shared_community_id: shared_community.external_id)
+
+        expect(product2.shared_communities.alive).to include(shared_community)
+
+        product2.toggle_community_chat!(true, shared_community_id: nil)
+
+        expect(product2.community_products.count).to eq(0)
+        expect(product2.reload.active_community).to be_present
+      end
+
+      it "does nothing when re-selecting the same shared community" do
+        shared_community = product1.active_community
+        product2.toggle_community_chat!(true, shared_community_id: shared_community.external_id)
+
+        expect do
+          product2.toggle_community_chat!(true, shared_community_id: shared_community.external_id)
+        end.not_to change { product2.community_products.count }
+      end
     end
   end
 

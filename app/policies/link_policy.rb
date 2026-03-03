@@ -100,6 +100,7 @@ class LinkPolicy < ApplicationPolicy
       :require_shipping,
       :is_multiseat_license,
       :community_chat_enabled,
+      :shared_community_id,
       :pricing_mode,
       :default_offer_code_id,
       currency_prices: [

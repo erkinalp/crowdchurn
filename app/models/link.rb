@@ -1165,7 +1165,11 @@ class Link < ApplicationRecord
 
   def toggle_community_chat!(enable, shared_community_id: nil)
     if enable
-      return if community_chat_enabled?
+      if community_chat_enabled?
+        # Already enabled — handle switching between own and shared communities
+        update_community_association!(shared_community_id)
+        return
+      end
 
       transaction do
         update!(community_chat_enabled: true)
@@ -1227,6 +1231,19 @@ class Link < ApplicationRecord
         end
       end
     end
+  end
+
+  def update_community_association!(shared_community_id)
+    current_shared = shared_communities.alive.first
+    if shared_community_id.present?
+      # Switching to (or staying on) a shared community
+      return if current_shared&.external_id == shared_community_id
+      link_to_shared_community!(shared_community_id)
+    elsif current_shared.present?
+      # Switching from shared back to own community
+      unlink_from_shared_community!
+    end
+    # If no shared_community_id and not currently shared, nothing to do
   end
 
   def support_email_or_default
