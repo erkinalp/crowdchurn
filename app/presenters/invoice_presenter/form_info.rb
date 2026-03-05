@@ -41,6 +41,7 @@ class InvoicePresenter::FormInfo
       email: chargeable.orderable.email,
       vat_id: "",
       additional_notes: "",
+      export_format: "pdf",
     }
   end
 
