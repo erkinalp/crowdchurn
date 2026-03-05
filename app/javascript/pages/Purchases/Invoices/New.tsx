@@ -290,7 +290,8 @@ const PurchaseNewInvoicePage = () => {
                     <a href={invoice_file_url} download>
                       here
                     </a>{" "}
-                    and "Save as..." if the PDF hasn't been automatically downloaded to your computer.
+                    and "Save as..." if the {EXPORT_FORMATS[form.data.export_format] ?? "PDF"} file hasn't been
+                    automatically downloaded to your computer.
                   </span>
                 ) : (
                   <span className="grow">
