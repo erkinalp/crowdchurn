@@ -475,6 +475,9 @@ class Purchase < ApplicationRecord
   }
   scope :paid, -> { successful.where("purchases.price_cents > 0").where("stripe_refunded is null OR stripe_refunded = 0") }
   scope :not_fully_refunded, -> { where("purchases.stripe_refunded IS NULL OR purchases.stripe_refunded = 0") }
+  scope :not_partially_refunded_bundle_product_purchase, -> {
+    where("purchases.stripe_partially_refunded IS NULL OR purchases.stripe_partially_refunded = false").or(not_is_bundle_product_purchase)
+  }
   # always include subscription purchase regardless if refunded or not to show up in library and customers tab:
   scope :not_refunded_except_subscriptions, lambda {
     where("(purchases.subscription_id IS NULL AND (purchases.stripe_refunded IS NULL OR purchases.stripe_refunded = 0)) OR " \
@@ -489,8 +492,9 @@ class Purchase < ApplicationRecord
   scope :not_additional_contribution, -> { where("purchases.flags IS NULL OR purchases.flags & ? = 0", Purchase.flag_mapping["flags"][:is_additional_contribution]) }
   scope :for_products, ->(products) { where(link_id: products) if products.present? }
   scope :not_subscription_or_original_purchase, -> {
-    where("purchases.subscription_id IS NULL OR purchases.flags & ? = ?",
-          Purchase.flag_mapping["flags"][:is_original_subscription_purchase], Purchase.flag_mapping["flags"][:is_original_subscription_purchase])
+    where("purchases.subscription_id IS NULL OR purchases.flags & ? = ? OR purchases.flags & ? = ?",
+          Purchase.flag_mapping["flags"][:is_original_subscription_purchase], Purchase.flag_mapping["flags"][:is_original_subscription_purchase],
+          Purchase.flag_mapping["flags"][:is_gift_receiver_purchase], Purchase.flag_mapping["flags"][:is_gift_receiver_purchase])
   }
   # TODO: since Memberships, `not_recurring_charge` & `recurring_charge` are not an accurate names for what the scopes filter, and they should be renamed.
   scope :not_recurring_charge, lambda { not_subscription_or_original_purchase }
@@ -555,8 +559,8 @@ class Purchase < ApplicationRecord
     .not_chargedback_or_chargedback_reversed
     .not_is_archived_original_subscription_purchase
     .not_rental_expired
-    .order(:id)
-    .includes(:preorder, :purchaser, :seller, :subscription, url_redirect: { purchase: { link: [:user, :thumbnail] } })
+    .order(id: :desc)
+    .includes(:preorder, :purchaser, :seller, :subscription, url_redirect: { purchase: { link: [:user, :thumbnail_alive, { display_asset_previews: [:file_attachment, :file_blob] }] } })
   }
   scope :for_library, lambda {
     all_success_states
@@ -2151,7 +2155,14 @@ class Purchase < ApplicationRecord
     check_filters_for_past_posts = lambda do |posts|
       posts.select do |post|
         purchases.reduce(false) do |select_post, purchase|
-          select_post || (purchase.link.should_show_all_posts? && post.purchase_passes_filters(purchase) && post.targeted_at_purchased_item?(purchase) && post.passes_member_cancellation_checks?(purchase))
+          next true if select_post
+
+          next false unless purchase.link.should_show_all_posts?
+          next false unless post.purchase_passes_filters(purchase)
+          next false unless post.targeted_at_purchased_item?(purchase)
+          next false unless post.passes_member_cancellation_checks?(purchase)
+
+          post.delivery_due?(purchase)
         end
       end
     end
@@ -2829,9 +2840,6 @@ class Purchase < ApplicationRecord
 
       calculate_fees
 
-      validate_seller_revenue
-      return if errors.present?
-
       purchase_sales_tax_info.save
       save
 
@@ -2909,15 +2917,6 @@ class Purchase < ApplicationRecord
     # Private: truncate the referrer so that they fit in our mysql string column.
     def truncate_referrer
       self.referrer = referrer.first(191) if referrer
-    end
-
-    def validate_seller_revenue
-      return unless price_cents
-      return if price_cents == 0
-      return if price_cents > fee_cents + affiliate_credit_cents
-
-      self.error_code = PurchaseErrorCode::NET_NEGATIVE_SELLER_REVENUE
-      errors.add(:base, "Your purchase failed because the product is not correctly set up. Please contact the creator for more information.")
     end
 
     # Private: Prepare for charging the chargeable and retrieve any information about the chargeable that's needed
@@ -3319,7 +3318,8 @@ class Purchase < ApplicationRecord
       return if charge_discover_fee?
 
       if is_recurring_subscription_charge || is_updated_original_subscription_purchase
-        self.custom_fee_per_thousand = subscription.original_purchase.custom_fee_per_thousand if subscription.original_purchase.custom_fee_per_thousand.present?
+        original_purchase = subscription.original_purchase
+        self.custom_fee_per_thousand = original_purchase.custom_fee_per_thousand if original_purchase&.custom_fee_per_thousand.present?
       elsif is_preorder_charge?
         self.custom_fee_per_thousand = preorder.authorization_purchase.custom_fee_per_thousand if preorder.authorization_purchase.custom_fee_per_thousand.present?
       elsif seller.custom_fee_per_thousand.present?
@@ -3344,6 +3344,7 @@ class Purchase < ApplicationRecord
     def operator_fee_percentage_for_migrated_account
       OPERATOR_NON_PRO_FEE_PERCENTAGE
     end
+
 
     def calculate_taxes
       return unless self.price_cents
@@ -3940,9 +3941,7 @@ class Purchase < ApplicationRecord
       after_commit do
         next if destroyed?
 
-        if error_code == PurchaseErrorCode::NET_NEGATIVE_SELLER_REVENUE
-          ContactingCreatorMailer.negative_revenue_sale_failure(id).deliver_later(queue: "critical")
-        elsif paid? && charge_processor_id.in?([PaypalChargeProcessor.charge_processor_id, BraintreeChargeProcessor.charge_processor_id])
+        if paid? && charge_processor_id.in?([PaypalChargeProcessor.charge_processor_id, BraintreeChargeProcessor.charge_processor_id])
           CustomerMailer.paypal_purchase_failed(id).deliver_later(queue: "critical")
         end
       end
@@ -3957,6 +3956,7 @@ class Purchase < ApplicationRecord
         license_key: selected_license.serial,
         license_id: selected_license.external_id,
         license_disabled: selected_license.disabled?,
+        license_uses: selected_license.uses,
         is_multiseat_license: is_multiseat_license?
       }
     end

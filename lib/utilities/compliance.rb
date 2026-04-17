@@ -189,6 +189,19 @@ module Compliance
     def self.taxable_state?(state_code)
       TAXABLE_US_STATE_CODES.include?(state_code)
     end
+
+    VALID_INDIAN_STATES = %w[
+      AP AR AS BR CG GA GJ HR HP JK JH KA
+      KL MP MH MN ML MZ NL OR PB RJ SK TN
+      TR UK UP WB
+      AN CH DH DD DL LD PY
+    ].to_set.freeze
+
+    def self.valid_indian_state?(state_code)
+      return false if state_code.blank? || state_code.match?(/^\d+$/)
+
+      VALID_INDIAN_STATES.include?(state_code)
+    end
     EU_VAT_APPLICABLE_COUNTRY_CODES = [
       AUT, # Austria,
       BEL, # Belgium,
@@ -253,7 +266,6 @@ module Compliance
       Compliance::Countries::GEO.alpha2, # Georgia
       Compliance::Countries::KAZ.alpha2, # Kazakhstan
       Compliance::Countries::MYS.alpha2, # Malaysia
-      Compliance::Countries::MEX.alpha2, # Mexico
       Compliance::Countries::MDA.alpha2, # Moldova
       Compliance::Countries::MAR.alpha2, # Morocco
       Compliance::Countries::RUS.alpha2, # Russia

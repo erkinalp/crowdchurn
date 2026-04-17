@@ -43,14 +43,14 @@ module CurrencyHelper
 
   def symbol_for(type = nil)
     type ||= instance_base_currency.to_sym
-    currency_config = CURRENCY_CHOICES[type.to_sym] || CRYPTO_CURRENCIES[type.to_s.downcase]
-    currency_config&.dig(:symbol) || currency_config&.dig("symbol")
+    currency_config = CURRENCY_CHOICES[type.to_sym] || CRYPTO_CURRENCIES[type.to_s.downcase] || CURRENCY_CHOICES[:usd]
+    currency_config[:symbol] || currency_config["symbol"]
   end
 
   def min_price_for(type = nil)
     type ||= instance_base_currency.to_sym
-    currency_config = CURRENCY_CHOICES[type.to_sym] || CRYPTO_CURRENCIES[type.to_s.downcase]
-    currency_config&.dig(:min_price) || currency_config&.dig("min_price")
+    currency_config = CURRENCY_CHOICES[type.to_sym] || CRYPTO_CURRENCIES[type.to_s.downcase] || CURRENCY_CHOICES[:usd]
+    currency_config[:min_price] || currency_config["min_price"]
   end
 
   def currency_choices
@@ -66,7 +66,13 @@ module CurrencyHelper
   end
 
   def string_to_price_cents(currency_type, price_string)
-    (BigDecimal(price_string.to_s.delete(",").presence || 0) * (is_currency_type_single_unit?(currency_type) ? 1 : 100)).round
+    sanitized = price_string.to_s.delete(",")
+    if sanitized.count(".") > 1
+      first_dot = sanitized.index(".")
+      sanitized = sanitized[0..first_dot] + sanitized[(first_dot + 1)..].delete(".")
+    end
+    sanitized = "0" unless sanitized.match?(/\d/)
+    (BigDecimal(sanitized.presence || 0) * (is_currency_type_single_unit?(currency_type) ? 1 : 100)).round
   end
 
   def query_rate(currency_type)

@@ -11,7 +11,7 @@ module User::SocialGoogle
     pic_url = pic_url.gsub("s96-c", "s400-c")
     pic_url = URI(URI::DEFAULT_PARSER.escape(pic_url))
 
-    URI.open(pic_url) do |remote_file|
+    URI.open(pic_url, open_timeout: 5, read_timeout: 5) do |remote_file|
       content_type = remote_file.content_type
       return nil unless valid_avatar_content_type?(content_type)
 
@@ -42,7 +42,7 @@ module User::SocialGoogle
   class_methods do
     def find_or_create_for_google_oauth2(data)
       if data["uid"].blank?
-        Bugsnag.notify("Google OAuth2 data is missing a uid")
+        ErrorNotifier.notify("Google OAuth2 data is missing a uid")
         return nil
       end
 
@@ -73,7 +73,7 @@ module User::SocialGoogle
       user
     rescue ActiveRecord::RecordInvalid => e
       logger.error("Error finding or creating user via Google OAuth2: #{e.message}")
-      Bugsnag.notify(e)
+      ErrorNotifier.notify(e)
       nil
     end
 

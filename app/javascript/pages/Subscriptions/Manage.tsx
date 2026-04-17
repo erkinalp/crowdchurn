@@ -115,6 +115,8 @@ export default function SubscriptionsManage() {
 
   const subscriptionEntity = subscription.is_installment_plan ? "installment plan" : "membership";
   const restartable = !subscription.alive || subscription.pending_cancellation;
+  const isResubscribing =
+    !subscription.alive && !subscription.pending_cancellation && !subscription.is_installment_plan;
   const initialSelection = {
     recurrence: subscription.recurrence,
     rent: false,
@@ -135,13 +137,14 @@ export default function SubscriptionsManage() {
       option.id === subscription.option_id
         ? {
             ...option,
-            status: hasPriceChanged
-              ? `Your current plan is ${formatPriceCentsWithCurrencySymbol(
-                  product.currency_code,
-                  Math.round(subscription.price / subscription.quantity),
-                  { symbolFormat: "long" },
-                )} ${recurrenceLabels[subscription.recurrence]}, based on previous pricing. This price will remain the same when updating your payment method.`
-              : undefined,
+            status:
+              hasPriceChanged && !isResubscribing
+                ? `Your current plan is ${formatPriceCentsWithCurrencySymbol(
+                    product.currency_code,
+                    Math.round(subscription.price / subscription.quantity),
+                    { symbolFormat: "long" },
+                  )} ${recurrenceLabels[subscription.recurrence]}, based on previous pricing. This price will remain the same when updating your payment method.`
+                : undefined,
           }
         : option,
     ),
@@ -163,7 +166,7 @@ export default function SubscriptionsManage() {
   const isQuantityChanged = selection.quantity !== subscription.quantity;
   const isRecurrenceChanged = selection.recurrence !== subscription.recurrence;
   const noChangesToNonPriceOptions =
-    selection.optionId === subscription.option_id && !isRecurrenceChanged && !isQuantityChanged;
+    selection.optionId === subscription.option_id && !isRecurrenceChanged && !isQuantityChanged && !isResubscribing;
 
   let warning = null;
   if (selection.optionId === subscription.option_id && hasPriceChanged) {
@@ -174,6 +177,8 @@ export default function SubscriptionsManage() {
       warning = `Changing the number of seats will update your subscription to the current price of ${price} per seat.`;
     } else if (isRecurrenceChanged) {
       warning = `Changing the billing frequency will update your subscription to the current price of ${price} per seat.`;
+    } else if (isResubscribing) {
+      warning = `Restarting will update your subscription to the current price of ${price} per seat.`;
     }
   }
 

@@ -72,12 +72,15 @@ class CreatorAnalytics::ProductPageViews
         after_key = response_agg["after_key"]
       end
       buckets
+    rescue Elasticsearch::Transport::Transport::Errors::NotFound
+      []
     end
 
     def build_body(sources)
       {
         query: @query,
         size: 0,
+        timeout: "60s",
         aggs: { composite_agg: { composite: { size: ES_MAX_BUCKET_SIZE, sources: } } }
       }
     end

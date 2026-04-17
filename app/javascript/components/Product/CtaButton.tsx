@@ -165,7 +165,7 @@ export const CtaButton = React.forwardRef<HTMLAnchorElement, Props>(
                     : "I want this!")}
         </NavigationButton>
 
-        {product.installment_plan && product.installment_plan.number_of_installments > 1 ? (
+        {product.installment_plan && product.installment_plan.number_of_installments > 1 && discountedPriceCents > 0 ? (
           <>
             <NavigationButton
               color="black"
@@ -176,7 +176,7 @@ export const CtaButton = React.forwardRef<HTMLAnchorElement, Props>(
               Pay in {product.installment_plan.number_of_installments} installments
             </NavigationButton>
             {showInstallmentPlanNotes ? (
-              <small className="text-center">
+              <small className="block text-center">
                 {formatInstallmentPaymentSchedule(
                   discountedPriceCents,
                   product.currency_code,

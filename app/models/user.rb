@@ -7,12 +7,14 @@ class User < ApplicationRecord
   has_paper_trail
   has_one_time_password
   include Flipper::Identifier, FlagShihTzu, CurrencyHelper, Mongoable, JsonData, Deletable, MoneyBalance,
-          DeviseInternal, PayoutSchedule, SocialFacebook, SocialTwitter, SocialGoogle, SocialApple, SocialGoogleMobile,
+          DeviseInternal, PayoutSchedule, SocialGoogle, SocialApple, SocialGoogleMobile,
           StripeConnect, Stats, PaymentStats, FeatureStatus, Risk, Compliance, Validations, Taxation, PingNotification,
           AsyncDeviseNotification, Posts, AffiliatedProducts, Followers, LowBalanceFraudCheck, MailerLevel,
           DirectAffiliates, AsJson, Tier, Recommendations, Team, AustralianBacktaxes, WithCdnUrl,
           TwoFactorAuthentication, Versionable, Comments, VipCreator, SignedUrlHelper, Purchases, SecureExternalId,
-          AttributeBlockable, PayoutInfo
+          AttributeBlockable, PayoutInfo, EmailNormalization
+
+  has_many :user_external_authentications, dependent: :destroy
 
   stripped_fields :name, :facebook_meta_tag, :google_analytics_id, :username, :email, :support_email
 
@@ -75,6 +77,7 @@ class User < ApplicationRecord
   has_many :user_compliance_infos
   has_many :user_compliance_info_requests
   has_many :user_tax_forms
+  has_many :scheduled_payouts
   has_many :workflows, foreign_key: :seller_id
   has_many :merchant_accounts
   has_many :shipping_destinations
@@ -120,6 +123,7 @@ class User < ApplicationRecord
   has_one :alive_cart, -> { alive }, class_name: "Cart"
   has_many :product_reviews, through: :purchases
   has_one :refund_policy, -> { where(product_id: nil) }, foreign_key: "seller_id", class_name: "SellerRefundPolicy", dependent: :destroy
+  has_one :totp_credential, dependent: :destroy
   has_many :utm_links, dependent: :destroy, foreign_key: :seller_id
   has_many :seller_communities, class_name: "Community", foreign_key: :seller_id, dependent: :destroy
   has_many :community_chat_messages, dependent: :destroy
@@ -168,6 +172,7 @@ class User < ApplicationRecord
   attr_json_data_accessor :custom_fee_per_thousand
   attr_json_data_accessor :payouts_paused_by
   attr_json_data_accessor :daily_product_creation_limit
+  attr_json_data_accessor :tiktok_pixel_id
 
   attr_blockable :email
   attr_blockable :form_email, object_type: :email
@@ -193,10 +198,12 @@ class User < ApplicationRecord
   validates_presence_of :email, if: :email_required?
   validate :email_almost_unique
   validates :email, email_format: true, allow_blank: true, if: :email_changed?
+  validates :email, disposable_email: true, on: :create, if: -> { Feature.active?(:block_disposable_emails_at_signup) }
   validates :kindle_email, format: { with: KINDLE_EMAIL_REGEX }, allow_blank: true, if: :kindle_email_changed?
   validates :support_email, email_format: true, allow_blank: true, if: :support_email_changed?
   validates :support_email, not_reserved_email_domain: true, allow_blank: true, if: :support_email_changed?, unless: :is_team_member?
   validate :google_analytics_id_valid
+  validate :tiktok_pixel_id_valid
   validate :avatar_is_valid
   validate :payout_frequency_is_valid
 
@@ -213,8 +220,11 @@ class User < ApplicationRecord
   validate :json_data, :json_data_must_be_hash
   validate :account_created_email_domain_is_not_blocked, on: :create
   validate :account_created_ip_is_not_blocked, on: :create
+  validate :email_not_from_suspended_gmail_variant, on: :create
   validate :facebook_meta_tag_is_valid
   validates :payment_address, email_format: true, allow_blank: true
+
+  before_validation { self.tiktok_pixel_id = tiktok_pixel_id.strip if tiktok_pixel_id.present? }
 
   before_save :append_http
   before_save :save_external_id
@@ -256,7 +266,7 @@ class User < ApplicationRecord
             26 => :collect_eu_vat,
             27 => :is_eu_vat_exclusive,
             28 => :is_team_member,
-            29 => :DEPRECATED_has_payout_privilege,
+            29 => :has_dismissed_getting_started_checklist,
             30 => :DEPRECATED_has_risk_privilege,
             31 => :disable_paypal_sales,
             32 => :all_adult_products,
@@ -285,9 +295,9 @@ class User < ApplicationRecord
             check_for_column: false
 
   LINK_PROPERTIES = %w[username twitter_handle bio name google_analytics_id flags
-                       facebook_pixel_id skip_free_sale_analytics disable_third_party_analytics].freeze
+                       facebook_pixel_id tiktok_pixel_id skip_free_sale_analytics disable_third_party_analytics].freeze
 
-  after_update :clear_products_cache, if: -> (user) { (User::LINK_PROPERTIES & user.saved_changes.keys).present? || (%w[font background_color highlight_color] & user.seller_profile&.saved_changes&.keys).present? }
+  after_update :clear_products_cache, if: -> (user) { (User::LINK_PROPERTIES & user.saved_changes.keys).present? || user.tiktok_pixel_id_changed_in_json_data? || (%w[font background_color highlight_color] & user.seller_profile&.saved_changes&.keys).present? }
 
   after_save :create_updated_stripe_apple_pay_domain, if: ->(user) { user.saved_change_to_username? }
   after_save :delete_old_stripe_apple_pay_domain, if: ->(user) { user.saved_change_to_username? }
@@ -300,20 +310,6 @@ class User < ApplicationRecord
   after_commit :generate_subscribe_preview, on: [:create, :update], if: :should_subscribe_preview_be_regenerated?
   after_create :insert_null_chargeback_state
 
-  # risk state machine
-  #
-  #  not_reviewed  → → → → → → → → → → → → → → compliant  ↔  ↔  ↔  ↔ ↕︎
-  #  ↓                                         ↓     ↑               ↕︎
-  #  ↓ ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←     ↑               ↕︎
-  #  ↓                                               ↑               ↕︎
-  #  ↓            →  →  →  →  →  →  →  →  →  →  →  → ↑ →  →  →  →  → ↕
-  #  ↓           ↑                                   ↑               ↕︎
-  #  ↓→  flagged_for_fraud  → suspended_for_fraud  ↔ ↑ ↔  ↔  ↔  ↔ on_probation
-  #  ↓      ↓↑                                       ↑               ↕︎
-  #  ↓→   flagged_for_tos   →  suspended_for_tos   ↔ ↑ ↔ ↔ ↔ ↔ ↔ ↔ ↔ ↔
-  #  ↓          ↓                                    ↓               ↑
-  #  ↓ →  →  →  →  →  →  →  →  →  →  →  → →  →  →  → ↑ →  →  →  →  → →
-  #
   state_machine(:user_risk_state, initial: :not_reviewed) do
     before_transition any => %i[flagged_for_fraud flagged_for_tos_violation suspended_for_fraud suspended_for_tos_violation],
                       :do => :not_verified?
@@ -327,6 +323,9 @@ class User < ApplicationRecord
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :block_seller_ip!
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :delete_custom_domain!
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :log_suspension_time_to_mongo
+    after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :send_suspension_email
+    after_transition any => %i[suspended_for_fraud suspended_for_tos_violation flagged_for_fraud flagged_for_tos_violation],
+                     :do => :add_to_gmail_abuse_filter
 
     after_transition any => :compliant, :do => :enable_refunds!
 
@@ -335,6 +334,8 @@ class User < ApplicationRecord
     after_transition %i[suspended_for_fraud suspended_for_tos_violation not_reviewed] => %i[compliant on_probation], :do => :unblock_seller_ip!
     after_transition %i[suspended_for_fraud suspended_for_tos_violation] => :compliant, do: :enable_sellers_other_accounts
     after_transition %i[suspended_for_fraud suspended_for_tos_violation] => %i[compliant on_probation], :do => :create_updated_stripe_apple_pay_domain
+    after_transition %i[suspended_for_fraud suspended_for_tos_violation flagged_for_fraud flagged_for_tos_violation] => %i[compliant on_probation],
+                     :do => :remove_from_gmail_abuse_filter
 
     event :mark_compliant do
       transition all => :compliant
@@ -353,11 +354,11 @@ class User < ApplicationRecord
     end
 
     event :suspend_for_fraud do
-      transition %i[on_probation flagged_for_fraud] => :suspended_for_fraud
+      transition %i[not_reviewed compliant on_probation flagged_for_fraud flagged_for_tos_violation] => :suspended_for_fraud
     end
 
     event :suspend_for_tos_violation do
-      transition %i[on_probation flagged_for_tos_violation] => :suspended_for_tos_violation
+      transition %i[not_reviewed compliant on_probation flagged_for_tos_violation flagged_for_fraud] => :suspended_for_tos_violation
     end
 
     event :put_on_probation do
@@ -415,6 +416,9 @@ class User < ApplicationRecord
   def resized_avatar_url(size:)
     return ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png") unless avatar.attached?
     cdn_url_for(avatar.variant(resize_to_limit: [size, size]).processed.url)
+  rescue ActiveStorage::FileNotFoundError => e
+    Rails.logger.warn("User#resized_avatar_url error (#{id}): #{e.class} => #{e.message}")
+    ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png")
   end
 
   def avatar_url
@@ -519,7 +523,9 @@ class User < ApplicationRecord
     products.purchasing_power_parity_disabled.or(products.by_external_ids(external_ids)).each do |product|
       should_disable = external_ids.include?(product.external_id)
 
-      product.update!(purchasing_power_parity_disabled: should_disable) unless should_disable && product.purchasing_power_parity_disabled?
+      next if should_disable && product.purchasing_power_parity_disabled?
+      product.purchasing_power_parity_disabled = should_disable
+      product.save!(validate: false)
     end
   end
 
@@ -705,6 +711,13 @@ class User < ApplicationRecord
     attributes.keys.keep_if { |key| key.include?("_at") && send(key) }
   end
 
+  def tiktok_pixel_id_changed_in_json_data?
+    return false unless saved_change_to_json_data?
+
+    old_json, new_json = saved_change_to_json_data
+    (old_json || {})["tiktok_pixel_id"] != (new_json || {})["tiktok_pixel_id"]
+  end
+
   def clear_products_cache
     array_of_product_ids = links.ids.map { |product_id| [product_id] }
     InvalidateProductCacheWorker.perform_bulk(array_of_product_ids)
@@ -851,7 +864,7 @@ class User < ApplicationRecord
   end
 
   def auto_transcode_videos?
-    tier_pricing_enabled? ? tier >= TIER_3 : sales_cents_total >= TIER_3
+    tier >= TIER_3
   end
 
   def read_attribute_for_validation(attr)
