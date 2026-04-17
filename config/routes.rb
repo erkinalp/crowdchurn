@@ -27,6 +27,12 @@ Rails.application.routes.draw do
     controllers tokens: "oauth/tokens"
   end
 
+  namespace :oauth do
+    resource :mobile_pre_authorization, only: [:new] do
+      get :switch_account, on: :member
+    end
+  end
+
   # third party analytics (near the top to matches constraint first)
   constraints(host: /#{THIRD_PARTY_ANALYTICS_DOMAIN}/o) do
     get "/:link_id", to: "third_party_analytics#index", as: :third_party_analytics
@@ -36,6 +42,8 @@ Rails.application.routes.draw do
   # API routes used in both api.gumroad.com and gumroad.com/api
   def api_routes
     scope "v2", module: "v2", as: "v2" do
+      post "files/presign", to: "files#presign"
+      post "files/complete", to: "files#complete"
       resources :licenses, only: [] do
         collection do
           post :verify
@@ -65,6 +73,9 @@ Rails.application.routes.draw do
           end
           resources :comments, only: [:index, :create, :show, :update, :destroy], controller: "post_comments"
         end
+        put "bundle_contents", to: "bundle_contents#update"
+        resource :thumbnail, only: [:create, :destroy]
+        resources :covers, only: [:create, :destroy]
         member do
           put "disable"
           put "enable"
@@ -219,6 +230,7 @@ Rails.application.routes.draw do
         get "/purchases/purchase_attributes/:id", to: "purchases#purchase_attributes"
         post "/purchases/:id/archive", to: "purchases#archive"
         post "/purchases/:id/unarchive", to: "purchases#unarchive"
+        delete "/purchases/:id", to: "purchases#destroy"
         get "/url_redirects/get_url_redirect_attributes/:id", to: "url_redirects#url_redirect_attributes"
         get "/url_redirects/fetch_placeholder_products", to: "url_redirects#fetch_placeholder_products"
         get "/url_redirects/stream/:token/:product_file_id", to: "url_redirects#stream", as: :stream_video
@@ -250,6 +262,7 @@ Rails.application.routes.draw do
       end
 
       namespace :internal do
+        resource :mobile_minimum_version, only: :show
         resources :home_page_numbers, only: :index
         namespace :helper do
           post :webhook, to: "webhook#handle"
@@ -258,6 +271,7 @@ Rails.application.routes.draw do
             collection do
               get :user_info
               post :create_appeal
+              post :create_comment
               post :user_suspension_info
               post :send_reset_password_instructions
               post :update_email
@@ -303,6 +317,7 @@ Rails.application.routes.draw do
     get "/careers", to: "careers#index"
     get "/careers/:slug", to: "careers#show", as: :career
     get "/features", to: "home#features"
+    get "/features.md", to: "home#features_md"
     get "/pricing", to: "home#pricing"
     get "/terms", to: "home#terms"
     get "/prohibited", to: "home#prohibited"
@@ -366,7 +381,6 @@ Rails.application.routes.draw do
       get "logout", to: "logins#destroy"
       delete "logout", to: "logins#destroy"
       scope "/users" do
-        get "/check_twitter_link", to: "users/oauth#check_twitter_link"
         get "/unsubscribe/:id", to: "users#email_unsubscribe", as: :user_unsubscribe
         scope module: :users do
           get "subscribe_review_reminders", to: "review_reminders#subscribe", as: :user_subscribe_review_reminders
@@ -438,27 +452,22 @@ Rails.application.routes.draw do
 
     draw(:admin)
 
-    post "/settings/store_facebook_token", to: "users/oauth#async_facebook_store_token", as: :ajax_facebook_access_token
-
-    get "/settings/async_twitter_complete", to: "users/oauth#async_twitter_complete", as: :async_twitter_complete
-
     # user account settings stuff
     resource :settings, only: [] do
       resources :applications, only: [] do
         resources :access_tokens, only: :create, controller: "oauth/access_tokens"
       end
       get :profiles, to: redirect("/settings")
-      resource :connections, only: [] do
-        member do
-          post :unlink_twitter
-        end
-      end
     end
     namespace :settings do
       resource :main, only: %i[show update], path: "", controller: "main" do
         post :resend_confirmation_email
       end
       resource :password, only: %i[show update], controller: "password"
+      resource :totp, only: %i[create destroy], controller: "totp" do
+        post :confirm
+        post :regenerate_recovery_codes
+      end
       resource :profile, only: %i[show update], controller: "profile"
       resource :third_party_analytics, only: %i[show update], controller: "third_party_analytics"
       resource :advanced, only: %i[show update], controller: "advanced"
@@ -565,6 +574,9 @@ Rails.application.routes.draw do
       get :verify
     end
     post "/two-factor/resend_authentication_token", to: "two_factor_authentication#resend_authentication_token", as: :resend_authentication_token
+    post "/two-factor/switch_to_email", to: "two_factor_authentication#switch_to_email", as: :switch_to_email_two_factor
+    post "/two-factor/switch_to_recovery", to: "two_factor_authentication#switch_to_recovery", as: :switch_to_recovery_two_factor
+    post "/two-factor/switch_to_authenticator", to: "two_factor_authentication#switch_to_authenticator", as: :switch_to_authenticator_two_factor
 
     # library
     get "/library", to: "library#index", as: :library
@@ -578,6 +590,7 @@ Rails.application.routes.draw do
     get "/customers/sales", controller: "customers", action: "customers_paged", format: "json", as: :sales_paged
     get "/customers", controller: "customers", action: "index", format: "html", as: :customers
     get "/customers/paged", controller: "customers", action: "paged", format: "json"
+    get "/customers/sale/:purchase_id", controller: "customers", action: "show", format: "html", as: :customer_sale
     get "/customers/:link_id", controller: "customers", action: "index", format: "html", as: :customers_link_id
     post "/customers/import", to: "customers#customers_import", as: :customers_import
     post "/customers/import_manually_entered_emails", to: "customers#customers_import_manually_entered_emails", as: :customers_import_manually_entered_emails
@@ -755,6 +768,7 @@ Rails.application.routes.draw do
     get "/dashboard/active_members_count" => "dashboard#active_members_count", as: :dashboard_active_members_count
     get "/dashboard/monthly_recurring_revenue" => "dashboard#monthly_recurring_revenue", as: :dashboard_monthly_recurring_revenue
     get "/dashboard/download_tax_form" => "dashboard#download_tax_form", as: :dashboard_download_tax_form
+    post "/dashboard/dismiss_getting_started_checklist" => "dashboard#dismiss_getting_started_checklist", as: :dashboard_dismiss_getting_started_checklist
 
     get "/products", to: "links#index", as: :products
     get "/l/:id", to: "links#show", defaults: { format: "html" }, as: :short_link
@@ -968,6 +982,8 @@ Rails.application.routes.draw do
     get "/paypal_charge_data", to: "public#paypal_charge_data", as: :paypal_charge_data
     get "/CHARGE" => redirect("/charge")
 
+    get "/install-cli.sh", to: redirect("https://raw.githubusercontent.com/antiwork/gumroad-cli/refs/heads/main/script/install.sh")
+
     # discover
     get "/blackfriday", to: redirect("/discover?offer_code=BLACKFRIDAY2025"), as: :blackfriday
     get "/discover", to: "discover#index"
@@ -1039,6 +1055,9 @@ Rails.application.routes.draw do
     get "/.well-known/acme-challenge/:token", to: "acme_challenges#show"
     product_tracking_routes(named_routes: false)
     get "/", to: "links#show", defaults: { format: "html" }
+    get "/l/:id", to: "links#show", defaults: { format: "html" }
+    get "/l/:id/:code", to: "links#show", defaults: { format: "html" }
+    get "/:code", to: "links#show", defaults: { format: "html" }
   end
 
   constraints UserCustomDomainConstraint do

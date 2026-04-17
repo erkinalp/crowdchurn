@@ -2,8 +2,7 @@ import { DirectUpload } from "@rails/activestorage";
 import { isEqual } from "lodash-es";
 import * as React from "react";
 import { createBrowserRouter, RouteObject, RouterProvider } from "react-router-dom";
-import { StaticRouterProvider } from "react-router-dom/server";
-import { cast, createCast } from "ts-safe-cast";
+import { cast } from "ts-safe-cast";
 
 import { saveProduct } from "$app/data/product_edit";
 import { OtherRefundPolicy } from "$app/data/products/other_refund_policies";
@@ -13,7 +12,6 @@ import { CurrencyCode } from "$app/utils/currency";
 import { Taxonomy } from "$app/utils/discover";
 import { ALLOWED_EXTENSIONS } from "$app/utils/file";
 import { assertResponseError, request } from "$app/utils/request";
-import { buildStaticRouter, GlobalProps, register } from "$app/utils/serverComponentUtil";
 
 import { Seller } from "$app/components/Product";
 import { ContentTab } from "$app/components/ProductEdit/ContentTab";
@@ -24,14 +22,14 @@ import { ReceiptTab } from "$app/components/ProductEdit/ReceiptTab";
 import { RefundPolicy } from "$app/components/ProductEdit/RefundPolicy";
 import { ShareTab } from "$app/components/ProductEdit/ShareTab";
 import {
-  ProductEditContext,
-  Product,
-  ProfileSection,
-  ExistingFileEntry,
-  ShippingCountry,
   ContentUpdates,
   AvailableCurrency,
   AvailableCryptocurrency,
+  ExistingFileEntry,
+  Product,
+  ProductEditContext,
+  ProfileSection,
+  ShippingCountry,
 } from "$app/components/ProductEdit/state";
 import { ImageUploadSettingsContext } from "$app/components/RichTextEditor";
 import { showAlert } from "$app/components/server-components/Alert";
@@ -91,6 +89,9 @@ type Props = {
   ai_generated: boolean;
 };
 
+const buildFilesById = (productId: string, files: Props["product"]["files"]) =>
+  new Map(files.map((file) => [file.id, { ...file, url: getDownloadUrl(productId, file) }]));
+
 const createContextValue = (props: Props) => ({
   id: props.id,
   product: props.product,
@@ -126,7 +127,6 @@ const createContextValue = (props: Props) => ({
   cancellationDiscountsEnabled: props.cancellation_discounts_enabled,
   contentUpdates: null,
   setContentUpdates: () => {},
-  filesById: new Map(props.product.files.map((file) => [file.id, { ...file, url: getDownloadUrl(props.id, file) }])),
   aiGenerated: props.ai_generated,
 });
 
@@ -162,7 +162,7 @@ const ProductEditPage = (props: Props) => {
       return updated;
     });
   const [existingFiles, setExistingFiles] = React.useState(props.existing_files);
-  const router = createBrowserRouter(routes);
+  const [router] = React.useState(() => createBrowserRouter(routes));
 
   const [saving, setSaving] = React.useState(false);
   const [imagesUploading, setImagesUploading] = React.useState<Set<File>>(new Set());
@@ -198,6 +198,8 @@ const ProductEditPage = (props: Props) => {
     setSaving(false);
   };
 
+  const filesById = React.useMemo(() => buildFilesById(props.id, product.files), [product.files, props.id]);
+
   const contextValue = React.useMemo(
     () => ({
       ...createContextValue({ ...props, product }),
@@ -210,8 +212,9 @@ const ProductEditPage = (props: Props) => {
       saving,
       contentUpdates,
       setContentUpdates,
+      filesById,
     }),
-    [product, updateProduct, existingFiles, setExistingFiles],
+    [product, updateProduct, existingFiles, setExistingFiles, filesById],
   );
 
   const imageSettings = React.useMemo(
@@ -258,20 +261,5 @@ const ProductEditPage = (props: Props) => {
   );
 };
 
-const ProductEditRouter = async (global: GlobalProps) => {
-  const { router, context } = await buildStaticRouter(global, routes);
-  const component = (props: Props) => (
-    <ProductEditContext.Provider
-      value={{
-        ...createContextValue(props),
-        setCurrencyType: (_currency) => {}, // no-op
-      }}
-    >
-      <StaticRouterProvider router={router} context={context} nonce={global.csp_nonce} />
-    </ProductEditContext.Provider>
-  );
-  component.displayName = "ProductEditRouter";
-  return component;
-};
-
-export default register({ component: ProductEditPage, ssrComponent: ProductEditRouter, propParser: createCast() });
+export { ProductEditPage };
+export type { Props as ProductEditPageProps };

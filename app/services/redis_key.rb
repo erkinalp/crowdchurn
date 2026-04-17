@@ -40,6 +40,7 @@ class RedisKey
     def create_vat_report_job_max_execution_time_seconds = "create_vat_report_job:max_execution_time_seconds"
     def transcoded_videos_recentness_limit_in_months = "transcoded_videos_recentness_limit_in_months"
     def generate_fees_by_creator_location_job_max_execution_time_seconds = "generate_fees_by_creator_location_job:max_execution_time_seconds"
+    def create_global_sales_tax_summary_report_job_max_execution_time_seconds = "create_global_sales_tax_summary_report_job:max_execution_time_seconds"
     def ytd_sales_report_emails = "reports:ytd_sales_report_emails"
     def failed_seller_purchases_watch_minutes = "failed_seller_purchases_watch_minutes"
     def max_seller_failed_purchases_price_cents = "max_seller_failed_purchases_price_cents"
@@ -50,5 +51,8 @@ class RedisKey
     def unreviewed_users_cutoff_date = "admin:unreviewed_users_cutoff_date"
     def paypal_topup_needed = "paypal:topup_needed"
     def email_router_fallback(user_id) = "email_router_fallback:#{user_id}"
+    def mobile_minimum_version = "mobile:minimum_version"
+    def mobile_minimum_update_created_at = "mobile:minimum_update_created_at"
+    def gmail_abuse_normalized_emails = "gmail_abuse:normalized_emails"
   end
 end

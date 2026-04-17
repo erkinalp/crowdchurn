@@ -422,7 +422,11 @@ class Installment < ApplicationRecord
     else
       recipient = { email: recipient_user.email }
       recipient[:url_redirect] = UrlRedirect.find_or_create_by!(installment: self, purchase: nil) if has_files?
-      PostEmailApi.process(post: self, recipients: [recipient], preview: true)
+      begin
+        PostEmailApi.process(post: self, recipients: [recipient], preview: true)
+      rescue ResendApiResponseError
+        raise PreviewEmailError, "Failed to send preview email. Please try again later."
+      end
     end
   end
 
@@ -855,6 +859,14 @@ class Installment < ApplicationRecord
     return [] unless tags.all? { |tag| tag.start_with?("#") }
 
     tags.map { normalize_tag(it) }.uniq
+  end
+
+  def delivery_due?(purchase)
+    return true if installment_rule.blank?
+    return true if workflow.blank?
+    return true unless purchase.subscription&.resubscribed?
+
+    Time.current >= expected_delivery_time(purchase)
   end
 
   class InstallmentInvalid < StandardError

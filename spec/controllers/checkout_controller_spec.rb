@@ -45,6 +45,7 @@ describe CheckoutController, type: :controller, inertia: true do
       expect(meta_by_property).to include(
         "gr:google_analytics:enabled" => "true",
         "gr:fb_pixel:enabled" => "true",
+        "gr:tiktok_pixel:enabled" => "true",
         "gr:logged_in_user:id" => "",
         "gr:page:type" => "",
         "gr:facebook_sdk:enabled" => "true"
@@ -223,6 +224,16 @@ describe CheckoutController, type: :controller, inertia: true do
         expect(response).to be_successful
         expect(inertia.component).to eq("Checkout/Show")
         expect(inertia.props.deep_symbolize_keys[:recommended_products]).to eq([product_cards.first])
+      end
+
+      it "returns empty array when recommendations time out" do
+        allow(RecommendedProducts::CheckoutService).to receive(:fetch_for_cart).and_raise(Timeout::Error)
+
+        get :show, params: { cart_product_ids: [cart_product.external_id], on_discover_page: "false", limit: "5" }, session: { recommender_model_name: }
+
+        expect(response).to be_successful
+        expect(inertia.component).to eq("Checkout/Show")
+        expect(inertia.props.deep_symbolize_keys[:recommended_products]).to eq([])
       end
     end
   end
