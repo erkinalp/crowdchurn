@@ -238,7 +238,7 @@ class Link < ApplicationRecord
   after_save :queue_iffy_ingest_job_if_unpublished_by_admin
   after_create :create_fund_cart_if_needed
 
-  enum subscription_duration:%i[monthly yearly quarterly biannually every_two_years]
+  enum subscription_duration: %i[monthly yearly quarterly biannually every_two_years]
   enum purchase_type: %i[buy_only rent_only buy_and_rent] # Indicates whether this product can be bought or rented or both.
 
   def purchase_type=(value)
