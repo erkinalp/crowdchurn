@@ -7,6 +7,8 @@ import { Button } from "$app/components/Button";
 import { Icon } from "$app/components/Icons";
 import { Layout } from "$app/components/ProductEdit/Layout";
 import { showAlert } from "$app/components/server-components/Alert";
+import { Input } from "$app/components/ui/Input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$app/components/ui/Table";
 
 type FundCartItem = {
   id: string;
@@ -140,7 +142,7 @@ export const FundCartItemsPanel = ({
         <section className="p-4! md:p-8!">
           <h2>Add Item</h2>
           <div className="flex gap-2">
-            <input
+            <Input
               type="text"
               className="flex-1"
               placeholder="Product ID or permalink"
@@ -168,20 +170,22 @@ export const FundCartItemsPanel = ({
           {pendingItems.length === 0 ? (
             <p className="text-muted">No pending items.</p>
           ) : (
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className="text-left">Product</th>
-                  <th className="text-right">Price</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-left">Product</TableHead>
+                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead>
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {pendingItems.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.product_name}</td>
-                    <td className="text-right">{formatPrice(item.product_price_cents)}</td>
-                    <td className="text-right">
+                  <TableRow key={item.id}>
+                    <TableCell>{item.product_name}</TableCell>
+                    <TableCell className="text-right">{formatPrice(item.product_price_cents)}</TableCell>
+                    <TableCell className="text-right">
                       <Button
                         color="danger"
                         disabled={removingIds.has(item.id)}
@@ -189,11 +193,11 @@ export const FundCartItemsPanel = ({
                       >
                         <Icon name="trash2" />
                       </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </section>
 
@@ -202,26 +206,26 @@ export const FundCartItemsPanel = ({
           {purchasedItems.length === 0 ? (
             <p className="text-muted">No purchased items yet.</p>
           ) : (
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className="text-left">Product</th>
-                  <th className="text-right">Price</th>
-                  <th className="text-right">Purchased</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-left">Product</TableHead>
+                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead className="text-right">Purchased</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {purchasedItems.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.product_name}</td>
-                    <td className="text-right">{formatPrice(item.product_price_cents)}</td>
-                    <td className="text-right">
+                  <TableRow key={item.id}>
+                    <TableCell>{item.product_name}</TableCell>
+                    <TableCell className="text-right">{formatPrice(item.product_price_cents)}</TableCell>
+                    <TableCell className="text-right">
                       {item.purchased_at ? new Date(item.purchased_at).toLocaleDateString() : "—"}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </section>
       </div>
