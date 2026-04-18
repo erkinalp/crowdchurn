@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class FundCartItem < ApplicationRecord
-  include ExternalId
+  include NanoExternalId
 
   belongs_to :fund_cart
   belongs_to :product, class_name: "Link"
