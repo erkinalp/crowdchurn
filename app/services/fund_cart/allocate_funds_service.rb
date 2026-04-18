@@ -7,23 +7,24 @@ class FundCart::AllocateFundsService
     @fund_cart = fund_cart
   end
 
+  # Caller is responsible for wrapping this call in `fund_cart.with_lock` so
+  # balance updates and item state transitions stay consistent under concurrent
+  # contributions. See FundCart::ContributeService for the canonical caller.
   def perform
-    fund_cart.with_lock do
-      pending_items = fund_cart.pending_items
+    pending_items = fund_cart.pending_items
 
-      pending_items.each do |item|
-        product = item.product
-        total_cost = product.price_cents
+    pending_items.each do |item|
+      product = item.product
+      total_cost = product.price_cents
 
-        next if total_cost > fund_cart.balance_subunits
-        next if total_cost <= 0
+      next if total_cost > fund_cart.balance_subunits
+      next if total_cost <= 0
 
-        purchase = create_purchase_for_item(product)
-        next if purchase.blank?
+      purchase = create_purchase_for_item(product)
+      next if purchase.blank?
 
-        fund_cart.update!(balance_subunits: fund_cart.balance_subunits - total_cost)
-        item.mark_purchased!(purchase)
-      end
+      fund_cart.update!(balance_subunits: fund_cart.balance_subunits - total_cost)
+      item.mark_purchased!(purchase)
     end
   end
 
