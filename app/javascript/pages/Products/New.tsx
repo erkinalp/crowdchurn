@@ -123,7 +123,8 @@ const NewProductPage = () => {
     form.setData("link", {
       ...form.data.link,
       native_type: type,
-      is_physical: PHYSICAL_PRODUCT_TYPES.includes(type) || (OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type) && enableShipping),
+      is_physical:
+        PHYSICAL_PRODUCT_TYPES.includes(type) || (OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type) && enableShipping),
       is_recurring_billing: RECURRING_PRODUCT_TYPES.includes(type),
       subscription_duration: RECURRING_PRODUCT_TYPES.includes(type)
         ? form.data.link.subscription_duration || defaultRecurrence
