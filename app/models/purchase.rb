@@ -3352,7 +3352,6 @@ class Purchase < ApplicationRecord
       OPERATOR_NON_PRO_FEE_PERCENTAGE
     end
 
-
     def calculate_taxes
       return unless self.price_cents
       return if price_cents == 0
