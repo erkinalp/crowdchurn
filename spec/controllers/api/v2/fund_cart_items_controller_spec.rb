@@ -63,9 +63,9 @@ describe Api::V2::FundCartItemsController do
       end
 
       it "creates a pending item" do
-        expect {
+        expect do
           post @action, params: @params
-        }.to change(FundCartItem, :count).by(1)
+        end.to change(FundCartItem, :count).by(1)
         expect(response.parsed_body["success"]).to be(true)
         expect(response.parsed_body["item"]["product_name"]).to eq(@target_product.name)
         expect(response.parsed_body["item"]["state"]).to eq("pending")

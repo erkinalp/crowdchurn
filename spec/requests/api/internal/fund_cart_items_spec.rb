@@ -51,9 +51,9 @@ describe Api::Internal::FundCartItemsController, type: :request do
 
   describe "POST /api/internal/fund_carts/:fund_cart_id/items" do
     it "creates a pending item" do
-      expect {
+      expect do
         post "/api/internal/fund_carts/#{fund_cart.external_id}/items", params: { product_id: target_product.external_id }
-      }.to change(FundCartItem, :count).by(1)
+      end.to change(FundCartItem, :count).by(1)
 
       expect(response).to have_http_status(:created)
       body = response.parsed_body
