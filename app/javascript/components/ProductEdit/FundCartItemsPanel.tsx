@@ -1,10 +1,10 @@
+import { Trash } from "@boxicons/react";
 import * as React from "react";
 
 import { CurrencyCode, formatPriceCentsWithCurrencySymbol } from "$app/utils/currency";
 import { request, ResponseError } from "$app/utils/request";
 
 import { Button } from "$app/components/Button";
-import { Icon } from "$app/components/Icons";
 import { Layout } from "$app/components/ProductEdit/Layout";
 import { showAlert } from "$app/components/server-components/Alert";
 import { Input } from "$app/components/ui/Input";
@@ -191,7 +191,7 @@ export const FundCartItemsPanel = ({
                         disabled={removingIds.has(item.id)}
                         onClick={() => void handleRemove(item.id)}
                       >
-                        <Icon name="trash2" />
+                        <Trash className="size-5" />
                       </Button>
                     </TableCell>
                   </TableRow>
