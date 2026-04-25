@@ -1457,6 +1457,7 @@ class Purchase < ApplicationRecord
       purchase_custom_fields.reload
     end
     create_commission! if is_commission_deposit_purchase?
+    contribute_to_fund_cart! if link.native_type == Link::NATIVE_TYPE_FUND_CART
     create_url_redirect!
     create_license!
     send_receipt
@@ -1499,6 +1500,12 @@ class Purchase < ApplicationRecord
     elsif is_commission_completion_purchase
       commission_as_completion
     end
+  end
+
+  def contribute_to_fund_cart!
+    return if link.native_type != Link::NATIVE_TYPE_FUND_CART
+
+    FundCart::ContributeService.new(purchase: self).perform
   end
 
   def from_foreign_currency?
@@ -3344,7 +3351,6 @@ class Purchase < ApplicationRecord
     def operator_fee_percentage_for_migrated_account
       OPERATOR_NON_PRO_FEE_PERCENTAGE
     end
-
 
     def calculate_taxes
       return unless self.price_cents

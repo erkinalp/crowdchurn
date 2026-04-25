@@ -4,6 +4,7 @@ const NATIVE_TYPE_TO_VARIANT_LABEL: Partial<Record<ProductNativeType, string>> =
   call: "Duration",
   coffee: "Amount",
   consultancy: "Package",
+  fund_cart: "Tier",
   membership: "Tier",
   physical: "Variant",
   print_book: "Edition",

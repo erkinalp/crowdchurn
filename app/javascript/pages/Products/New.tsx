@@ -123,7 +123,8 @@ const NewProductPage = () => {
     form.setData("link", {
       ...form.data.link,
       native_type: type,
-      is_physical: PHYSICAL_PRODUCT_TYPES.includes(type) || (OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type) && enableShipping),
+      is_physical:
+        PHYSICAL_PRODUCT_TYPES.includes(type) || (OPTIONALLY_PHYSICAL_PRODUCT_TYPES.includes(type) && enableShipping),
       is_recurring_billing: RECURRING_PRODUCT_TYPES.includes(type),
       subscription_duration: RECURRING_PRODUCT_TYPES.includes(type)
         ? form.data.link.subscription_duration || defaultRecurrence
@@ -557,6 +558,10 @@ const PRODUCT_TYPES = {
   consultancy: {
     description: "Offer B2C consultancy services to your clients.",
     title: "Consultancy",
+  },
+  fund_cart: {
+    description: "Let supporters crowdfund items from your shopping list.",
+    title: "Fund cart",
   },
 } satisfies Record<ProductNativeType, { description: string; title: string }>;
 

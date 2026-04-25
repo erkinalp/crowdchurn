@@ -84,12 +84,13 @@ class Link < ApplicationRecord
     "call" => nil,
     "coffee" => nil,
     "consultancy" => "19000",
+    "fund_cart" => "19000",
   }.freeze
   NATIVE_TYPES = NATIVE_TYPES_TO_TAX_CODE.keys.freeze
   NATIVE_TYPES.each do |native_type|
     self.const_set("NATIVE_TYPE_#{native_type.upcase}", native_type)
   end
-  SERVICE_TYPES = [NATIVE_TYPE_COMMISSION, NATIVE_TYPE_CALL, NATIVE_TYPE_COFFEE, NATIVE_TYPE_CONSULTANCY].freeze
+  SERVICE_TYPES = [NATIVE_TYPE_COMMISSION, NATIVE_TYPE_CALL, NATIVE_TYPE_COFFEE, NATIVE_TYPE_CONSULTANCY, NATIVE_TYPE_FUND_CART].freeze
   PHYSICAL_TYPES = [NATIVE_TYPE_PHYSICAL, NATIVE_TYPE_PRINT_BOOK, NATIVE_TYPE_FOOD].freeze
   OPTIONALLY_PHYSICAL_TYPES = [NATIVE_TYPE_BREAD, NATIVE_TYPE_LITERAL_COFFEE].freeze
   LEGACY_TYPES = ["podcast", "newsletter", "audiobook"].freeze
@@ -177,6 +178,7 @@ class Link < ApplicationRecord
   has_many :surveys, as: :surveyable, dependent: :destroy
   has_many :message_templates, as: :templateable, dependent: :destroy
   has_many :product_experiments, foreign_key: :product_id, dependent: :destroy
+  has_one :fund_cart
 
   before_validation :associate_price, on: :create
   before_validation :set_unique_permalink
@@ -234,6 +236,7 @@ class Link < ApplicationRecord
   after_update :delete_unused_prices, if: :saved_change_to_purchase_type?
   after_update :reset_moderated_by_iffy_flag, if: :saved_change_to_description?
   after_save :queue_iffy_ingest_job_if_unpublished_by_admin
+  after_create :create_fund_cart_if_needed
 
   enum subscription_duration: %i[monthly yearly quarterly biannually every_two_years]
   enum purchase_type: %i[buy_only rent_only buy_and_rent] # Indicates whether this product can be bought or rented or both.
@@ -1460,5 +1463,11 @@ class Link < ApplicationRecord
       return unless is_unpublished_by_admin? && !saved_change_to_is_unpublished_by_admin?
 
       Iffy::Product::IngestJob.perform_async(id)
+    end
+
+    def create_fund_cart_if_needed
+      return if native_type != NATIVE_TYPE_FUND_CART
+
+      create_fund_cart!(user: self.user, currency: price_currency_type)
     end
 end

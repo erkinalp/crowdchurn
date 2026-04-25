@@ -31,7 +31,7 @@ export type ProductNativeType =
   | "bundle"
   | ProductServiceType;
 
-export type ProductServiceType = "commission" | "call" | "coffee" | "consultancy";
+export type ProductServiceType = "commission" | "call" | "coffee" | "consultancy" | "fund_cart";
 
 export type Ratings = { count: number; average: number };
 
