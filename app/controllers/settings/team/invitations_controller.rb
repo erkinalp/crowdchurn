@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class Settings::Team::InvitationsController < Sellers::BaseController
+  skip_before_action :require_account_email, only: :accept
   before_action :set_team_invitation, only: %i[update destroy restore resend_invitation]
 
   def create
@@ -37,8 +38,12 @@ class Settings::Team::InvitationsController < Sellers::BaseController
   def restore
     authorize [:settings, :team, @team_invitation]
 
-    @team_invitation.update_as_not_deleted!
-    render json: { success: true }
+    @team_invitation.deleted_at = nil
+    if @team_invitation.save
+      render json: { success: true }
+    else
+      render json: { success: false, error_message: @team_invitation.errors.full_messages.to_sentence }
+    end
   end
 
   def accept

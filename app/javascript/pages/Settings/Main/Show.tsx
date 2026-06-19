@@ -1,12 +1,14 @@
 import { useForm, usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { SettingPage } from "$app/parsers/settings";
 import { asyncVoid } from "$app/utils/promise";
 import { request, assertResponseError } from "$app/utils/request";
 
 import { Button } from "$app/components/Button";
+import { useDomains } from "$app/components/DomainSettings";
+import { useLoggedInUser } from "$app/components/LoggedInUser";
 import { Modal } from "$app/components/Modal";
 import { NumberInput } from "$app/components/NumberInput";
 import { showAlert } from "$app/components/server-components/Alert";
@@ -41,6 +43,7 @@ type MainPageProps = {
   currencies: { name: string; code: string }[];
   user: {
     email: string | null;
+    username: string;
     support_email: string | null;
     locale: string;
     timezone: string;
@@ -75,8 +78,10 @@ type MainPageProps = {
 };
 
 export default function MainPage() {
-  const props = cast<MainPageProps>(usePage().props);
+  const props = typia.assert<MainPageProps>(usePage().props);
   const uid = React.useId();
+  const { rootDomain, scheme } = useDomains();
+  const loggedInUser = useLoggedInUser();
 
   const form = useForm({
     user: {
@@ -90,6 +95,7 @@ export default function MainPage() {
   });
 
   const isFormDisabled = props.is_form_disabled || form.processing;
+  const canUpdateUsername = Boolean(loggedInUser?.policies.settings_main_user.update_username) && !isFormDisabled;
 
   const updateUserSettings = (settings: Partial<typeof form.data.user>) =>
     form.setData("user", { ...form.data.user, ...settings });
@@ -117,6 +123,7 @@ export default function MainPage() {
       preserveScroll: true,
     });
   };
+  const subdomain = `${form.data.user.username}.${rootDomain}`;
 
   return (
     <Layout currentPage="main" pages={props.settings_pages} onSave={onSave} canUpdate={!isFormDisabled}>
@@ -150,6 +157,27 @@ export default function MainPage() {
                 )}
               </FieldsetDescription>
             ) : null}
+          </Fieldset>
+          <Fieldset>
+            <FieldsetTitle>
+              <Label htmlFor={`${uid}-username`}>Username</Label>
+            </FieldsetTitle>
+            <Input
+              id={`${uid}-username`}
+              type="text"
+              autoComplete="off"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              data-form-type="other"
+              disabled={!canUpdateUsername}
+              value={form.data.user.username}
+              onChange={(evt) =>
+                updateUserSettings({ username: evt.target.value.replace(/[^a-z0-9]/giu, "").toLowerCase() })
+              }
+            />
+            <FieldsetDescription>
+              View your profile at: <a href={`${scheme}://${subdomain}`}>{subdomain}</a>
+            </FieldsetDescription>
           </Fieldset>
         </FormSection>
         <FormSection
@@ -362,7 +390,6 @@ export default function MainPage() {
                       maxLength={3000}
                       rows={10}
                       value={form.data.user.seller_refund_policy.fine_print || ""}
-                      placeholder="Describe your refund policy"
                       disabled={isFormDisabled}
                       onChange={(e) =>
                         updateUserSettings({

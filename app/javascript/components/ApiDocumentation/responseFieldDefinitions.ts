@@ -1,11 +1,112 @@
 import { FieldDefinition } from "./ApiResponseFields";
 
-export const PRODUCT_FIELDS: FieldDefinition[] = [
+export const COVER_FIELDS: FieldDefinition[] = [
+  { name: "id", type: "string", description: "Unique identifier for the cover" },
+  {
+    name: "url",
+    type: "string",
+    description: "Display URL (retina variant for non-GIF images; original URL for GIFs, videos, and oEmbed covers)",
+  },
+  { name: "original_url", type: "string", description: "URL of the original uploaded asset" },
+  {
+    name: "thumbnail",
+    type: "string | null",
+    description: "Thumbnail URL for oEmbed covers; null otherwise",
+  },
+  { name: "type", type: "string", description: 'One of "image", "video", "oembed", or "unsplash"' },
+  { name: "filetype", type: "string | null", description: "File extension; null when no file is attached" },
+  { name: "width", type: "number", description: "Display width in pixels" },
+  { name: "height", type: "number", description: "Display height in pixels" },
+  { name: "native_width", type: "number", description: "Intrinsic width of the source asset in pixels" },
+  { name: "native_height", type: "number", description: "Intrinsic height of the source asset in pixels" },
+];
+
+export const CATEGORY_FIELDS: FieldDefinition[] = [
+  { name: "id", type: "number", description: "Numeric category ID accepted by taxonomy_id" },
+  { name: "name", type: "string", description: 'Short category slug (e.g. "figma")' },
+  { name: "label", type: "string", description: 'Human-readable category label (e.g. "Figma")' },
+  {
+    name: "path",
+    type: "string",
+    description: 'Full category path accepted by category (e.g. "design/ui-and-web/figma")',
+  },
+  {
+    name: "parent_id",
+    type: "number | null",
+    description: "Numeric ID of the parent category; null for root categories",
+  },
+];
+
+export const THUMBNAIL_FIELDS: FieldDefinition[] = [
+  { name: "url", type: "string", description: "CDN URL of the product thumbnail image" },
+  { name: "guid", type: "string", description: "Unique identifier for the thumbnail" },
+];
+
+const PRODUCT_VARIANT_FIELDS: FieldDefinition[] = [
+  { name: "title", type: "string", description: 'Variant category title (e.g. "Tier")' },
+  {
+    name: "options",
+    type: "array",
+    description: "Options within this variant category",
+    children: [
+      { name: "name", type: "string", description: "Option name" },
+      {
+        name: "price_difference",
+        type: "number | null",
+        description:
+          "Price difference in cents from the base price (0 for membership tiers, whose prices are set via recurrence_prices)",
+      },
+      {
+        name: "purchasing_power_parity_prices",
+        type: "object | null",
+        description:
+          "PPP-adjusted prices for this option, computed from the base price plus price_difference; null for options whose price_difference is null",
+        condition: "present when the seller has purchasing power parity enabled and the product has not opted out",
+      },
+      { name: "is_pay_what_you_want", type: "boolean", description: "Whether this option is pay-what-you-want" },
+      { name: "url", type: "null", description: "Deprecated, always null" },
+      {
+        name: "recurrence_prices",
+        type: "object | null",
+        description: "Prices per recurrence interval",
+        condition: "present for membership products; otherwise null",
+        children: [
+          { name: "price_cents", type: "number", description: "Price in cents for this recurrence" },
+          {
+            name: "suggested_price_cents",
+            type: "number | null",
+            description: "Suggested price in cents",
+            condition: "may return a number if is_pay_what_you_want is true",
+          },
+          {
+            name: "purchasing_power_parity_prices",
+            type: "object",
+            description: "PPP-adjusted prices for this recurrence",
+            condition: "present when the seller has purchasing power parity enabled and the product has not opted out",
+          },
+        ],
+      },
+      {
+        name: "rich_content",
+        type: "array",
+        description: "Per-variant rich content pages",
+        condition: "omitted from GET /v2/products list responses",
+      },
+    ],
+  },
+];
+
+const SHARED_PRODUCT_FIELDS: FieldDefinition[] = [
   { name: "custom_permalink", type: "string | null", description: "Custom URL slug for the product" },
   { name: "custom_receipt", type: "string | null", description: "Custom receipt text" },
   { name: "custom_summary", type: "string | null", description: "Custom summary shown to buyers" },
-  { name: "custom_fields", type: "array", description: "Custom fields defined on the product" },
-  { name: "customizable_price", type: "number | null", description: "Minimum price if pay-what-you-want is enabled" },
+  { name: "custom_html", type: "string | null", description: "Custom landing page HTML for the product" },
+  {
+    name: "custom_fields",
+    type: "array",
+    description: "Combined list of the seller's global checkout custom fields and the product's own custom fields",
+  },
+  { name: "customizable_price", type: "boolean | null", description: "Whether pay-what-you-want pricing is enabled" },
   { name: "description", type: "string | null", description: "Product description" },
   { name: "deleted", type: "boolean", description: "Whether the product has been deleted" },
   { name: "max_purchase_count", type: "number | null", description: "Maximum number of purchases allowed" },
@@ -21,24 +122,55 @@ export const PRODUCT_FIELDS: FieldDefinition[] = [
     name: "purchasing_power_parity_prices",
     type: "object",
     description: "Country-code-keyed prices adjusted for purchasing power parity",
+    condition: "present when the seller has purchasing power parity enabled and the product has not opted out",
   },
   { name: "currency", type: "string", description: 'ISO currency code (e.g. "usd")' },
+  { name: "taxonomy_id", type: "number | null", description: "Numeric category ID" },
+  { name: "category", type: "string | null", description: "Full category path" },
+  { name: "category_label", type: "string | null", description: "Human-readable category label" },
   { name: "short_url", type: "string", description: "Short Gumroad URL for the product" },
   { name: "thumbnail_url", type: "string | null", description: "URL of the product thumbnail image" },
+  {
+    name: "covers",
+    type: "array",
+    description: "Covers for the product, in display order",
+    children: COVER_FIELDS,
+  },
+  {
+    name: "main_cover_id",
+    type: "string | null",
+    description: "ID of the first cover in display order; null when the product has no covers",
+  },
   { name: "tags", type: "array", description: "Tags associated with the product" },
   { name: "formatted_price", type: "string", description: "Human-readable formatted price" },
-  { name: "file_info", type: "object", description: "Information about attached files" },
+  {
+    name: "file_info",
+    type: "object",
+    description:
+      'Legacy single-file metadata; returns {} for products with 0 or 2+ files. For complete file state, fetch the product via GET /v2/products/:id and read the "files" array (not returned by GET /v2/products).',
+  },
+  {
+    name: "bundle_products",
+    type: "array",
+    description: "Items contained in a bundle product; empty for non-bundle products",
+    children: [
+      { name: "product_id", type: "string", description: "External ID of the included product" },
+      { name: "variant_id", type: "string | null", description: "External ID of the selected variant, if any" },
+      { name: "quantity", type: "number", description: "Quantity of this item in the bundle" },
+      { name: "position", type: "number", description: "Order of this item within the bundle" },
+    ],
+  },
   {
     name: "sales_count",
-    type: "string",
+    type: "number",
     description: "Total number of sales",
-    condition: "available with the 'view_sales' scope",
+    condition: "available with the 'view_sales' or 'account' scope",
   },
   {
     name: "sales_usd_cents",
-    type: "string",
+    type: "number",
     description: "Total revenue in USD cents",
-    condition: "available with the 'view_sales' scope",
+    condition: "available with the 'view_sales' or 'account' scope",
   },
   { name: "is_tiered_membership", type: "boolean", description: "Whether this is a tiered membership product" },
   {
@@ -48,53 +180,72 @@ export const PRODUCT_FIELDS: FieldDefinition[] = [
     condition: "present when is_tiered_membership is true; otherwise null",
   },
   {
+    name: "is_preorder",
+    type: "boolean",
+    description: "Whether the product is a preorder",
+    condition: "present only for preorder products",
+  },
+  {
+    name: "is_in_preorder_state",
+    type: "boolean",
+    description: "Whether the preorder has not yet been released",
+    condition: "present only for preorder products",
+  },
+  {
+    name: "release_at",
+    type: "string",
+    description: "Preorder release timestamp",
+    condition: "present only for preorder products",
+  },
+  {
+    name: "custom_delivery_url",
+    type: "null",
+    description: "Deprecated, always null",
+    condition: "present only with the 'view_sales' or 'account' scope",
+  },
+];
+
+export const PRODUCT_LIST_FIELDS: FieldDefinition[] = [
+  ...SHARED_PRODUCT_FIELDS,
+  {
     name: "variants",
     type: "array",
     description: "Variant categories and their options",
+    children: PRODUCT_VARIANT_FIELDS,
+  },
+];
+
+export const PRODUCT_FIELDS: FieldDefinition[] = [
+  ...SHARED_PRODUCT_FIELDS,
+  { name: "rich_content", type: "array", description: "Product-level rich content pages" },
+  {
+    name: "has_same_rich_content_for_all_variants",
+    type: "boolean",
+    description: "Whether all variants share the product-level rich content",
+  },
+  {
+    name: "files",
+    type: "array",
+    description:
+      "Files attached to the product. Files whose backing S3 object is missing are omitted from the response.",
     children: [
-      { name: "title", type: "string", description: 'Variant category title (e.g. "Tier")' },
+      { name: "id", type: "string", description: "External ID of the file" },
+      { name: "name", type: "string | null", description: "Display name of the file" },
+      { name: "size", type: "number | null", description: "File size in bytes" },
       {
-        name: "options",
-        type: "array",
-        description: "Options within this variant category",
-        children: [
-          { name: "name", type: "string", description: "Option name" },
-          {
-            name: "price_difference",
-            type: "number",
-            description: "Price difference in cents from the base price",
-            condition: "set for non-membership product options",
-          },
-          {
-            name: "purchasing_power_parity_prices",
-            type: "object",
-            description: "PPP-adjusted prices for this option",
-            condition: "set for non-membership product options",
-          },
-          { name: "is_pay_what_you_want", type: "boolean", description: "Whether this option is pay-what-you-want" },
-          {
-            name: "recurrence_prices",
-            type: "object | null",
-            description: "Prices per recurrence interval",
-            condition: "present for membership products; otherwise null",
-            children: [
-              { name: "price_cents", type: "number", description: "Price in cents for this recurrence" },
-              {
-                name: "suggested_price_cents",
-                type: "number | null",
-                description: "Suggested price in cents",
-                condition: "may return a number if is_pay_what_you_want is true",
-              },
-              {
-                name: "purchasing_power_parity_prices",
-                type: "object",
-                description: "PPP-adjusted prices for this recurrence",
-              },
-            ],
-          },
-        ],
+        name: "url",
+        type: "string",
+        description: 'Signed download URL for uploaded files; raw URL for external-link files (filetype: "link")',
       },
+      { name: "filetype", type: "string", description: 'File extension (e.g. "pdf") or "link" for external URLs' },
+      { name: "filegroup", type: "string", description: 'Group classification (e.g. "audio", "video", "document")' },
     ],
+  },
+  {
+    name: "variants",
+    type: "array",
+    description: "Variant categories and their options",
+    children: PRODUCT_VARIANT_FIELDS,
   },
 ];
 
@@ -109,6 +260,111 @@ export const SALE_FIELDS: FieldDefinition[] = [
   { name: "product_has_variants", type: "boolean", description: "Whether the product has variants" },
   { name: "price", type: "number", description: "Price paid in cents" },
   { name: "gumroad_fee", type: "number", description: "Gumroad fee in cents" },
+  {
+    name: "tip_cents",
+    type: "number",
+    description: "Tip amount in USD cents",
+    condition: "omitted when no tip was paid",
+  },
+  { name: "tax_cents", type: "number", description: "Tax amount in cents" },
+  { name: "shipping_cents", type: "number", description: "Shipping amount in cents" },
+  {
+    name: "tax_label",
+    type: "string",
+    description: 'Tax type label, such as "VAT", "GST", or "Sales tax"',
+    condition: "omitted when no tax label applies",
+  },
+  {
+    name: "tax_included_in_price",
+    type: "boolean",
+    description: "Whether tax was included in the sale price",
+    condition: "omitted when the purchase was not taxable",
+  },
+  {
+    name: "payment_processor",
+    type: "string",
+    description: 'Payment processor for processor-specific fields, either "paypal" or "stripe_connect"',
+    condition: "omitted for other processors",
+  },
+  {
+    name: "processor_transaction_id",
+    type: "string",
+    description: "Processor transaction ID for PayPal marketplace and Stripe Connect sales",
+    condition: "omitted when unavailable",
+  },
+  {
+    name: "processor_fee_cents",
+    type: "number",
+    description: "Processor fee in cents for PayPal marketplace and Stripe Connect sales",
+    condition: "omitted when unavailable",
+  },
+  {
+    name: "processor_fee_currency",
+    type: "string",
+    description: "Currency for the processor fee",
+    condition: "omitted when unavailable",
+  },
+  { name: "access_revoked", type: "boolean", description: "Whether access to the purchase has been revoked" },
+  {
+    name: "preorder_authorization_time",
+    type: "string",
+    description: "Timestamp of the pre-order authorization",
+    condition: "present only for pre-order charges",
+  },
+  { name: "variants_price_cents", type: "number", description: "Additional variant price in cents" },
+  {
+    name: "review",
+    type: "string",
+    description: "Review message left by the buyer",
+    condition: "omitted when no review message exists",
+  },
+  {
+    name: "cancellation_date",
+    type: "string",
+    description: "Timestamp when the buyer requested subscription cancellation",
+    condition: "present only for cancelled subscriptions",
+  },
+  {
+    name: "subscription_end_date",
+    type: "string",
+    description: "Date when the subscription ended or is scheduled to end",
+    condition: "present only for ended or scheduled subscriptions",
+  },
+  {
+    name: "sent_abandoned_cart_email",
+    type: "boolean",
+    description: "Whether the purchase was associated with a sent abandoned cart email",
+  },
+  {
+    name: "utm_source",
+    type: "string",
+    description: "UTM source for the purchase",
+    condition: "omitted when the purchase was not driven by a UTM link",
+  },
+  {
+    name: "utm_medium",
+    type: "string",
+    description: "UTM medium for the purchase",
+    condition: "omitted when the purchase was not driven by a UTM link",
+  },
+  {
+    name: "utm_campaign",
+    type: "string",
+    description: "UTM campaign for the purchase",
+    condition: "omitted when the purchase was not driven by a UTM link",
+  },
+  {
+    name: "utm_term",
+    type: "string",
+    description: "UTM term for the purchase",
+    condition: "omitted when the purchase was not driven by a UTM link",
+  },
+  {
+    name: "utm_content",
+    type: "string",
+    description: "UTM content for the purchase",
+    condition: "omitted when the purchase was not driven by a UTM link",
+  },
   { name: "subscription_duration", type: "string | null", description: "Subscription billing interval if applicable" },
   { name: "formatted_display_price", type: "string", description: "Human-readable display price" },
   { name: "formatted_total_price", type: "string", description: "Human-readable total price" },
@@ -410,6 +666,40 @@ export const USER_FIELDS: FieldDefinition[] = [
   { name: "profile_picture_url", type: "string", description: "URL of the user's profile picture" },
 ];
 
+export const INSTALLMENT_FIELDS: FieldDefinition[] = [
+  { name: "id", type: "string", description: "Unique identifier for the email" },
+  { name: "subject", type: "string | null", description: "Subject line" },
+  { name: "message", type: "string | null", description: "HTML body" },
+  {
+    name: "audience_type",
+    type: "string",
+    description: 'Audience type, one of "audience", "seller", "follower", or "product"',
+  },
+  {
+    name: "product_id",
+    type: "string | null",
+    description: "Product ID for product-targeted emails, null otherwise",
+  },
+  { name: "state", type: "string", description: 'Current state, one of "draft", "scheduled", or "published"' },
+  { name: "published_at", type: "string | null", description: "Timestamp when the email was published" },
+  { name: "scheduled_at", type: "string | null", description: "Timestamp when the email is scheduled to publish" },
+  { name: "send_emails", type: "boolean", description: "Whether this post sends emails to its audience" },
+  { name: "shown_on_profile", type: "boolean", description: "Whether this post is shown on the seller profile" },
+  {
+    name: "audience_count",
+    type: "number | null",
+    description: "Estimated audience size when available, null when not computed",
+  },
+  {
+    name: "recipients_count",
+    type: "number | null",
+    description: "Delivered recipient count when available, null before publishing",
+  },
+  { name: "url", type: "string | null", description: "Public post URL when published, null otherwise" },
+  { name: "created_at", type: "string", description: "ISO 8601 timestamp of when the email was created" },
+  { name: "updated_at", type: "string", description: "ISO 8601 timestamp of when the email was last updated" },
+];
+
 export const OFFER_CODE_FIELDS: FieldDefinition[] = [
   { name: "id", type: "string", description: "Unique identifier for the offer code" },
   { name: "name", type: "string", description: "Coupon code used at checkout" },
@@ -426,6 +716,11 @@ export const OFFER_CODE_FIELDS: FieldDefinition[] = [
     condition: "present for percentage offer codes",
   },
   { name: "max_purchase_count", type: "number | null", description: "Maximum number of times this code can be used" },
+  {
+    name: "minimum_amount_cents",
+    type: "number | null",
+    description: "Minimum order total in cents required for the offer code to apply. null when there is no minimum.",
+  },
   { name: "universal", type: "boolean", description: "Whether this code applies to all products" },
   { name: "times_used", type: "number", description: "Number of times this code has been redeemed" },
 ];

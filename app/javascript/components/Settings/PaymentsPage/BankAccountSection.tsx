@@ -226,6 +226,7 @@ export type BankAccount =
       type: "GuyanaBankAccount";
       account_holder_full_name: string;
       bank_code: string;
+      branch_code: string;
       account_number: string;
       account_number_confirmation: string;
     }
@@ -789,12 +790,21 @@ const BankAccountSection = ({
   ];
 
   const isGibraltar = user.country_code === "GI";
+  const isOman = user.country_code === "OM";
   const nonIbanAccountNumberInputProps: Pick<
     React.ComponentPropsWithoutRef<"input">,
-    "placeholder" | "maxLength" | "pattern" | "inputMode"
+    "placeholder" | "maxLength" | "pattern" | "inputMode" | "title"
   > = isGibraltar
     ? { placeholder: "01234567", maxLength: 8, pattern: "[0-9]{8}", inputMode: "numeric" }
-    : { placeholder: "1234567890" };
+    : isOman
+      ? {
+          placeholder: "000123456789",
+          maxLength: 16,
+          pattern: "[0-9]{6,16}",
+          inputMode: "numeric",
+          title: "Enter your 6 to 16 digit account number, not your IBAN",
+        }
+      : { placeholder: "1234567890" };
 
   const getRoutingNumberLabel = (countryCode: string) => {
     switch (true) {
@@ -810,6 +820,8 @@ const BankAccountSection = ({
         return "Clearing and branch code";
       case countryCode === "PH":
         return "Bank Identifier Code (BIC)";
+      case countryCode === "GY":
+        return "SWIFT/BIC and branch code";
       case BANK_AND_BRANCH_CODE_COUNTRIES.includes(countryCode):
         return "Bank and branch code";
       case BANK_CODE_COUNTRIES.includes(countryCode):
@@ -932,23 +944,44 @@ const BankAccountSection = ({
     }
   }, []);
 
+  const [holderNameTouched, setHolderNameTouched] = React.useState(false);
+  const jpHolderNameClientError = (() => {
+    if (user.country_code !== "JP") return null;
+    if (!holderNameTouched) return null;
+    const name = bankAccount?.account_holder_full_name?.trim() ?? "";
+    if (name === "") return null;
+    const isKatakanaOnly = /^[\p{Script=Katakana}ー・\uFF65-\uFF9F\u3000 ]+$/u.test(name);
+    const isLatinOnly = /^[A-Za-z ]+$/u.test(name);
+    if (isKatakanaOnly || isLatinOnly) return null;
+    return "Use either katakana or Latin letters — not both.";
+  })();
+
   return (
     <>
       <div className="whitespace-pre-line">{feeInfoText}</div>
       <section className="grid gap-8">
-        <Fieldset state={errorFieldNames.has("account_holder_full_name") ? "danger" : undefined}>
+        <Fieldset
+          state={errorFieldNames.has("account_holder_full_name") || jpHolderNameClientError ? "danger" : undefined}
+        >
           <FieldsetTitle>
             <Label htmlFor={`${uid}-account-holder-full-name`}>Pay to the order of</Label>
           </FieldsetTitle>
           <Input
             id={`${uid}-account-holder-full-name`}
-            placeholder="Full name of account holder"
             value={bankAccount?.account_holder_full_name || ""}
             disabled={isFormDisabled}
-            aria-invalid={errorFieldNames.has("account_holder_full_name")}
-            onChange={(evt) => updateBankAccount({ account_holder_full_name: evt.target.value })}
+            aria-invalid={errorFieldNames.has("account_holder_full_name") || Boolean(jpHolderNameClientError)}
+            onChange={(evt) => {
+              setHolderNameTouched(true);
+              updateBankAccount({ account_holder_full_name: evt.target.value });
+            }}
           />
-          <FieldsetDescription>Must exactly match the name on your bank account</FieldsetDescription>
+          <FieldsetDescription>
+            {jpHolderNameClientError ??
+              `Must exactly match the name on your bank account${
+                user.country_code === "JP" ? " (in katakana or Latin letters)" : ""
+              }`}
+          </FieldsetDescription>
         </Fieldset>
         <div className="grid gap-2">
           {showNewBankAccount ? (
@@ -1744,33 +1777,38 @@ const BankAccountSection = ({
                 <>
                   <Fieldset state={errorFieldNames.has("bank_code") ? "danger" : undefined}>
                     <FieldsetTitle>
-                      <Label htmlFor={`${uid}-bank-code`}>Bank code</Label>
+                      <Label htmlFor={`${uid}-bank-code`}>SWIFT/BIC code</Label>
                     </FieldsetTitle>
                     <Input
                       type="text"
                       id={`${uid}-bank-code`}
-                      placeholder="AAAAUZUZXXX"
+                      placeholder="KACHUZ22XXX"
                       maxLength={11}
                       required
                       disabled={isFormDisabled}
                       aria-invalid={errorFieldNames.has("bank_code")}
                       onChange={(evt) => updateBankAccount({ bank_code: evt.target.value })}
                     />
+                    <FieldsetDescription>
+                      Your bank's SWIFT/BIC code. Codes shorter than 11 characters are padded to 11 with X (e.g.
+                      KACHUZ22 becomes KACHUZ22XXX); 11-character codes are used as-is.
+                    </FieldsetDescription>
                   </Fieldset>
                   <Fieldset state={errorFieldNames.has("branch_code") ? "danger" : undefined}>
                     <FieldsetTitle>
-                      <Label htmlFor={`${uid}-branch-code`}>Branch code</Label>
+                      <Label htmlFor={`${uid}-branch-code`}>MFO (branch code)</Label>
                     </FieldsetTitle>
                     <Input
                       type="text"
                       id={`${uid}-branch-code`}
-                      placeholder="00000"
+                      placeholder="01158"
                       maxLength={5}
                       required
                       disabled={isFormDisabled}
                       aria-invalid={errorFieldNames.has("branch_code")}
                       onChange={(evt) => updateBankAccount({ branch_code: evt.target.value })}
                     />
+                    <FieldsetDescription>Your bank's 5-digit MFO code.</FieldsetDescription>
                   </Fieldset>
                 </>
               ) : user.country_code === "BO" ? (
@@ -1887,21 +1925,39 @@ const BankAccountSection = ({
                   />
                 </Fieldset>
               ) : user.country_code === "GY" ? (
-                <Fieldset state={errorFieldNames.has("bank_code") ? "danger" : undefined}>
-                  <FieldsetTitle>
-                    <Label htmlFor={`${uid}-bank-code`}>SWIFT / BIC Code</Label>
-                  </FieldsetTitle>
-                  <Input
-                    type="text"
-                    id={`${uid}-bank-code`}
-                    placeholder="AAAAGYGGXYZ"
-                    maxLength={11}
-                    required
-                    disabled={isFormDisabled}
-                    aria-invalid={errorFieldNames.has("bank_code")}
-                    onChange={(evt) => updateBankAccount({ bank_code: evt.target.value })}
-                  />
-                </Fieldset>
+                <>
+                  <Fieldset state={errorFieldNames.has("bank_code") ? "danger" : undefined}>
+                    <FieldsetTitle>
+                      <Label htmlFor={`${uid}-bank-code`}>SWIFT / BIC Code</Label>
+                    </FieldsetTitle>
+                    <Input
+                      type="text"
+                      id={`${uid}-bank-code`}
+                      placeholder="AAAAGYGGXYZ"
+                      maxLength={11}
+                      required
+                      disabled={isFormDisabled}
+                      aria-invalid={errorFieldNames.has("bank_code")}
+                      onChange={(evt) => updateBankAccount({ bank_code: evt.target.value })}
+                    />
+                  </Fieldset>
+                  <Fieldset state={errorFieldNames.has("branch_code") ? "danger" : undefined}>
+                    <FieldsetTitle>
+                      <Label htmlFor={`${uid}-branch-code`}>Branch code</Label>
+                    </FieldsetTitle>
+                    <Input
+                      type="text"
+                      id={`${uid}-branch-code`}
+                      placeholder="12345678"
+                      maxLength={8}
+                      inputMode="numeric"
+                      required
+                      disabled={isFormDisabled}
+                      aria-invalid={errorFieldNames.has("branch_code")}
+                      onChange={(evt) => updateBankAccount({ branch_code: evt.target.value })}
+                    />
+                  </Fieldset>
+                </>
               ) : user.country_code === "MK" ? (
                 <Fieldset state={errorFieldNames.has("bank_code") ? "danger" : undefined}>
                   <FieldsetTitle>
@@ -2094,6 +2150,22 @@ const BankAccountSection = ({
                     onChange={(evt) => updateBankAccount({ bank_code: evt.target.value })}
                   />
                 </Fieldset>
+              ) : user.country_code === "SV" ? (
+                <Fieldset state={errorFieldNames.has("bank_code") ? "danger" : undefined}>
+                  <FieldsetTitle>
+                    <Label htmlFor={`${uid}-bank-code`}>SWIFT / BIC Code</Label>
+                  </FieldsetTitle>
+                  <Input
+                    type="text"
+                    id={`${uid}-bank-code`}
+                    placeholder="AAAASVS1XXX"
+                    maxLength={11}
+                    required
+                    disabled={isFormDisabled}
+                    aria-invalid={errorFieldNames.has("bank_code")}
+                    onChange={(evt) => updateBankAccount({ bank_code: evt.target.value })}
+                  />
+                </Fieldset>
               ) : null}
               {user.country_supports_iban ? (
                 <>
@@ -2202,22 +2274,6 @@ const BankAccountSection = ({
                         type="text"
                         id={`${uid}-bank-code`}
                         placeholder="AAAAKZKZXXX"
-                        maxLength={11}
-                        required
-                        disabled={isFormDisabled}
-                        aria-invalid={errorFieldNames.has("bank_code")}
-                        onChange={(evt) => updateBankAccount({ bank_code: evt.target.value })}
-                      />
-                    </Fieldset>
-                  ) : user.country_code === "SV" ? (
-                    <Fieldset state={errorFieldNames.has("bank_code") ? "danger" : undefined}>
-                      <FieldsetTitle>
-                        <Label htmlFor={`${uid}-bank-code`}>SWIFT / BIC Code</Label>
-                      </FieldsetTitle>
-                      <Input
-                        type="text"
-                        id={`${uid}-bank-code`}
-                        placeholder="AAAASVS1XXX"
                         maxLength={11}
                         required
                         disabled={isFormDisabled}
@@ -2362,7 +2418,12 @@ const BankAccountSection = ({
                     <Input
                       type="text"
                       id={`${uid}-account-number`}
-                      placeholder={`${user.country_code || ""}1234567890`}
+                      placeholder={
+                        user.country_code === "MG"
+                          ? "MG4800005000011234567890123"
+                          : `${user.country_code || ""}1234567890`
+                      }
+                      maxLength={user.country_code === "MG" ? 27 : undefined}
                       required
                       disabled={isFormDisabled}
                       aria-invalid={errorFieldNames.has("account_number")}
@@ -2376,7 +2437,12 @@ const BankAccountSection = ({
                     <Input
                       type="text"
                       id={`${uid}-confirm-account-number`}
-                      placeholder={`${user.country_code || ""}1234567890`}
+                      placeholder={
+                        user.country_code === "MG"
+                          ? "MG4800005000011234567890123"
+                          : `${user.country_code || ""}1234567890`
+                      }
+                      maxLength={user.country_code === "MG" ? 27 : undefined}
                       required
                       disabled={isFormDisabled}
                       aria-invalid={errorFieldNames.has("account_number_confirmation")}
@@ -2389,7 +2455,7 @@ const BankAccountSection = ({
                   <Fieldset state={errorFieldNames.has("account_number") ? "danger" : undefined}>
                     <FieldsetTitle>
                       <Label htmlFor={`${uid}-account-number`}>
-                        {user.country_code && ["US", "MX", "AR", "PE"].includes(user.country_code)
+                        {user.country_code && ["US", "MX", "AR", "PE", "SV"].includes(user.country_code)
                           ? "Account number"
                           : "Account #"}
                       </Label>
@@ -2407,7 +2473,7 @@ const BankAccountSection = ({
                   <Fieldset state={errorFieldNames.has("account_number_confirmation") ? "danger" : undefined}>
                     <FieldsetTitle>
                       <Label htmlFor={`${uid}-confirm-account-number`}>
-                        {user.country_code && ["US", "MX", "AR", "PE"].includes(user.country_code)
+                        {user.country_code && ["US", "MX", "AR", "PE", "SV"].includes(user.country_code)
                           ? "Confirm account number"
                           : "Confirm account #"}
                       </Label>

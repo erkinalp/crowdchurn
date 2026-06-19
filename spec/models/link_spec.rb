@@ -21,6 +21,23 @@ describe Link, :vcr do
     expect(subject.send(:single_unit_currency?)).to be(false)
   end
 
+  describe "#custom_html=" do
+    it "clears the page HTML without marking the associated page for destruction" do
+      link.update!(custom_html: "<section>Live landing page</section>")
+      page = link.reload.page
+
+      link.custom_html = nil
+
+      expect(link.page).to eq(page)
+      expect(link.page).not_to be_marked_for_destruction
+
+      link.save!
+
+      expect(link.reload.page).to eq(page)
+      expect(link.custom_html).to be_nil
+    end
+  end
+
   describe "max_purchase_count validations" do
     it "can be set on new records with no purchases" do
       expect(build(:product, max_purchase_count: nil).valid?).to eq(true)
@@ -47,6 +64,16 @@ describe Link, :vcr do
     it "allows it to be set on new records with no purchases" do
       expect(build(:product, max_purchase_count: 100).valid?).to eq(true)
     end
+
+    context "when sales_count_for_inventory returns nil" do
+      it "treats nil as 0 instead of raising ArgumentError on max_purchase_count change" do
+        product = create(:product, max_purchase_count: 100)
+        allow(product).to receive(:sales_count_for_inventory).and_return(nil)
+        product.max_purchase_count = 50
+        expect { product.valid? }.not_to raise_error
+        expect(product).to be_valid
+      end
+    end
   end
 
   it "allows > $1000 links for verified users" do
@@ -67,6 +94,12 @@ describe Link, :vcr do
 
       expect(link).not_to be_valid
       expect(link.errors.full_messages).to include "Sorry, we don't support pricing products above $5,000."
+    end
+
+    it "fails if price exceeds the maximum storable value" do
+      expect do
+        build(:product, user: create(:user, verified: true), price_cents: 2_147_483_648)
+      end.to raise_error(Link::LinkInvalid, "Sorry, the price entered is too large.")
     end
 
     it "fails if price is too low" do
@@ -97,6 +130,12 @@ describe Link, :vcr do
         end
           .to_not raise_error(ActiveRecord::RecordInvalid)
       end
+    end
+
+    it "adds an error for unsupported currency type" do
+      link = build(:product, price_currency_type: "xyz", price_cents: 100)
+      expect(link).not_to be_valid
+      expect(link.errors.full_messages).to include("'xyz' is not a supported currency.")
     end
   end
 
@@ -362,43 +401,113 @@ describe Link, :vcr do
       end
     end
 
-    describe "reset_moderated_by_iffy_flag" do
-      let(:product) { create(:product, moderated_by_iffy: true) }
 
-      context "when the product is alive" do
-        it "resets the moderated_by_iffy flag when description changes" do
-          expect do
-            product.update!(description: "New description")
-          end.to change { product.reload.moderated_by_iffy }.from(true).to(false)
-        end
+    describe "content moderation on publish" do
+      let(:product) { create(:product, purchase_disabled_at: Time.current) }
 
-        it "does not reset the moderated_by_iffy flag when other attributes change" do
-          expect do
-            product.update!(price_cents: 1000)
-          end.not_to change { product.reload.moderated_by_iffy }
-        end
+      before do
+        allow(product).to receive(:enforce_shipping_destinations_presence!).and_return(true)
+        allow(product).to receive(:enforce_user_email_confirmation!).and_return(true)
+        allow(product).to receive(:enforce_merchant_account_exits_for_new_users!).and_return(true)
+        allow(product).to receive(:enable_transcode_videos_on_purchase!).and_return(true)
+        allow(product).to receive(:auto_transcode_videos?).and_return(false)
+      end
+
+      it "blocks publishing when ContentModeration::ModerateRecordService.check fails" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).with(product, :product).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["policy violation"])
+        )
+
+        expect { product.publish! }.to raise_error(ActiveRecord::RecordInvalid)
+        expect(product.reload.purchase_disabled_at).not_to be(nil)
+        expect(product.errors.full_messages.to_sentence).to include("looks like it contains something that may violate our content guidelines")
+      end
+
+      it "skips the content moderation check for VIP creators" do
+        allow_any_instance_of(User).to receive(:vip_creator?).and_return(true)
+        expect(ContentModeration::ModerateRecordService).not_to receive(:check)
+
+        expect { product.publish! }.to change { product.reload.purchase_disabled_at }.to(nil)
+      end
+
+      it "publishes successfully when the content moderation check passes" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).with(product, :product).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: true, reasons: [])
+        )
+
+        expect { product.publish! }.to change { product.reload.purchase_disabled_at }.to(nil)
+      end
+
+      it "clears the publishing flag after publish! completes" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: true, reasons: [])
+        )
+
+        product.publish!
+
+        expect(product.publishing?).to eq(false)
+      end
+
+      it "clears the publishing flag even when publish! raises" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["bad"])
+        )
+
+        expect { product.publish! }.to raise_error(ActiveRecord::RecordInvalid)
+        expect(product.publishing?).to eq(false)
       end
     end
 
-    describe "queue_iffy_ingest_job_if_unpublished_by_admin" do
-      let(:product) { create(:product) }
+    describe "content moderation on edits to a published product" do
+      let(:product) { create(:product, purchase_disabled_at: Time.current) }
 
-      it "enqueues an Iffy::Product::IngestJob when the product has changed and was already unpublished by admin" do
-        product.update!(is_unpublished_by_admin: true)
-        product.update!(description: "New description")
-        expect(Iffy::Product::IngestJob).to have_enqueued_sidekiq_job(product.id)
+      before do
+        allow(product).to receive(:enforce_shipping_destinations_presence!).and_return(true)
+        allow(product).to receive(:enforce_user_email_confirmation!).and_return(true)
+        allow(product).to receive(:enforce_merchant_account_exits_for_new_users!).and_return(true)
+        allow(product).to receive(:enable_transcode_videos_on_purchase!).and_return(true)
+        allow(product).to receive(:auto_transcode_videos?).and_return(false)
+        allow(ContentModeration::ModerateRecordService).to receive(:check).with(product, :product).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: true, reasons: [])
+        )
+        product.publish!
       end
 
-      it "does not enqueue an Iffy::Product::IngestJob when the product is only unpublished by admin" do
-        expect do
-          product.unpublish!(is_unpublished_by_admin: true)
-        end.not_to change { Iffy::Product::IngestJob.jobs.size }
+      it "re-checks moderation when the name changes" do
+        expect(ContentModeration::ModerateRecordService).to receive(:check).with(product, :product).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["blocked term in name"])
+        )
+
+        product.name = "New bad name"
+        expect(product.save).to eq(false)
+        expect(product.errors.full_messages.to_sentence).to include("looks like it contains something that may violate our content guidelines")
       end
 
-      it "does not enqueue an Iffy::Product::IngestJob when the product is not unpublished by admin" do
-        expect do
-          product.update!(description: "New description")
-        end.not_to change { Iffy::Product::IngestJob.jobs.size }
+      it "re-checks moderation when the description changes" do
+        expect(ContentModeration::ModerateRecordService).to receive(:check).with(product, :product).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["blocked term in description"])
+        )
+
+        product.description = "<p>New bad body</p>"
+        expect(product.save).to eq(false)
+        expect(product.errors.full_messages.to_sentence).to include("looks like it contains something that may violate our content guidelines")
+      end
+
+      it "does not re-check moderation when unrelated attributes change" do
+        expect(ContentModeration::ModerateRecordService).not_to receive(:check)
+
+        product.price_cents = product.price_cents + 100
+        product.save!
+      end
+    end
+
+    describe "content moderation on edits to a draft product" do
+      let(:product) { create(:product, draft: true) }
+
+      it "does not run moderation on name/description edits" do
+        expect(ContentModeration::ModerateRecordService).not_to receive(:check)
+
+        product.update!(name: "Still a draft", description: "<p>Still drafting</p>")
       end
     end
 
@@ -547,6 +656,37 @@ describe Link, :vcr do
       end
     end
 
+    describe "#rental" do
+      it "returns nil for a buy-only product" do
+        product = create(:product, purchase_type: :buy_only)
+        expect(product.rental).to be_nil
+      end
+
+      it "returns the price and rent_only flag for a rent-only product" do
+        product = create(:product, purchase_type: :rent_only, rental_price_cents: 300)
+        expect(product.rental).to eq(price_cents: 300, rent_only: true)
+      end
+
+      it "returns the price and rent_only flag for a buy-and-rent product" do
+        product = create(:product, purchase_type: :buy_and_rent, rental_price_cents: 200)
+        expect(product.rental).to eq(price_cents: 200, rent_only: false)
+      end
+
+      it "returns nil for a buy-and-rent product with no rental price" do
+        product = create(:product, purchase_type: :buy_and_rent, rental_price_cents: 200)
+        product.prices.alive.is_rental.each(&:mark_deleted!)
+
+        expect(product.reload.rental).to be_nil
+      end
+
+      it "returns nil for a rent-only product with no rental price" do
+        product = create(:product, purchase_type: :rent_only, rental_price_cents: 300)
+        product.prices.alive.is_rental.each(&:mark_deleted!)
+
+        expect(product.reload.rental).to be_nil
+      end
+    end
+
     describe "adding to profile sections" do
       it "adds newly created products to all sections that have add_new_products set" do
         seller = create(:user)
@@ -560,6 +700,20 @@ describe Link, :vcr do
         other_sections.each do |section|
           expect(section.reload.shown_products).to_not include link.id
         end
+      end
+
+      it "re-reads sections under the profile lock so it can't clobber a concurrent shown_products change" do
+        seller = create(:user)
+        section = create(:seller_profile_products_section, seller:, shown_products: [1, 2])
+        # Prime a stale cached association, then commit a change it doesn't reflect — as another
+        # writer (or the profile editor) would. add_to_profile_sections must re-read under the lock
+        # and preserve that change rather than overwriting it with the stale list.
+        seller.seller_profile_products_sections.load
+        SellerProfileSection.find(section.id).update!(json_data: section.json_data.merge("shown_products" => [1, 2, 3]))
+
+        link = create(:product, user: seller)
+
+        expect(section.reload.shown_products).to contain_exactly(1, 2, 3, link.id)
       end
     end
   end
@@ -790,6 +944,25 @@ describe Link, :vcr do
         end.to change { @product.reload.purchase_disabled_at }.to(nil)
       end
 
+      it "retries on ActiveRecord::Deadlocked and succeeds", :vcr do
+        call_count = 0
+        allow(@product).to receive(:save!).and_wrap_original do |original|
+          call_count += 1
+          raise ActiveRecord::Deadlocked if call_count <= 2
+          original.call
+        end
+
+        expect { @product.publish! }.not_to raise_error
+        expect(call_count).to eq(3)
+      end
+
+      it "re-raises ActiveRecord::Deadlocked after exhausting retries", :vcr do
+        allow(@product).to receive(:save!).and_raise(ActiveRecord::Deadlocked)
+
+        expect { @product.publish! }.to raise_error(ActiveRecord::Deadlocked)
+        expect(@product).to have_received(:save!).exactly(3).times
+      end
+
       context "when the user has not confirmed their email address" do
         before do
           @user.update!(confirmed_at: nil)
@@ -818,6 +991,7 @@ describe Link, :vcr do
           expect(@product.errors.full_messages.to_sentence).to eq("Bundles must have at least one product.")
         end
       end
+
 
       context "when the seller has universal affiliates" do
         it "associates those affiliates with the product and notifies them" do
@@ -1963,6 +2137,24 @@ describe Link, :vcr do
     end
   end
 
+  describe "#price_currency_type=" do
+    it "downcases the currency type" do
+      subject.price_currency_type = "USD"
+      expect(subject.price_currency_type).to eq("usd")
+    end
+
+    it "handles symbol input" do
+      subject.price_currency_type = :GBP
+      expect(subject.price_currency_type).to eq("gbp")
+    end
+
+    it "allows clean_price to work with uppercase currency input" do
+      product = create(:product, price_currency_type: "USD", price_cents: 100)
+      product.price_range = "12"
+      expect(product.price_cents).to eq(1200)
+    end
+  end
+
   describe "#remaining_for_sale_count" do
     it "defaults to nil" do
       expect(link.max_purchase_count).to be(nil)
@@ -2027,6 +2219,15 @@ describe Link, :vcr do
         expect(bundle.remaining_for_sale_count).to eq(2)
         bundle.bundle_products.second.mark_deleted!
         expect(bundle.remaining_for_sale_count).to eq(3)
+      end
+    end
+
+    describe "when sales_count_for_inventory returns nil" do
+      it "treats nil as 0 instead of raising TypeError" do
+        link.update!(max_purchase_count: 100)
+        allow(link).to receive(:sales_count_for_inventory).and_return(nil)
+        expect { link.remaining_for_sale_count }.not_to raise_error
+        expect(link.remaining_for_sale_count).to eq(100)
       end
     end
   end
@@ -2134,6 +2335,17 @@ describe Link, :vcr do
 
         expect(product.default_price).to eq yearly_price
       end
+    end
+  end
+
+  describe "#validate_product_price_against_all_offer_codes?" do
+    it "uses tiered discount amounts across membership tier prices" do
+      product = create(:membership_product_with_preset_tiered_pricing)
+      create(:tiered_offer_code, products: [product], user: product.user)
+      product.tiers.first.prices.alive.is_buy.first.update!(price_cents: 1_50)
+
+      expect(product.validate_product_price_against_all_offer_codes?).to eq(false)
+      expect(product.errors.full_messages).to include("An existing discount code puts the price of this product below the $0.99 minimum after discount.")
     end
   end
 
@@ -2448,8 +2660,8 @@ describe Link, :vcr do
       expect(build(:product).compliance_blocked(ip)).to be(false)
     end
 
-    it "blocks ips from 'bad' countries, like Libya" do
-      ip = "41.208.70.70" # Tripoly Libya Telecom
+    it "blocks ips from 'bad' countries, like Iran" do
+      ip = "2.144.0.1" # MCI Iran
       expect(build(:product).compliance_blocked(ip)).to be(true)
     end
 
@@ -2518,7 +2730,7 @@ describe Link, :vcr do
     context "when the product doesn't have a thumbnail" do
       it "returns product type thumbnail" do
         expect(product.for_email_thumbnail_url).to eq(
-          ActionController::Base.helpers.asset_url("native_types/thumbnails/digital.png")
+          ActionController::Base.helpers.image_url("native_types/thumbnails/digital.png")
         )
       end
     end
@@ -2543,7 +2755,7 @@ describe Link, :vcr do
 
         it "returns product type thumbnail" do
           expect(product.for_email_thumbnail_url).to eq(
-            ActionController::Base.helpers.asset_url("native_types/thumbnails/digital.png")
+            ActionController::Base.helpers.image_url("native_types/thumbnails/digital.png")
           )
         end
       end
@@ -3753,6 +3965,22 @@ describe Link, :vcr do
       end
     end
 
+    context "when description contains an iframely.net iframe" do
+      let(:product) { create(:product, description: "<iframe src=\"https://iframely.net/api/iframe?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DzumvXpa7kGY&key=31708e31\" allowfullscreen></iframe>") }
+
+      it "keeps the iframe" do
+        expect(product.html_safe_description).to include("iframely.net/api/iframe")
+      end
+    end
+
+    context "when description contains an iframe from an untrusted host" do
+      let(:product) { create(:product, description: "before<iframe src=\"https://evil.example.com/embed\"></iframe>after") }
+
+      it "removes the iframe" do
+        expect(product.html_safe_description).to eq("beforeafter")
+      end
+    end
+
     context "when description contains a script from an untrusted source" do
       let(:product) { create(:product, description: "some text<script src='https://untrusted.example.com/script.js'></script>evil script") }
 
@@ -4050,6 +4278,18 @@ describe Link, :vcr do
 
           it "returns purchase_info" do
             expect(product.purchase_info_for_product_page(user, nil)).to eq(purchase.purchase_info)
+          end
+
+          it "marks the purchase as paid" do
+            expect(product.purchase_info_for_product_page(user, nil)[:was_paid]).to eq(true)
+          end
+        end
+
+        context "when the user's previous purchase was free" do
+          let!(:purchase) { create(:free_purchase, link: product, purchaser: user) }
+
+          it "marks the purchase as not paid" do
+            expect(product.purchase_info_for_product_page(user, nil)[:was_paid]).to eq(false)
           end
         end
 
@@ -4585,6 +4825,26 @@ describe Link, :vcr do
 
       it "doesn't add an error" do
         expect(coffee).to be_valid
+      end
+    end
+
+    context "unarchiving coffee product when another coffee product exists" do
+      let!(:coffee_a) { create(:product, user: seller, native_type: Link::NATIVE_TYPE_COFFEE, archived: true) }
+      let!(:coffee_b) { create(:product, user: seller, native_type: Link::NATIVE_TYPE_COFFEE) }
+
+      it "prevents unarchiving" do
+        coffee_a.archived = false
+        expect(coffee_a).to_not be_valid
+        expect(coffee_a.errors.full_messages.first).to eq("You can only have one coffee product.")
+      end
+    end
+
+    context "unarchiving coffee product when no other coffee product exists" do
+      let!(:coffee_a) { create(:product, user: seller, native_type: Link::NATIVE_TYPE_COFFEE, archived: true) }
+
+      it "allows unarchiving" do
+        coffee_a.archived = false
+        expect(coffee_a).to be_valid
       end
     end
 

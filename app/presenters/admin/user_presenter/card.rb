@@ -3,9 +3,10 @@
 class Admin::UserPresenter::Card
   attr_reader :user, :pundit_user
 
-  def initialize(user:, pundit_user:)
+  def initialize(user:, pundit_user:, include_radar_stats: false)
     @user = user
     @pundit_user = pundit_user
+    @include_radar_stats = include_radar_stats
   end
 
   def props
@@ -37,6 +38,8 @@ class Admin::UserPresenter::Card
       custom_fee_per_thousand: user.custom_fee_per_thousand,
       unpaid_balance_cents: user.unpaid_balance_cents,
       disable_paypal_sales: user.disable_paypal_sales,
+      has_in_progress_scheduled_payout: user.scheduled_payouts.in_progress.exists?,
+      active_watched_user: active_watched_user_props,
 
       # Status flags
       verified: user.verified?,
@@ -62,11 +65,30 @@ class Admin::UserPresenter::Card
 
       # Associations
       admin_manageable_user_memberships: user_memberships,
-      alive_user_compliance_info: compliance_info
+      alive_user_compliance_info: compliance_info,
+
+      # Radar risk signals
+      radar_stats: @include_radar_stats ? radar_stats : nil,
+      recent_efws: @include_radar_stats ? recent_efws : nil
     }
   end
 
   private
+    def active_watched_user_props
+      watched_user = user.active_watched_user
+      return nil unless watched_user
+
+      {
+        external_id: watched_user.external_id,
+        revenue_threshold_cents: watched_user.revenue_threshold_cents,
+        revenue_cents: watched_user.revenue_cents,
+        unpaid_balance_cents: watched_user.unpaid_balance_cents,
+        last_synced_at: watched_user.last_synced_at,
+        notes: watched_user.notes,
+        created_at: watched_user.created_at
+      }
+    end
+
     def blocked_by_object_props(blocked_object)
       blocked_object && {
         blocked_at: blocked_object.blocked_at,
@@ -119,5 +141,17 @@ class Admin::UserPresenter::Card
         has_individual_tax_id: info.has_individual_tax_id,
         has_business_tax_id: info.has_business_tax_id
       }
+    end
+
+    def radar_stats
+      radar_service.stats
+    end
+
+    def recent_efws
+      radar_service.recent_efws
+    end
+
+    def radar_service
+      @radar_service ||= Radar::SellerRiskStatsService.new(user)
     end
 end

@@ -271,11 +271,9 @@ describe("Library Scenario", type: :system, js: true) do
     variant_2 = create(:variant, variant_category: category, name: "VariantTwo")
     index_model_records(Link)
 
-    purchase_1 = create(:purchase, link: products[0], created_at: 50.minutes.ago, purchaser: @user)
-    purchase_1.variant_attributes << variant_1
+    purchase_1 = create(:purchase, link: products[0], created_at: 50.minutes.ago, purchaser: @user, variant_attributes: [variant_1])
     purchase_2 = create(:purchase, link: products[1], created_at: 40.minutes.ago, purchaser: @user)
-    purchase_3 = create(:purchase, link: products[0], created_at: 30.minutes.ago, purchaser: @user)
-    purchase_3.variant_attributes << variant_2
+    purchase_3 = create(:purchase, link: products[0], created_at: 30.minutes.ago, purchaser: @user, variant_attributes: [variant_2])
 
     visit "/library"
     expect(page).to have_product_card(count: 3)
@@ -658,29 +656,35 @@ describe("Library Scenario", type: :system, js: true) do
           expect(page).to have_link("Seller", href: reviews.first.link.user.profile_url)
           expect(page).to have_selector("[aria-label='1 star']")
           click_on "Edit"
-          within "form" do
-            expect(page).to have_radio_button("1 star", checked: true)
-            (2..5).each do |i|
-              expect(page).to have_radio_button("#{i} stars", checked: false)
-            end
-            click_on "Edit"
-            choose "4 stars"
-            fill_in "Want to leave a written review?", with: "Message 0"
-            click_on "Update review"
+        end
+
+        within "form" do
+          expect(page).to have_radio_button("1 star", checked: true)
+          (2..5).each do |i|
+            expect(page).to have_radio_button("#{i} stars", checked: false)
           end
+          click_on "Edit"
+          choose "4 stars"
+          fill_in "Want to leave a written review?", with: "Message 0"
+          click_on "Update review"
         end
 
         expect(page).to have_alert(text: "Review submitted successfully!")
 
         within find("tr", text: "Product 0") do
-          within "form" do
-            expect(page).to have_radio_button("1 star", checked: false)
-            [2, 3, 5].each do |i|
-              expect(page).to have_radio_button("#{i} stars", checked: false)
-            end
-            expect(page).to have_radio_button("4 stars", checked: true)
-            expect(page).to have_text('"Message 0"')
+          expect(page).to have_text('"Message 0"')
+        end
+
+        within "form" do
+          expect(page).to have_radio_button("1 star", checked: false)
+          [2, 3, 5].each do |i|
+            expect(page).to have_radio_button("#{i} stars", checked: false)
           end
+          expect(page).to have_radio_button("4 stars", checked: true)
+          expect(page).to have_text('"Message 0"')
+        end
+
+        within find("tr", text: "Product 0") do
           click_on "Edit", match: :first
           expect(page).to have_selector("[aria-label='4 stars']")
           expect(page).to have_text('"Message 0"')

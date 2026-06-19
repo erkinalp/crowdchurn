@@ -2,7 +2,7 @@ import { AlertShield } from "@boxicons/react";
 import { usePage, router } from "@inertiajs/react";
 import * as React from "react";
 import { GroupBase, SelectInstance } from "react-select";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import {
   ROLES,
@@ -51,7 +51,7 @@ type TeamPageProps = {
 };
 
 export default function TeamPage() {
-  const props = cast<TeamPageProps>(usePage().props);
+  const props = typia.assert<TeamPageProps>(usePage().props);
 
   const options: Option[] = ROLES.map((role) => ({
     id: role,
@@ -159,7 +159,6 @@ const AddTeamMembersSection = ({
             id={emailUID}
             type="text"
             ref={emailFieldRef}
-            placeholder="Team member's email"
             className="required"
             value={teamInvitation.email}
             onChange={(evt) => {
@@ -179,7 +178,6 @@ const AddTeamMembersSection = ({
             options={options.filter((o) => o.id !== "owner")}
             isMulti={false}
             isClearable={false}
-            placeholder="Choose a role"
             value={options.find((o) => o.id === teamInvitation.role) ?? null}
             onChange={(evt) => {
               if (evt !== null) {
@@ -246,7 +244,7 @@ const TeamMembersSection = ({
           break;
         }
         default: {
-          const newRole = cast<Role>(selectedOption);
+          const newRole = typia.assert<Role>(selectedOption);
           if (ROLES.includes(newRole) && memberInfo.role !== newRole) {
             await updateMember(memberInfo, newRole);
             refreshMemberInfos();

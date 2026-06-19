@@ -78,12 +78,13 @@ class Installment < ApplicationRecord
 
   friendly_id :slug_candidates, use: :slugged
 
-  after_save :trigger_iffy_ingest
+  attr_accessor :publishing
 
   validates :name, length: { maximum: 255 }
   validate :message_must_be_provided, :validate_call_to_action_url_and_text, :validate_channel,
            :published_at_cannot_be_in_the_future, :validate_sending_limit_for_sellers
   validate :shown_on_profile_only_for_confirmed_users, if: :shown_on_profile_changed?
+  validate :content_moderation_check, if: -> { publishing? || (persisted? && published? && (name_changed? || message_changed?)) }
 
   has_flags 1 => :is_unpublished_by_admin,
             2 => :DEPRECATED_is_automated_installment,
@@ -298,11 +299,17 @@ class Installment < ApplicationRecord
     selected_variant
   end
 
-  def installment_mobile_json_data(purchase: nil, subscription: nil, imported_customer: nil, follower: nil)
+  def installment_mobile_json_data(purchase: nil, subscription: nil, imported_customer: nil, follower: nil,
+                                   preloaded_purchase_url_redirect: :not_preloaded,
+                                   preloaded_purchase_email_info: :not_preloaded)
     installment_url_redirect = if subscription.present?
       url_redirect(subscription) || generate_url_redirect_for_subscription(subscription)
     elsif purchase.present?
-      purchase_url_redirect(purchase) || generate_url_redirect_for_purchase(purchase)
+      if preloaded_purchase_url_redirect != :not_preloaded
+        preloaded_purchase_url_redirect || generate_url_redirect_for_purchase(purchase)
+      else
+        purchase_url_redirect(purchase) || generate_url_redirect_for_purchase(purchase)
+      end
     elsif imported_customer.present?
       imported_customer_url_redirect(imported_customer) || generate_url_redirect_for_imported_customer(imported_customer)
     elsif follower.present?
@@ -314,7 +321,11 @@ class Installment < ApplicationRecord
       installment_url_redirect.mobile_product_file_json_data(product_file)
     end
     released_at = if purchase.present?
-      action_at_for_purchase(purchase.original_purchase)
+      if preloaded_purchase_email_info != :not_preloaded
+        action_at_from_email_info(preloaded_purchase_email_info)
+      else
+        action_at_for_purchase(purchase.original_purchase)
+      end
     elsif subscription.present?
       action_at_for_purchase(subscription.original_purchase)
     end
@@ -539,6 +550,24 @@ class Installment < ApplicationRecord
     end
   end
 
+  def public_page_location(purchase_id: nil)
+    return unless slug.present?
+    if user.subdomain_with_protocol.present?
+      custom_domain_view_post_url(
+        host: user.subdomain_with_protocol,
+        slug:,
+        purchase_id: purchase_id.presence
+      )
+    else
+      view_post_url(
+        host: UrlService.domain_with_protocol,
+        username: user.username.presence || user.external_id,
+        slug:,
+        purchase_id: purchase_id.presence
+      )
+    end
+  end
+
   def generate_url_redirect_for_imported_customer(imported_customer, product: nil)
     return unless imported_customer
     product ||= imported_customer.link
@@ -630,12 +659,48 @@ class Installment < ApplicationRecord
     ready_to_publish? ? "scheduled" : "draft"
   end
 
+  def as_json(options = {})
+    return as_json_for_api if options[:api_scopes].present?
+
+    super
+  end
+
+  def as_json_for_api(include_audience_count: false)
+    state = display_type
+    {
+      id: external_id,
+      subject: name,
+      message:,
+      audience_type: installment_type,
+      product_id: link&.external_id,
+      state:,
+      published_at:,
+      scheduled_at: state == SCHEDULED && installment_rule&.alive? ? installment_rule.to_be_published_at : nil,
+      send_emails: send_emails?,
+      shown_on_profile: shown_on_profile?,
+      audience_count: include_audience_count ? api_audience_members_count : nil,
+      recipients_count: published? ? customer_count : nil,
+      url: published? ? public_page_location : nil,
+      created_at:,
+      updated_at:,
+    }
+  end
+
   def publish!(published_at: nil)
     enforce_user_email_confirmation!
     transcode_videos!
     self.published_at = published_at.presence || Time.current
     self.workflow_installment_published_once_already = true if workflow.present?
-    save!
+    self.publishing = true
+    begin
+      save!
+    ensure
+      self.publishing = false
+    end
+  end
+
+  def publishing?
+    !!publishing
   end
 
   def unpublish!(is_unpublished_by_admin: false)
@@ -678,6 +743,61 @@ class Installment < ApplicationRecord
     Rails.cache.fetch(key_for_cache(:unique_open_count)) do
       CreatorEmailOpenEvent.where(installment_id: id).count
     end
+  end
+
+  # Purchase ids of recipients this post was emailed to, backed by the open-tracking
+  # CreatorContactingCustomersEmailInfo rows that are created when a post email is sent.
+  def emailed_recipient_purchase_ids
+    email_infos.where.not(purchase_id: nil).distinct.pluck(:purchase_id)
+  end
+
+  # Purchase ids of recipients who have opened this post's email at least once.
+  def opened_recipient_purchase_ids
+    email_infos.where(state: "opened").where.not(purchase_id: nil).distinct.pluck(:purchase_id)
+  end
+
+  # Purchase ids of original recipients who have not opened this post's email yet.
+  # Only purchase-backed posts (customer/seller/product/variant) have per-recipient open
+  # linkage, so this returns an empty array for follower/affiliate posts.
+  def unopened_recipient_purchase_ids
+    return [] unless seller_or_product_or_variant_type?
+    emailed_recipient_purchase_ids - opened_recipient_purchase_ids
+  end
+
+  # Emails of original recipients who haven't opened. Matching on email (rather than
+  # purchase_id) is the right key because AudienceMember collapses a buyer's multiple
+  # purchases into one row keyed by (seller_id, email), so the email_info purchase
+  # may not match the audience row's max(purchase_id).
+  def unopened_recipient_emails
+    return [] unless seller_or_product_or_variant_type?
+
+    emailed_ids = emailed_recipient_purchase_ids
+    return [] if emailed_ids.empty?
+
+    emailed_emails = Purchase.where(id: emailed_ids).distinct.pluck(:email).compact.map(&:downcase)
+    opened_emails = Purchase.where(id: opened_recipient_purchase_ids).distinct.pluck(:email).compact.map(&:downcase)
+    emailed_emails - opened_emails
+  end
+
+  def resendable_to_non_openers_emails
+    candidates = unopened_recipient_emails.to_set
+    return [] if candidates.empty?
+
+    AudienceMember
+      .filter(seller_id:, params: audience_members_filter_params)
+      .pluck(:email)
+      .map(&:downcase)
+      .uniq
+      .select { candidates.include?(_1) }
+  end
+
+  def unopened_recipients_count
+    resendable_to_non_openers_emails.size
+  end
+
+  # Whether a "resend to non-openers" blast is applicable to this post.
+  def resendable_to_non_openers?
+    published? && send_emails? && seller_or_product_or_variant_type?
   end
 
   def unique_click_count
@@ -723,6 +843,10 @@ class Installment < ApplicationRecord
 
   def action_at_for_purchases(purchase_ids)
     email_info = CreatorContactingCustomersEmailInfo.where(installment_id: id, purchase_id: purchase_ids).last
+    action_at_from_email_info(email_info)
+  end
+
+  def action_at_from_email_info(email_info)
     action_at = email_info.present? ? email_info.sent_at || email_info.delivered_at || email_info.opened_at : published_at
     action_at || Time.current
   end
@@ -786,8 +910,12 @@ class Installment < ApplicationRecord
     params[:not_bought_variant_ids] = not_bought_variants&.map { ObfuscateIds.decrypt(_1) }
     params[:paid_more_than_cents] = paid_more_than_cents.presence
     params[:paid_less_than_cents] = paid_less_than_cents.presence
-    params[:created_after] = Date.parse(created_after.to_s).in_time_zone(seller.timezone).iso8601 if created_after.present?
-    params[:created_before] = Date.parse(created_before.to_s).in_time_zone(seller.timezone).end_of_day.iso8601 if created_before.present?
+    if (date = safe_parse_filter_date(created_after))
+      params[:created_after] = date.in_time_zone(seller.timezone).iso8601
+    end
+    if (date = safe_parse_filter_date(created_before))
+      params[:created_before] = date.in_time_zone(seller.timezone).end_of_day.iso8601
+    end
     params[:bought_from] = bought_from if bought_from.present?
     params[:affiliate_product_ids] = seller.products.where(unique_permalink: affiliate_products).ids if affiliate_products.present?
 
@@ -795,7 +923,17 @@ class Installment < ApplicationRecord
   end
 
   def audience_members_count(limit = nil)
-    AudienceMember.filter(seller_id:, params: audience_members_filter_params).limit(limit).count
+    if Feature.active?(:audience_count_from_elasticsearch, seller)
+      AudienceMember.filter_count(seller_id:, params: audience_members_filter_params, limit:)
+    else
+      AudienceMember.filter(seller_id:, params: audience_members_filter_params).limit(limit).count
+    end
+  end
+
+  def api_audience_members_count
+    audience_members_count
+  rescue StandardError
+    nil
   end
 
   def self.receivable_by_customers_of_product(product:, variant_external_id:)
@@ -823,7 +961,7 @@ class Installment < ApplicationRecord
     end.reverse
   end
 
-  def has_been_blasted? = blasts.exists?
+  def has_been_blasted? = blasts.loaded? ? blasts.any? : blasts.exists?
   def can_be_blasted? = send_emails? && !has_been_blasted?
 
   def featured_image_url
@@ -962,9 +1100,13 @@ class Installment < ApplicationRecord
       Rails.cache.write(cache_key, cache)
     end
 
-    def trigger_iffy_ingest
-      return unless saved_change_to_name? || saved_change_to_message?
-      Iffy::Post::IngestJob.perform_async(id)
+    def content_moderation_check
+      return if user&.vip_creator?
+
+      result = ContentModeration::ModerateRecordService.check(self, :post)
+      return if result.passed
+
+      errors.add(:base, ContentModeration::ModerateRecordService.seller_message(result.reasons, "post"))
     end
 
     def normalize_tag(raw)

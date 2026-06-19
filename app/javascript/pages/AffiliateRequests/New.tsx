@@ -1,6 +1,6 @@
 import { useForm, usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { CreatorProfile } from "$app/parsers/profile";
 
@@ -24,7 +24,9 @@ type Props = {
 };
 
 const AffiliateRequestsNew = () => {
-  const { creator_profile, success, requester_has_existing_account, email_param } = cast<Props>(usePage().props);
+  const { creator_profile, success, requester_has_existing_account, email_param } = typia.assert<Props>(
+    usePage().props,
+  );
 
   const appDomain = useAppDomain();
   const loggedInUser = useLoggedInUser();
@@ -97,7 +99,6 @@ const AffiliateRequestsNew = () => {
                     id={nameUID}
                     type="text"
                     required
-                    placeholder="Name"
                     value={data.affiliate_request.name}
                     onChange={(event) => setData("affiliate_request.name", event.target.value)}
                   />
@@ -112,7 +113,6 @@ const AffiliateRequestsNew = () => {
                     id={emailUID}
                     type="email"
                     required
-                    placeholder="Email"
                     value={data.affiliate_request.email}
                     onChange={(event) => setData("affiliate_request.email", event.target.value)}
                   />

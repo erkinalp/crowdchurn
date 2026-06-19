@@ -3,6 +3,7 @@
 class UrlRedirectPresenter
   include Rails.application.routes.url_helpers
   include ProductsHelper
+  include CurrencyHelper
   include ActionView::Helpers::TextHelper
 
   CONTENT_UNAVAILABILITY_REASON_CODES = {
@@ -46,6 +47,7 @@ class UrlRedirectPresenter
     {
       content: content_props,
       product_has_third_party_analytics: purchase&.link&.has_third_party_analytics?("receipt"),
+      seller_analytics: seller_analytics_props,
     }.merge(download_page_layout_props).merge(extra_props)
   end
 
@@ -79,6 +81,30 @@ class UrlRedirectPresenter
   end
 
   private
+    def seller_analytics_props
+      return nil unless purchase
+
+      product = purchase.link
+      analytics = product.analytics_data
+      return nil unless analytics[:facebook_pixel_id] || analytics[:google_analytics_id] || analytics[:tiktok_pixel_id]
+
+      currency_type = purchase.displayed_price_currency_type.to_s
+      {
+        seller_id: product.user.external_id,
+        analytics:,
+        purchase_event: {
+          permalink: product.unique_permalink,
+          purchase_external_id: purchase.external_id,
+          product_name: product.name,
+          value: Money.new(purchase.displayed_price_cents, currency_type).cents,
+          currency: currency_type,
+          quantity: purchase.quantity,
+          tax: Money.new(purchase.seller_taxes_in_purchase_currency, currency_type).format(no_cents_if_whole: true, symbol: false),
+          buyer_currency_display: buyer_currency_display_props(product:, price_cents: purchase.displayed_price_cents, ip: purchase.ip_address),
+        }
+      }
+    end
+
     def download_page_layout_props(email_confirmation_required: false)
       review = purchase&.original_product_review
       call = purchase&.call
@@ -105,6 +131,7 @@ class UrlRedirectPresenter
           variant_name: purchase.variant_names&.join(", "),
           product_long_url: purchase.link&.long_url,
           allows_review: purchase.allows_review?,
+          product_available: !purchase.link&.deleted?,
           disable_reviews_after_year: purchase.seller.disable_reviews_after_year?,
           review: review.present? ? ProductReviewPresenter.new(review).review_form_props : nil,
           membership: purchase.subscription.present? ? {
@@ -237,7 +264,7 @@ class UrlRedirectPresenter
         download_url: url_redirect.is_file_downloadable?(file) ? url_redirect_download_product_files_path(url_redirect.token, { product_file_ids: [file.external_id] }) : nil,
         stream_url: file.streamable? ? url_redirect_stream_page_for_product_file_path(url_redirect.token, file.external_id) : nil,
         kindle_data: file.can_send_to_kindle? ?
-                       { email: logged_in_user&.kindle_email, icon_url: ActionController::Base.helpers.asset_path("white-15.png") } :
+                       { email: logged_in_user&.kindle_email, icon_url: ActionController::Base.helpers.image_path("white-15.png") } :
                        nil,
         latest_media_location: media_locations_by_file[file.id].as_json,
         content_length: file.content_length,

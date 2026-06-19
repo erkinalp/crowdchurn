@@ -16,6 +16,7 @@ class Admin::BaseController < ApplicationController
   end
 
   before_action :require_admin!
+  before_action :preload_admin_shell_user_associations
   before_action :hide_layouts
 
   before_action do
@@ -85,10 +86,6 @@ class Admin::BaseController < ApplicationController
       end
     end
 
-    def request_from_iffy?
-      ActiveSupport::SecurityUtils.secure_compare(params[:auth_token].to_s, GlobalConfig.get("IFFY_TOKEN"))
-    end
-
     def require_admin!
       if current_user.nil?
         return e404_json if xhr_or_json_request?
@@ -99,6 +96,13 @@ class Admin::BaseController < ApplicationController
         return e404_json if xhr_or_json_request?
         redirect_to root_path
       end
+    end
+
+    def preload_admin_shell_user_associations
+      avatar_users = [current_user, current_seller, impersonated_user].compact.uniq
+      ActiveRecord::Associations::Preloader.new(records: avatar_users, associations: { avatar_attachment: :blob }).call if avatar_users.any?
+
+      ActiveRecord::Associations::Preloader.new(records: [current_seller], associations: :seller_profile).call if current_seller.present?
     end
 
     def xhr_or_json_request?

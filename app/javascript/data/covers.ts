@@ -1,4 +1,4 @@
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { AssetPreview } from "$app/parsers/product";
 import { ResponseError, request } from "$app/utils/request";
@@ -17,9 +17,9 @@ export const createCover = async (permalink: string, coverPayload: CoverPayload)
   });
 
   if (response.ok) {
-    const responseData = cast<{ success: true; asset_previews: AssetPreview[] } | { success: false; error: string }>(
-      await response.json(),
-    );
+    const responseData = typia.assert<
+      { success: true; asset_previews: AssetPreview[] } | { success: false; error: string }
+    >(await response.json());
     if (responseData.success) return responseData.asset_previews;
     throw new ResponseError(responseData.error);
   }
@@ -35,7 +35,7 @@ export const deleteCover = async (permalink: string, coverId: string) => {
   });
 
   if (response.ok) {
-    const responseData = cast<{ success: true; asset_previews: AssetPreview[] } | { success: false }>(
+    const responseData = typia.assert<{ success: true; asset_previews: AssetPreview[] } | { success: false }>(
       await response.json(),
     );
     if (responseData.success) return responseData.asset_previews;

@@ -1,7 +1,7 @@
 import { InfoCircle, Trash } from "@boxicons/react";
 import { router, useForm, usePage } from "@inertiajs/react";
 import React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { Button } from "$app/components/Button";
 import { Layout } from "$app/components/Library/Layout";
@@ -29,7 +29,7 @@ type Props = {
 };
 
 export default function WishlistsPage() {
-  const { wishlists, reviews_page_enabled, following_wishlists_enabled } = cast<Props>(usePage().props);
+  const { wishlists, reviews_page_enabled, following_wishlists_enabled } = typia.assert<Props>(usePage().props);
   const [deletingWishlist, setConfirmingDeleteWishlist] = React.useState<Wishlist | null>(null);
 
   const deleteForm = useForm({});
@@ -74,6 +74,7 @@ export default function WishlistsPage() {
                       </span>
                     }
                     position="top"
+                    className="shrink-0"
                   >
                     <InfoCircle className="size-5" />
                   </WithTooltip>

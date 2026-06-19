@@ -1,6 +1,6 @@
 import { router, useForm, usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { SettingPage } from "$app/parsers/settings";
 import { asyncVoid } from "$app/utils/promise";
@@ -11,6 +11,7 @@ import { PasswordInput } from "$app/components/PasswordInput";
 import { showAlert } from "$app/components/server-components/Alert";
 import { Layout as SettingsLayout } from "$app/components/Settings/Layout";
 import { AuthenticatorSetup } from "$app/components/Settings/PasswordPage/AuthenticatorSetup";
+import { PasskeysSection, type Passkey } from "$app/components/Settings/PasswordPage/PasskeysSection";
 import { RecoveryCodes } from "$app/components/Settings/PasswordPage/RecoveryCodes";
 import { Alert } from "$app/components/ui/Alert";
 import { Fieldset, FieldsetDescription, FieldsetTitle } from "$app/components/ui/Fieldset";
@@ -25,10 +26,12 @@ type PasswordPageProps = {
   require_old_password: boolean;
   show_authenticator_app_settings: boolean;
   authenticator_app_enabled: boolean;
+  show_passkeys_settings: boolean;
+  passkeys: Passkey[];
 };
 
 export default function PasswordPage() {
-  const props = cast<PasswordPageProps>(usePage().props);
+  const props = typia.assert<PasswordPageProps>(usePage().props);
   const uid = React.useId();
   const [requireOldPassword, setRequireOldPassword] = React.useState(props.require_old_password);
   const [settingUp, setSettingUp] = React.useState(false);
@@ -74,7 +77,7 @@ export default function PasswordPage() {
         method: "DELETE",
         accept: "json",
       });
-      const result = cast<{ success: boolean; error_message?: string }>(await response.json());
+      const result = typia.assert<{ success: boolean; error_message?: string }>(await response.json());
       if (!response.ok || !result.success) {
         throw new ResponseError(result.error_message ?? "Sorry, something went wrong. Please try again.");
       }
@@ -99,7 +102,7 @@ export default function PasswordPage() {
         method: "POST",
         accept: "json",
       });
-      const result = cast<{ success: boolean; recovery_codes?: string[]; error_message?: string }>(
+      const result = typia.assert<{ success: boolean; recovery_codes?: string[]; error_message?: string }>(
         await response.json(),
       );
       if (!response.ok || !result.success) {
@@ -195,6 +198,11 @@ export default function PasswordPage() {
           {props.authenticator_app_enabled && regeneratedCodes ? (
             <RecoveryCodes codes={regeneratedCodes} onDone={() => setRegeneratedCodes(null)} />
           ) : null}
+        </FormSection>
+      ) : null}
+      {props.show_passkeys_settings ? (
+        <FormSection header={<h2>Passkeys</h2>}>
+          <PasskeysSection passkeys={props.passkeys} />
         </FormSection>
       ) : null}
     </SettingsLayout>

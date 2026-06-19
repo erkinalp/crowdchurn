@@ -14,6 +14,19 @@ class CartPresenter
     return if cart.nil?
 
     cart_products = cart.cart_products.alive.joins(:product).merge(Link.not_archived).order(created_at: :desc)
+      .preload(
+        :option,
+        :affiliate,
+        { accepted_offer: :offer_code },
+        { product: [
+          :user,
+          :thumbnail,
+          :installment_plan,
+          :variant_categories_alive,
+          :alive_variants,
+          { available_upsell: :seller },
+        ] }
+      ).load
 
     {
       email: cart.email.presence,
@@ -21,12 +34,12 @@ class CartPresenter
       rejectPppDiscount: cart.reject_ppp_discount,
       discountCodes: cart.discount_codes.map do |discount_code|
         products = cart_products.each_with_object({}) { |cart_product, hash| hash[cart_product.product.unique_permalink] = { permalink: cart_product.product.unique_permalink, quantity: cart_product.quantity } }
-        result = OfferCodeDiscountComputingService.new(discount_code["code"], products).process
+        result = OfferCodeDiscountComputingService.new(discount_code["code"], products, buyer: logged_in_user).process
 
         {
           code: discount_code["code"],
           fromUrl: discount_code["fromUrl"],
-          products: result[:error_code].present? ? [] : result[:products_data].transform_values { _1[:discount] },
+          products: result[:error_code].present? ? {} : result[:products_data].transform_values { _1[:discount] },
         }
       end,
       items: cart_products.map do |cart_product|
@@ -43,7 +56,7 @@ class CartPresenter
             **cart_product.accepted_offer_details.symbolize_keys,
           }
 
-          value[:accepted_offer][:discount] = accepted_offer.offer_code.discount if accepted_offer.offer_code.present?
+          value[:accepted_offer][:discount] = accepted_offer.offer_code.discount_for_display(buyer: logged_in_user, product: accepted_offer.product) if accepted_offer.offer_code.present?
         end
 
         value

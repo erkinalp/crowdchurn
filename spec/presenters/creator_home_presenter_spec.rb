@@ -50,7 +50,7 @@ describe CreatorHomePresenter do
           "first_payout" => true,
           "first_product" => false,
           "first_sale" => false,
-          "purchased_small_bets" => false,
+          "used_cli" => false,
         }
       )
     end
@@ -80,7 +80,7 @@ describe CreatorHomePresenter do
           "first_payout" => true,
           "first_product" => true,
           "first_sale" => true,
-          "purchased_small_bets" => false,
+          "used_cli" => false,
         }
       )
     end
@@ -366,6 +366,16 @@ describe CreatorHomePresenter do
         expect(props[:tax_center_enabled]).to be(true)
         expect(props[:tax_forms]).to eq([])
         expect(props[:show_1099_download_notice]).to be(true)
+      end
+
+      it "limits tax form years to avoid timeouts for long-lived accounts" do
+        seller.update!(created_at: 10.years.ago)
+        allow(seller).to receive(:eligible_for_1099?).and_return(true)
+        allow(seller).to receive(:tax_form_1099_download_url).and_return(download_url)
+
+        tax_forms = presenter.creator_home_props[:tax_forms]
+        expect(tax_forms.keys.length).to be <= 4
+        expect(tax_forms.keys.min).to be >= Time.current.year - 3
       end
 
       it "disables tax center for non-US user even with feature flag enabled" do

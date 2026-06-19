@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
+ActiveRecord::Schema[7.1].define(version: 2026_12_01_000001) do
   create_table "active_storage_attachments", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
     t.string "name", limit: 191, null: false
     t.string "record_type", limit: 191, null: false
@@ -46,6 +46,57 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["controller_name", "action_name"], name: "index_admin_action_call_infos_on_controller_name_and_action_name", unique: true
+  end
+
+  create_table "admin_api_audit_logs", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.bigint "admin_api_token_id", null: false
+    t.string "action", null: false
+    t.string "target_type"
+    t.bigint "target_id"
+    t.string "target_external_id"
+    t.string "route", null: false
+    t.string "http_method", null: false
+    t.json "params_snapshot"
+    t.string "request_id"
+    t.integer "response_status"
+    t.string "error_class"
+    t.datetime "created_at", null: false
+    t.index ["actor_user_id", "created_at"], name: "index_admin_api_audit_logs_on_actor_user_id_and_created_at"
+    t.index ["admin_api_token_id", "created_at"], name: "idx_on_admin_api_token_id_created_at_95eabf5e0d"
+    t.index ["created_at"], name: "index_admin_api_audit_logs_on_created_at"
+    t.index ["target_type", "target_id", "created_at"], name: "idx_on_target_type_target_id_created_at_bc67bbc74b"
+  end
+
+  create_table "admin_api_authorization_codes", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.bigint "admin_api_token_id"
+    t.string "code_hash", limit: 64, null: false
+    t.string "code_challenge", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "used_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id", "created_at"], name: "idx_admin_api_auth_codes_actor_created"
+    t.index ["admin_api_token_id"], name: "idx_admin_api_auth_codes_token"
+    t.index ["code_hash"], name: "idx_admin_api_auth_codes_code_hash", unique: true
+    t.index ["expires_at"], name: "idx_admin_api_auth_codes_expires"
+  end
+
+  create_table "admin_api_tokens", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.string "external_id", limit: 21, null: false
+    t.bigint "actor_user_id", null: false
+    t.string "token_hash", limit: 64, null: false
+    t.datetime "last_used_at"
+    t.datetime "revoked_at"
+    t.datetime "expires_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_admin_api_tokens_on_actor_user_id"
+    t.index ["expires_at"], name: "index_admin_api_tokens_on_expires_at"
+    t.index ["external_id"], name: "index_admin_api_tokens_on_external_id", unique: true
+    t.index ["revoked_at"], name: "index_admin_api_tokens_on_revoked_at"
+    t.index ["token_hash"], name: "index_admin_api_tokens_on_token_hash", unique: true
   end
 
   create_table "affiliate_credits", id: :integer, charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
@@ -243,6 +294,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.string "currency", default: "usd"
     t.string "holding_currency", default: "usd"
     t.integer "holding_amount_cents", default: 0
+    t.index ["state", "merchant_account_id", "date", "user_id"], name: "index_balances_on_state_merchant_account_date_for_payouts"
     t.index ["user_id", "merchant_account_id", "date"], name: "index_on_user_merchant_account_date"
   end
 
@@ -302,6 +354,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.date "subscription_price_change_effective_date"
     t.text "subscription_price_change_message", size: :long
     t.integer "duration_in_minutes"
+    t.integer "sales_count_for_inventory_cache", default: 0, null: false
     t.index ["link_id"], name: "index_base_variants_on_link_id"
     t.index ["variant_category_id"], name: "index_variants_on_variant_category_id"
   end
@@ -318,6 +371,23 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.integer "base_variant_id"
     t.index ["base_variant_id"], name: "index_purchases_variants_on_variant_id"
     t.index ["purchase_id"], name: "index_purchases_variants_on_purchase_id"
+  end
+
+  create_table "billing_details", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "purchaser_id", null: false
+    t.string "full_name", null: false
+    t.string "business_name"
+    t.string "business_id"
+    t.string "street_address", null: false
+    t.string "city", null: false
+    t.string "state"
+    t.string "zip_code", null: false
+    t.string "country_code", limit: 2, null: false
+    t.text "additional_notes"
+    t.boolean "auto_email_invoice_enabled", default: true, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["purchaser_id"], name: "index_billing_details_on_purchaser_id", unique: true
   end
 
   create_table "blocked_customer_objects", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
@@ -500,6 +570,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.integer "ancestry_depth", default: 0, null: false
     t.string "idempotency_key"
     t.index ["ancestry"], name: "index_comments_on_ancestry"
+    t.index ["comment_type", "commentable_type", "created_at", "commentable_id"], name: "index_comments_on_comment_type_and_created_at"
     t.index ["commentable_id", "commentable_type"], name: "index_comments_on_commentable_id_and_commentable_type"
     t.index ["commentable_type", "commentable_id", "idempotency_key"], name: "index_comments_on_commentable_and_idempotency_key", unique: true
     t.index ["purchase_id"], name: "index_comments_on_purchase_id"
@@ -658,8 +729,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.integer "fee_retention_refund_id"
     t.bigint "backtax_agreement_id"
     t.text "json_data"
+    t.text "reason"
     t.index ["balance_id"], name: "index_credits_on_balance_id"
     t.index ["dispute_id"], name: "index_credits_on_dispute_id"
+    t.index ["user_id", "created_at", "id"], name: "index_credits_on_user_id_and_created_at_and_id"
   end
 
   create_table "custom_domains", id: :integer, charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
@@ -1128,6 +1201,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.integer "discover_fee_per_thousand", default: 100, null: false
     t.string "support_email"
     t.bigint "default_offer_code_id"
+    t.integer "sales_count_for_inventory_cache", default: 0, null: false
     t.index ["banned_at"], name: "index_links_on_banned_at"
     t.index ["custom_permalink"], name: "index_links_on_custom_permalink", length: 191
     t.index ["default_offer_code_id"], name: "index_links_on_default_offer_code_id"
@@ -1188,6 +1262,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.string "code_challenge"
     t.string "code_challenge_method"
     t.index ["created_at"], name: "index_oauth_access_grants_on_created_at"
+    t.index ["resource_owner_id", "application_id"], name: "idx_on_resource_owner_id_application_id_1b7397c458"
     t.index ["token"], name: "index_oauth_access_grants_on_token", unique: true
   end
 
@@ -1218,8 +1293,42 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.datetime "deleted_at", precision: nil
     t.string "scopes", default: "", null: false
     t.boolean "confidential", default: false, null: false
+    t.boolean "device_authorization_enabled", default: false, null: false
     t.index ["owner_id", "owner_type"], name: "index_oauth_applications_on_owner_id_and_owner_type"
     t.index ["uid"], name: "index_oauth_applications_on_uid", unique: true
+  end
+
+  create_table "oauth_device_authorizations", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.integer "oauth_application_id", null: false
+    t.integer "resource_owner_id"
+    t.integer "access_token_id"
+    t.string "device_code_digest", null: false
+    t.string "user_code_digest", null: false
+    t.string "scopes", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "last_polled_at"
+    t.integer "poll_count", default: 0, null: false
+    t.integer "poll_interval_seconds", default: 5, null: false
+    t.datetime "approved_at"
+    t.datetime "denied_at"
+    t.datetime "consumed_at"
+    t.string "created_ip_address"
+    t.string "approved_ip_address"
+    t.string "denied_ip_address"
+    t.string "last_poll_ip_address"
+    t.string "created_user_agent"
+    t.string "approved_user_agent"
+    t.string "denied_user_agent"
+    t.string "last_poll_user_agent"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["access_token_id"], name: "index_oauth_device_authorizations_on_access_token_id"
+    t.index ["device_code_digest"], name: "index_oauth_device_authorizations_on_device_code_digest", unique: true
+    t.index ["oauth_application_id"], name: "index_oauth_device_authorizations_on_oauth_application_id"
+    t.index ["resource_owner_id"], name: "index_oauth_device_authorizations_on_resource_owner_id"
+    t.index ["status", "expires_at"], name: "index_oauth_device_authorizations_on_status_and_expires_at"
+    t.index ["user_code_digest"], name: "index_oauth_device_authorizations_on_user_code_digest", unique: true
   end
 
   create_table "offer_codes", id: :integer, charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
@@ -1241,11 +1350,22 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.integer "duration_in_months"
     t.integer "minimum_amount_cents"
     t.bigint "flags", default: 0, null: false
+    t.boolean "existing_customers_only", default: false, null: false
+    t.json "ownership_duration_tiers"
     t.index ["code", "link_id"], name: "index_offer_codes_on_code_and_link_id"
     t.index ["link_id"], name: "index_offer_codes_on_link_id"
     t.index ["name", "link_id"], name: "index_offer_codes_on_name_and_link_id", length: { name: 191 }
     t.index ["universal"], name: "index_offer_codes_on_universal"
     t.index ["user_id"], name: "index_offer_codes_on_user_id"
+  end
+
+  create_table "offer_codes_ownership_products", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "offer_code_id", null: false
+    t.bigint "product_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["offer_code_id"], name: "index_offer_codes_ownership_products_on_offer_code_id"
+    t.index ["product_id"], name: "index_offer_codes_ownership_products_on_product_id"
   end
 
   create_table "offer_codes_products", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
@@ -1273,6 +1393,15 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.bigint "flags", default: 0, null: false
     t.datetime "review_reminder_scheduled_at"
     t.index ["purchaser_id"], name: "index_orders_on_purchaser_id"
+  end
+
+  create_table "pages", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.string "pageable_type", null: false
+    t.bigint "pageable_id", null: false
+    t.text "custom_html", size: :long
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["pageable_type", "pageable_id"], name: "index_pages_on_pageable", unique: true
   end
 
   create_table "payment_options", id: :integer, charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
@@ -1323,6 +1452,18 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.index ["payment_id"], name: "index_payments_balances_on_payment_id"
   end
 
+  create_table "platform_blocks", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.string "object_type", limit: 50, null: false
+    t.string "object_value", limit: 320, null: false
+    t.datetime "blocked_at"
+    t.datetime "expires_at"
+    t.bigint "blocked_by"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["object_type", "object_value"], name: "index_platform_blocks_on_type_and_value", unique: true
+    t.index ["object_value"], name: "index_platform_blocks_on_value"
+  end
+
   create_table "post_email_blasts", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
     t.bigint "post_id", null: false
     t.bigint "seller_id", null: false
@@ -1334,6 +1475,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.datetime "completed_at"
+    t.string "recipient_filter"
     t.index ["post_id", "requested_at"], name: "index_post_email_blasts_on_post_id_and_requested_at"
     t.index ["requested_at"], name: "index_post_email_blasts_on_requested_at"
     t.index ["seller_id", "requested_at"], name: "index_post_email_blasts_on_seller_id_and_requested_at"
@@ -1925,6 +2067,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.bigint "payout_amount_cents", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "processor"
     t.index ["created_by_id"], name: "index_scheduled_payouts_on_created_by_id"
     t.index ["status", "scheduled_at"], name: "index_scheduled_payouts_on_status_and_scheduled_at"
     t.index ["user_id"], name: "index_scheduled_payouts_on_user_id"
@@ -2537,7 +2680,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.boolean "payment_notification", default: true
     t.string "currency_type", default: "usd"
     t.text "bio", size: :medium
-    t.string "twitter_handle"
     t.string "username"
     t.bigint "credit_card_id"
     t.string "profile_picture_url"
@@ -2578,6 +2720,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.string "google_uid"
     t.integer "purchasing_power_parity_limit"
     t.string "tiktok_pixel_id"
+    t.string "twitter_handle"
     t.index ["account_created_ip"], name: "index_users_on_account_created_ip"
     t.index ["confirmation_token"], name: "index_users_on_confirmation_token", length: 191
     t.index ["created_at"], name: "index_users_on_created_at"
@@ -2697,6 +2840,56 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_20_000000) do
     t.bigint "user_id", null: false
     t.index ["record_type", "record_id"], name: "index_video_files_on_record"
     t.index ["user_id"], name: "index_video_files_on_user_id"
+  end
+
+  create_table "walks_app_attest_keys", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.string "key_id", limit: 64, null: false
+    t.binary "public_key", limit: 200, null: false
+    t.bigint "counter", default: 0, null: false
+    t.string "environment", limit: 16, null: false
+    t.datetime "attested_at", null: false
+    t.datetime "last_used_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["key_id"], name: "index_walks_app_attest_keys_on_key_id", unique: true
+  end
+
+  create_table "walks_free_trials", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "walks_app_attest_key_id", null: false
+    t.datetime "consumed_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.integer "synthesis_attempts", default: 0, null: false
+    t.index ["walks_app_attest_key_id"], name: "index_walks_free_trials_on_walks_app_attest_key_id", unique: true
+  end
+
+  create_table "watched_users", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "created_by_id"
+    t.bigint "revenue_threshold_cents", null: false
+    t.bigint "revenue_cents", default: 0, null: false
+    t.bigint "unpaid_balance_cents", default: 0, null: false
+    t.datetime "last_synced_at"
+    t.text "notes"
+    t.datetime "deleted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_by_id"], name: "index_watched_users_on_created_by_id"
+    t.index ["user_id", "deleted_at"], name: "index_watched_users_on_user_id_and_deleted_at"
+  end
+
+  create_table "webauthn_credentials", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.text "webauthn_id", null: false
+    t.string "webauthn_id_sha256", limit: 64, null: false
+    t.text "public_key", null: false
+    t.bigint "sign_count", default: 0, null: false
+    t.string "nickname", null: false
+    t.datetime "last_used_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_webauthn_credentials_on_user_id"
+    t.index ["webauthn_id_sha256"], name: "index_webauthn_credentials_on_webauthn_id_sha256", unique: true
   end
 
   create_table "wishlist_followers", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|

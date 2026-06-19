@@ -115,6 +115,32 @@ describe LinksController, :vcr, inertia: true do
         end
       end
 
+      context "when a temp file is missing during publish" do
+        before do
+          allow_any_instance_of(Link).to receive(:publish!).and_raise(Errno::ENOENT, "No such file or directory @ rb_file_s_size - /tmp/image_processing_test.png")
+        end
+
+        it "notifies error tracker" do
+          expect(ErrorNotifier).to receive(:notify).once
+
+          post :publish, params: { id: @disabled_link.unique_permalink }
+        end
+
+        it "returns a retry-friendly error message" do
+          post :publish, params: { id: @disabled_link.unique_permalink }
+
+          expect(response.parsed_body["success"]).to eq(false)
+          expect(response.parsed_body["error_message"]).to eq("There was a temporary issue processing your product images. Please try again.")
+        end
+
+        it "does not publish the link" do
+          post :publish, params: { id: @disabled_link.unique_permalink }
+
+          expect(response.parsed_body["success"]).to eq(false)
+          expect(@disabled_link.reload.purchase_disabled_at).to be_present
+        end
+      end
+
       context "when an unknown exception is raised" do
         before do
           allow_any_instance_of(Link).to receive(:publish!).and_raise("error")
@@ -286,6 +312,142 @@ describe LinksController, :vcr, inertia: true do
       end
     end
 
+    describe "POST price_check" do
+      let(:product) { create(:product, user: seller) }
+
+      before { Flipper.enable(:price_checker) }
+
+      it_behaves_like "authorize called for action", :post, :price_check do
+        let(:record) { product }
+        let(:policy_method) { :edit? }
+        let(:request_params) { { id: product.unique_permalink } }
+      end
+
+      it "returns 404 when the price_checker feature flag is disabled" do
+        Flipper.disable(:price_checker)
+
+        post :price_check, params: { id: product.unique_permalink }
+
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it "returns 504 when the service raises TimeoutError" do
+        expect(PriceCheckerService).to receive(:call).and_raise(PriceCheckerService::TimeoutError)
+
+        post :price_check, params: { id: product.unique_permalink }
+
+        expect(response).to have_http_status(:gateway_timeout)
+      end
+
+      it "returns the price distribution payload as JSON" do
+        payload = {
+          status: "ok",
+          tier: "broadened",
+          match_count: 25,
+          taxonomy_label: nil,
+          currency_code: "usd",
+          current_price_cents: product.price_cents,
+          summary: { median_cents: 1_500, p25_cents: 1_000, p75_cents: 2_500, mean_cents: 1_750 },
+          histogram: { interval_cents: 500, bins: [{ from_cents: 1_000, to_cents: 1_500, count: 5 }] },
+          computed_at: "2024-01-01T00:00:00Z",
+        }
+        expect(PriceCheckerService).to receive(:call).with(product: product, overrides: {}, force_refresh: false).and_return(payload)
+
+        post :price_check, params: { id: product.unique_permalink }
+
+        expect(response).to be_successful
+        expect(response.parsed_body).to include(
+          "status" => "ok",
+          "tier" => "broadened",
+          "match_count" => 25,
+        )
+      end
+
+      it "passes force_refresh when refresh param is present" do
+        expect(PriceCheckerService).to receive(:call).with(product: product, overrides: {}, force_refresh: true).and_return({})
+
+        post :price_check, params: { id: product.unique_permalink, refresh: "1" }
+
+        expect(response).to be_successful
+      end
+
+      it "passes sanitized overrides to the service" do
+        taxonomy = Taxonomy.find_or_create_by(slug: "films")
+        expect(PriceCheckerService).to receive(:call).with(
+          product: product,
+          overrides: {
+            name: "Edited title",
+            description: "Edited description",
+            taxonomy_id: taxonomy.id,
+            native_type: "digital",
+            currency_code: "eur",
+          },
+          force_refresh: false,
+        ).and_return({})
+
+        post :price_check, params: {
+          id: product.unique_permalink,
+          overrides: {
+            name: "  Edited title  ",
+            description: "Edited description",
+            taxonomy_id: taxonomy.id.to_s,
+            native_type: "digital",
+            currency_code: "EUR",
+          },
+        }
+
+        expect(response).to be_successful
+      end
+
+      it "drops an unknown currency_code override" do
+        expect(PriceCheckerService).to receive(:call).with(
+          product: product,
+          overrides: { name: "ok" },
+          force_refresh: false,
+        ).and_return({})
+
+        post :price_check, params: {
+          id: product.unique_permalink,
+          overrides: {
+            name: "ok",
+            currency_code: "xxx_not_a_currency",
+          },
+        }
+
+        expect(response).to be_successful
+      end
+
+      it "drops invalid overrides instead of erroring" do
+        expect(PriceCheckerService).to receive(:call).with(
+          product: product,
+          overrides: { name: "ok" },
+          force_refresh: false,
+        ).and_return({})
+
+        post :price_check, params: {
+          id: product.unique_permalink,
+          overrides: {
+            name: "ok",
+            taxonomy_id: 999_999_999,
+            native_type: "totally_not_a_type",
+          },
+        }
+
+        expect(response).to be_successful
+      end
+
+      context "when the user does not own the product" do
+        let(:other_user) { create(:user) }
+
+        before { sign_in other_user }
+
+        it "denies access" do
+          post :price_check, params: { id: product.unique_permalink }
+          expect(response).not_to be_successful
+        end
+      end
+    end
+
     describe "PUT update" do
       before do
         @product = create(:product_with_pdf_file, user: seller)
@@ -334,6 +496,17 @@ describe LinksController, :vcr, inertia: true do
         let(:product) { @product }
         let(:request_params) { @params }
         let(:response_status) { 204 }
+      end
+
+      it "returns the existing validation error when suggested price is set but the default price record is missing" do
+        @product.prices.destroy_all
+        @product.update_column(:customizable_price, true)
+
+        put :update, params: @params.merge(suggested_price: "10", customizable_price: true), as: :json
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body["error_message"]).to eq("Default price cents can't be blank")
+        expect(@product.reload.suggested_price_cents).to be_nil
       end
 
       context "when user email is empty" do
@@ -3282,6 +3455,58 @@ describe LinksController, :vcr, inertia: true do
         end
       end
 
+      describe "json format" do
+        it "returns the public product JSON representation" do
+          link = create(:product, user: @user, name: "Public API Product", price_cents: 600)
+
+          get :show, params: { id: link.to_param }, format: :json
+
+          expect(response).to be_successful
+          body = response.parsed_body
+          expect(body["api_version"]).to eq(ProductPresenter::PublicApiProps::API_VERSION)
+          expect(body["id"]).to eq(link.external_id)
+          expect(body["permalink"]).to eq(link.unique_permalink)
+          expect(body["name"]).to eq("Public API Product")
+          expect(body["price_cents"]).to eq(600)
+          expect(body["currency_code"]).to eq("usd")
+          expect(body["seller"]["name"]).to eq(@user.name_or_username)
+        end
+
+        it "does not leak buyer, admin, or analytics fields" do
+          link = create(:product, user: @user)
+
+          get :show, params: { id: link.to_param }, format: :json
+
+          body = response.parsed_body
+          %w[purchase buyer wishlists can_edit analytics has_third_party_analytics is_compliance_blocked admin_info].each do |forbidden|
+            expect(body).not_to have_key(forbidden)
+          end
+        end
+
+        it "omits sales_count unless the creator opts in" do
+          link = create(:product, user: @user, should_show_sales_count: false)
+
+          get :show, params: { id: link.to_param }, format: :json
+
+          expect(response.parsed_body["sales_count"]).to be_nil
+        end
+
+        it "returns JSON (not the custom-HTML landing page) for products with custom HTML" do
+          link = create(:product, user: @user, name: "Custom HTML Product")
+          link.update!(custom_html: "<h1>My custom landing page</h1>")
+          Feature.activate_user(:custom_html_pages, @user)
+
+          get :show, params: { id: link.to_param }, format: :json
+
+          expect(response).to be_successful
+          expect(response.media_type).to eq("application/json")
+          body = response.parsed_body
+          expect(body["api_version"]).to eq(ProductPresenter::PublicApiProps::API_VERSION)
+          expect(body["id"]).to eq(link.external_id)
+          expect(response.body).not_to include("My custom landing page")
+        end
+      end
+
       describe "wanted=true parameter" do
         it "passes pay_in_installments parameter to checkout when wanted=true" do
           get :show, params: { id: product.to_param, wanted: "true", pay_in_installments: "true" }
@@ -3428,6 +3653,111 @@ describe LinksController, :vcr, inertia: true do
 
             code_param_count = query_string.split("&").count { |param| param.start_with?("code=") }
             expect(code_param_count).to eq(1), "Expected code to appear exactly once in query string, got: #{query_string}"
+          end
+        end
+
+        # Custom landing pages (issue #5406) hand buyer-input state to checkout
+        # purely through the URL keys the ?wanted=true flow already accepts:
+        # variant / option / quantity / price / recurrence. These exercise the
+        # consumer end of that contract end-to-end through LinksController#show,
+        # and pin the fail-open behavior the custom-HTML wrapper relies on: a
+        # page that prefills only *some* of the keys (or none) must still resolve
+        # to a valid checkout, never an error.
+        describe "buyer-input round trip (variant/option/quantity/price/recurrence)" do
+          it "resolves a variant name to its option id in the checkout redirect" do
+            product = create(:product_with_digital_versions_with_price_difference_cents, user: @user)
+            variant = product.alive_variants.find_by(name: "Untitled 2")
+
+            get :show, params: { id: product.to_param, wanted: "true", variant: "Untitled 2" }
+
+            expect(response).to be_redirect
+            query_params = Rack::Utils.parse_query(URI.parse(response.location).query)
+            expect(query_params["product"]).to eq(product.unique_permalink)
+            expect(query_params["option"]).to eq(variant.external_id)
+            # base price (100) + this variant's price_difference_cents (200)
+            expect(query_params["price"]).to eq("300")
+          end
+
+          it "passes a quantity prefill straight through to checkout" do
+            product = create(:product, user: @user, quantity_enabled: true, price_cents: 100)
+
+            get :show, params: { id: product.to_param, wanted: "true", quantity: "3" }
+
+            expect(response).to be_redirect
+            query_params = Rack::Utils.parse_query(URI.parse(response.location).query)
+            expect(query_params["quantity"]).to eq("3")
+          end
+
+          it "honors a PWYW price prefill at or above the minimum" do
+            product = create(:product, user: @user, customizable_price: true, price_cents: 100)
+
+            get :show, params: { id: product.to_param, wanted: "true", price: "9.99" }
+
+            expect(response).to be_redirect
+            query_params = Rack::Utils.parse_query(URI.parse(response.location).query)
+            # LinksController#show converts major units to cents: 9.99 -> 999.
+            # (The redirect echoes price both from the passthrough params and the
+            # resolved cart item, so parse_query may yield an array — assert the
+            # resolved value regardless of arity.)
+            expect(Array(query_params["price"])).to all(eq("999"))
+          end
+
+          it "resolves a recurrence prefill on a membership product" do
+            product = create(:membership_product_with_preset_tiered_pricing, user: @user)
+            variant = product.alive_variants.first
+
+            get :show, params: { id: product.to_param, wanted: "true", option: variant.external_id, recurrence: "monthly" }
+
+            expect(response).to be_redirect
+            query_params = Rack::Utils.parse_query(URI.parse(response.location).query)
+            expect(Array(query_params["recurrence"])).to all(eq("monthly"))
+            expect(query_params["option"]).to eq(variant.external_id)
+          end
+
+          it "redirects to a valid checkout when no selection is prefilled (fails open, never errors)" do
+            product = create(:product_with_digital_versions_with_price_difference_cents, user: @user)
+
+            get :show, params: { id: product.to_param, wanted: "true" }
+
+            # No variant/option in the URL — the flow still redirects straight to
+            # checkout (it does not 404, render an error, or demand a selection).
+            # cart_item defaults to the first in-stock option internally; checkout
+            # resolves the rest.
+            expect(response).to be_redirect
+            redirect_url = URI.parse(response.location)
+            expect(redirect_url.path).to eq("/checkout")
+            query_params = Rack::Utils.parse_query(redirect_url.query)
+            expect(query_params["product"]).to eq(product.unique_permalink)
+          end
+
+          it "fills the unspecified keys with defaults when only a partial selection is prefilled" do
+            product = create(:product_with_digital_versions_with_price_difference_cents, user: @user, quantity_enabled: true)
+            variant = product.alive_variants.find_by(name: "Untitled 1")
+
+            # Only the variant is prefilled — quantity/price/recurrence are absent.
+            get :show, params: { id: product.to_param, wanted: "true", variant: "Untitled 1" }
+
+            expect(response).to be_redirect
+            query_params = Rack::Utils.parse_query(URI.parse(response.location).query)
+            expect(query_params["option"]).to eq(variant.external_id)
+            # the unspecified quantity key is simply absent — no error, checkout
+            # treats it as the default of 1
+            expect(query_params["quantity"]).to be_nil
+            # price resolves to base (100) + this variant's price_difference_cents (100)
+            expect(Array(query_params["price"])).to all(eq("200"))
+          end
+
+          it "does not resolve an unknown variant name but still redirects to a valid checkout" do
+            product = create(:product_with_digital_versions_with_price_difference_cents, user: @user)
+
+            get :show, params: { id: product.to_param, wanted: "true", variant: "Does Not Exist" }
+
+            expect(response).to be_redirect
+            redirect_url = URI.parse(response.location)
+            expect(redirect_url.path).to eq("/checkout")
+            query_params = Rack::Utils.parse_query(redirect_url.query)
+            expect(query_params["product"]).to eq(product.unique_permalink)
+            expect(query_params["option"]).to be_nil
           end
         end
       end
@@ -4281,6 +4611,49 @@ describe LinksController, :vcr, inertia: true do
         ProductPresenter.card_for_web(product:, request: @request, recommended_by: @recommended_by, show_seller: !@on_profile, target:, query:).as_json
       end
 
+      it "accepts a string ids param when searching by user" do
+        Link.__elasticsearch__.create_index!(force: true)
+        creator = create(:compliant_user, username: "creatordudey", name: "Creator Dudey")
+        section = create(:seller_profile_products_section, seller: creator)
+        product = create(:product, name: "Top quality weasel", user: creator)
+        other_product = create(:product, name: "First product", user: creator)
+        section.update!(shown_products: [other_product, product].map { _1.id })
+        Link.import(force: true, refresh: true)
+
+        @recommended_by = nil
+        @on_profile = true
+
+        get :search, params: {
+          user_id: creator.external_id,
+          section_id: section.external_id,
+          ids: product.external_id
+        }
+
+        expect(response).to be_successful
+        expect(response.parsed_body["products"]).to eq([product_json(product, "profile")])
+      end
+
+      it "searches by explicit ids when the section is not persisted yet" do
+        Link.__elasticsearch__.create_index!(force: true)
+        creator = create(:compliant_user, username: "creatordudey", name: "Creator Dudey")
+        product = create(:product, name: "Top quality weasel", user: creator)
+        other_product = create(:product, name: "First product", user: creator)
+        Link.import(force: true, refresh: true)
+
+        @recommended_by = nil
+        @on_profile = true
+
+        get :search, params: {
+          user_id: creator.external_id,
+          section_id: "0b8f3782-3a85-4f93-8e3c-2b1f5d3e8a90",
+          ids: [other_product.external_id, product.external_id].join(","),
+          sort: ProductSortKey::PAGE_LAYOUT,
+        }
+
+        expect(response).to be_successful
+        expect(response.parsed_body["products"]).to eq([product_json(other_product, "profile"), product_json(product, "profile")])
+      end
+
       describe "Setting and ordering" do
         before do
           Link.__elasticsearch__.create_index!(force: true)
@@ -4357,6 +4730,7 @@ describe LinksController, :vcr, inertia: true do
           expect(response.parsed_body).to eq({ "total" => 0, "tags_data" => [], "filetypes_data" => [], "products" => [] })
         end
 
+
         it "searches only for recommendable products" do
           bad_text = "Previously-owned weasel"
           bad = create(:product, name: bad_text)
@@ -4413,6 +4787,7 @@ describe LinksController, :vcr, inertia: true do
 
       describe "Loose and exact matching" do
         before do
+          Link.__elasticsearch__.create_index!(force: true)
           @products = {
             name: create(:product, name: "North American river otter"),
             desc: create(:product, description: "The North American river otter, also known as the northern river otter or the common otter, is a semiaquatic mammal."),
@@ -4431,6 +4806,7 @@ describe LinksController, :vcr, inertia: true do
             allow(product).to receive(:reviews_count).and_call_original
           end
           Link.__elasticsearch__.refresh_index!
+          sleep 0.5
         end
 
         it "finds all matches if exact match not specified" do
@@ -4510,6 +4886,30 @@ describe LinksController, :vcr, inertia: true do
           end.not_to change(DiscoverSearch, :count)
         end
       end
+    end
+  end
+
+  context "when signed in as a user without an email" do
+    let(:user) { create(:user, provider: :twitter, email: nil, unconfirmed_email: nil) }
+
+    before do
+      sign_in user
+      @request.env["warden"].session["last_sign_in_at"] = DateTime.current.to_i
+    end
+
+    it "redirects authenticated seller actions to the settings page" do
+      get :index
+      expect(response).to redirect_to(settings_main_path)
+    end
+
+    it "does not gate the public product page" do
+      seller = create(:user, :eligible_for_service_products)
+      product = create(:product, user: seller)
+      @request.host = URI.parse(seller.subdomain_with_protocol).host
+
+      get :show, params: { id: product.to_param }
+
+      expect(response).to be_successful
     end
   end
 end

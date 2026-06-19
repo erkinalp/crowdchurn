@@ -22,13 +22,26 @@ class Purchases::InvoicesController < ApplicationController
     address_fields = invoice_params[:address_fields]
     return redirect_to new_purchase_invoice_path(@purchase.external_id, email: invoice_params[:email]), alert: "Address information is required to generate an invoice." if address_fields.blank?
 
-    address_fields[:country] = ISO3166::Country[invoice_params[:address_fields][:country_code]]&.common_name
-    business_vat_id = invoice_params[:vat_id] if is_vat_id_valid?(invoice_params[:vat_id])
+    selected_country_code = invoice_params.dig(:address_fields, :country_code)
+    address_fields[:state] = nil if selected_country_code.present? && selected_country_code != Compliance::Countries::USA.alpha2
+    address_fields[:country] = ISO3166::Country[selected_country_code]&.common_name
+
+    submitted_vat_id = invoice_params[:vat_id]&.strip.presence
+    refundable_vat_id = nil
+    refundable_vat_id = submitted_vat_id if @chargeable.taxed_by_gumroad? && is_vat_id_valid?(submitted_vat_id)
+    business_vat_id =
+      if refundable_vat_id
+        refundable_vat_id
+      elsif submitted_vat_id && InvoicePresenter::FormInfo::BUSINESS_ID_COUNTRY_CODES.include?(selected_country_code)
+        submitted_vat_id
+      end
+    selected_country_code if business_vat_id.present? && refundable_vat_id.blank?
+    refundable_vat_id.present? if business_vat_id.present?
     additional_notes = invoice_params[:additional_notes]&.strip
     invoice_format = invoice_params[:export_format].presence || "pdf"
 
     begin
-      @chargeable.refund_gumroad_taxes!(refunding_user_id: logged_in_user&.id, note: address_fields.to_json, business_vat_id:) if business_vat_id
+      @chargeable.refund_gumroad_taxes!(refunding_user_id: logged_in_user&.id, note: address_fields.to_json, business_vat_id: refundable_vat_id) if refundable_vat_id
 
       case invoice_format
       when "ubl", "peppol", "xrechnung", "zugferd", "efatura_ithalat"
@@ -67,11 +80,12 @@ class Purchases::InvoicesController < ApplicationController
     end
 
     def new_invoice_presenter
-      @_new_invoice_presenter ||= InvoicePresenter.new(@chargeable)
+      buyer = logged_in_user if logged_in_user && logged_in_user.id == @chargeable.purchaser&.id
+      @_new_invoice_presenter ||= InvoicePresenter.new(@chargeable, buyer:)
     end
 
     def invoice_params
-      params.permit(:email, :vat_id, :additional_notes, :export_format, address_fields: [:full_name, :street_address, :city, :state, :zip_code, :country_code])
+      params.permit(:email, :vat_id, :business_name, :additional_notes, :export_format, address_fields: [:full_name, :street_address, :city, :state, :zip_code, :country_code])
     end
 
     def set_chargeable

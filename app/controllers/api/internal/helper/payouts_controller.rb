@@ -3,72 +3,6 @@
 class Api::Internal::Helper::PayoutsController < Api::Internal::Helper::BaseController
   before_action :fetch_user
 
-  PAYOUT_INDEX_OPENAPI = {
-    summary: "Get payout information",
-    description: "Get last 5 payouts details, next payout date and balance for next payout date",
-    parameters: [
-      {
-        name: "email",
-        in: "query",
-        required: true,
-        schema: {
-          type: "string"
-        },
-        description: "Email address of the seller"
-      }
-    ],
-    security: [{ bearer: [] }],
-    responses: {
-      '200': {
-        description: "Successfully retrieved payout information",
-        content: {
-          'application/json': {
-            schema: {
-              type: "object",
-              properties: {
-                success: { const: true },
-                last_payouts: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      external_id: { type: "string" },
-                      amount_cents: { type: "integer" },
-                      currency: { type: "string" },
-                      state: { type: "string" },
-                      created_at: { type: "string", format: "date-time" },
-                      processor: { type: "string" },
-                      bank_account_visual: { type: "string" },
-                      paypal_email: { type: "string" }
-                    },
-                    required: ["external_id", "amount_cents", "currency", "state", "created_at", "processor"]
-                  }
-                },
-                next_payout_date: { type: "string", format: "date" },
-                balance_for_next_payout: { type: "string" },
-                payout_note: { type: ["string", "null"] }
-              },
-              required: ["success", "last_payouts", "next_payout_date", "balance_for_next_payout", "payout_note"]
-            }
-          }
-        }
-      },
-      '404': {
-        description: "User not found",
-        content: {
-          'application/json': {
-            schema: {
-              type: "object",
-              properties: {
-                success: { const: false },
-                message: { type: "string" }
-              }
-            }
-          }
-        }
-      }
-    }
-  }.freeze
 
   def index
     payouts = @user.payments.order(created_at: :desc).limit(5).map do |payment|
@@ -86,75 +20,10 @@ class Api::Internal::Helper::PayoutsController < Api::Internal::Helper::BaseCont
 
     next_payout_date = @user.next_payout_date
     balance_for_next_payout = @user.formatted_balance_for_next_payout_date
-    payout_note = @user.comments.with_type_payout_note.where(author_id: GUMROAD_ADMIN_ID).last&.content
+    payout_note = @user.comments.with_type_payout_note.alive.where(author_id: GUMROAD_ADMIN_ID).last&.content
 
     render json: { success: true, last_payouts: payouts, next_payout_date:, balance_for_next_payout:, payout_note: }
   end
-
-  CREATE_PAYOUT_OPENAPI = {
-    summary: "Create new payout",
-    description: "Create a new payout for a user, checking if eligible and after the last successful payout was more than a week ago",
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: "object",
-            properties: {
-              email: { type: "string", description: "Email address of the seller" }
-            },
-            required: ["email"]
-          }
-        }
-      }
-    },
-    security: [{ bearer: [] }],
-    responses: {
-      '200': {
-        description: "Successfully created payout",
-        content: {
-          'application/json': {
-            schema: {
-              type: "object",
-              properties: {
-                success: { const: true },
-                message: { type: "string" },
-                payout: {
-                  type: "object",
-                  properties: {
-                    external_id: { type: "string" },
-                    amount_cents: { type: "integer" },
-                    currency: { type: "string" },
-                    state: { type: "string" },
-                    created_at: { type: "string", format: "date-time" },
-                    processor: { type: "string" },
-                    bank_account_visual: { type: "string" },
-                    paypal_email: { type: "string" }
-                  },
-                  required: ["external_id", "amount_cents", "currency", "state", "created_at", "processor"]
-                }
-              },
-              required: ["success", "message", "payout"]
-            }
-          }
-        }
-      },
-      '422': {
-        description: "Unable to create payout",
-        content: {
-          'application/json': {
-            schema: {
-              type: "object",
-              properties: {
-                success: { const: false },
-                message: { type: "string" }
-              }
-            }
-          }
-        }
-      }
-    }
-  }.freeze
 
   def create
     payout_date = User::PayoutSchedule.manual_payout_end_date
@@ -209,7 +78,7 @@ class Api::Internal::Helper::PayoutsController < Api::Internal::Helper::BaseCont
         render json: { success: false, message: error_message }, status: :unprocessable_entity
       end
     else
-      payout_note = @user.reload.comments.with_type_payout_note.where(author_id: GUMROAD_ADMIN_ID).last&.content
+      payout_note = @user.reload.comments.with_type_payout_note.alive.where(author_id: GUMROAD_ADMIN_ID).last&.content
       payout_note&.gsub!("via #{payout_processor_type.capitalize} on #{payout_date.to_fs(:formatted_date_full_month)} ", "")
       message = "User is not eligible for payout."
       message += " #{payout_note}" if payout_note.present?

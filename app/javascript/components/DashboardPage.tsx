@@ -9,6 +9,7 @@ import { request } from "$app/utils/request";
 import { ActivityFeed, ActivityItem } from "$app/components/ActivityFeed";
 import { Button, NavigationButton } from "$app/components/Button";
 import { useAppDomain } from "$app/components/DomainSettings";
+import { CliIcon } from "$app/components/icons/getting-started/CliIcon";
 import { CustomizeProfileIcon } from "$app/components/icons/getting-started/CustomizeProfileIcon";
 import { EmailBlastIcon } from "$app/components/icons/getting-started/EmailBlastIcon";
 import { FirstFollowerIcon } from "$app/components/icons/getting-started/FirstFollowerIcon";
@@ -17,9 +18,9 @@ import { FirstProductIcon } from "$app/components/icons/getting-started/FirstPro
 import { FirstSaleIcon } from "$app/components/icons/getting-started/FirstSaleIcon";
 import { GettingStartedIconProps } from "$app/components/icons/getting-started/GettingStartedIconProps";
 import { MakeAccountIcon } from "$app/components/icons/getting-started/MakeAccountIcon";
-import { SmallBetsIcon } from "$app/components/icons/getting-started/SmallBetsIcon";
 import { useLoggedInUser } from "$app/components/LoggedInUser";
 import { Modal } from "$app/components/Modal";
+import { PasskeySetupPrompt } from "$app/components/PasskeySetupPrompt";
 import { ProductIconCell } from "$app/components/ProductsPage/ProductIconCell";
 import { DownloadTaxFormsPopover } from "$app/components/server-components/DashboardPage/DownloadTaxFormsPopover";
 import { Stats } from "$app/components/Stats";
@@ -55,7 +56,7 @@ export type DashboardPageProps = {
     first_sale?: boolean;
     first_payout?: boolean;
     first_email?: boolean;
-    purchased_small_bets?: boolean;
+    used_cli?: boolean;
   };
   getting_started_dismissed: boolean;
   sales: ProductRow[];
@@ -79,6 +80,8 @@ type GettingStartedItemType = {
   link: string;
   IconComponent: React.ComponentType<GettingStartedIconProps>;
   description: string;
+  target?: string;
+  rel?: string;
 };
 
 const GETTING_STARTED_ITEMS: GettingStartedItemType[] = [
@@ -92,7 +95,7 @@ const GETTING_STARTED_ITEMS: GettingStartedItemType[] = [
   {
     name: "Make an impression",
     getCompleted: (stats) => !!stats.customized_profile,
-    link: Routes.settings_profile_path(),
+    link: Routes.profile_path(),
     IconComponent: CustomizeProfileIcon,
     description: "Customize your profile.",
   },
@@ -132,11 +135,11 @@ const GETTING_STARTED_ITEMS: GettingStartedItemType[] = [
     description: "Send out your first email blast.",
   },
   {
-    name: "Smart move",
-    getCompleted: (stats) => !!stats.purchased_small_bets,
-    link: Routes.small_bets_url(),
-    IconComponent: SmallBetsIcon,
-    description: "Sign up for Small Bets.",
+    name: "Command line",
+    getCompleted: (stats) => !!stats.used_cli,
+    link: "/api#api-cli",
+    IconComponent: CliIcon,
+    description: "Use Gumroad via the command line interface.",
   },
 ];
 
@@ -345,6 +348,7 @@ export const DashboardPage = ({
         }
         className="border-b-0 sm:border-b"
       />
+      <PasskeySetupPrompt />
       {stripe_verification_message || show_1099_download_notice ? (
         <div className="grid gap-4 px-4 pt-4 md:px-8 md:pt-8">
           {stripe_verification_message ? (
@@ -408,11 +412,8 @@ export const DashboardPage = ({
                 {GETTING_STARTED_ITEMS.map((item) => (
                   <GettingStartedItem
                     key={item.name}
-                    name={item.name}
+                    {...item}
                     completed={item.getCompleted(getting_started_stats)}
-                    link={item.link}
-                    IconComponent={item.IconComponent}
-                    description={item.description}
                     minimized={gettingStartedMinimized}
                   />
                 ))}

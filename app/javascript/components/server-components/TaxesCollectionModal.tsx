@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { assertResponseError, request, ResponseError } from "$app/utils/request";
 
@@ -38,7 +38,7 @@ export const TaxesCollectionModal = ({ taxesOwed, creditCreationDate, name }: Pr
         data: { signature },
       });
       if (!response.ok) throw new ResponseError();
-      const optInResponse: SaveOptInResponse = cast<SaveOptInResponse>(await response.json());
+      const optInResponse: SaveOptInResponse = typia.assert<SaveOptInResponse>(await response.json());
       if (optInResponse.success) return window.location.reload();
       throw new ResponseError(optInResponse.error);
     } catch (e) {
@@ -80,7 +80,6 @@ export const TaxesCollectionModal = ({ taxesOwed, creditCreationDate, name }: Pr
                 id={`${uid}optInFullName`}
                 type="text"
                 aria-invalid={error.length !== 0}
-                placeholder="Full name"
                 disabled={saving}
                 value={signature}
                 onChange={(e) => {

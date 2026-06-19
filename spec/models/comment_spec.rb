@@ -42,8 +42,8 @@ describe Comment do
           end
         end
 
-        context "when author name is iffy" do
-          subject(:comment) { build(:comment, commentable: create(:published_installment), author: nil, content: "nsfw content", author_name: "iffy") }
+        context "when author name is ContentModeration" do
+          subject(:comment) { build(:comment, commentable: create(:published_installment), author: nil, content: "nsfw content", author_name: "ContentModeration") }
 
           it "marks the comment as valid" do
             expect(comment).to be_valid

@@ -268,6 +268,18 @@ export const useRichTextEditor = ({
       return dom.innerHTML.replace("<br></", "</");
     }
 
+    // A type-less object (e.g. a profile section's default empty `{}`) is not a valid
+    // ProseMirror document. Coerce it to an empty doc so the editor doesn't throw
+    // "Unknown node type: undefined" while still rendering an empty, editable section.
+    if (
+      typeof initialValue === "object" &&
+      initialValue !== null &&
+      !Array.isArray(initialValue) &&
+      !("type" in initialValue)
+    ) {
+      return { type: "doc", content: [{ type: "paragraph" }] };
+    }
+
     return initialValue;
   }, [initialValue]);
   const imageSettings = useImageUploadSettings();
@@ -277,8 +289,13 @@ export const useRichTextEditor = ({
     uploadImages({ view, files: images, imageSettings });
   };
 
+  const allExtensions = [...extensions, ...(placeholder ? [Placeholder.configure({ placeholder })] : []), UpsellCard];
+  const dedupedExtensions = allExtensions.filter(
+    (ext, index) => allExtensions.findIndex((e) => e.name === ext.name) === index,
+  );
+
   const editor = useEditor({
-    ...baseEditorOptions([...extensions, ...(placeholder ? [Placeholder.configure({ placeholder })] : []), UpsellCard]),
+    ...baseEditorOptions(dedupedExtensions),
     immediatelyRender: false,
     editable,
     editorProps: {
@@ -589,7 +606,8 @@ export const RichTextEditorToolbar = ({
             ) : null}
           </>
         )}
-        <div className="ml-auto flex">
+        <div className="grow" />
+        <div className="flex">
           <MenuItem
             name="Undo last change"
             icon={<Undo className="size-5" />}

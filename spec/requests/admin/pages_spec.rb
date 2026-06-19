@@ -8,6 +8,8 @@ describe "Admin Pages Scenario", type: :system, js: true do
 
   before do
     allow_any_instance_of(Aws::S3::Object).to receive(:content_length).and_return(1_000_000)
+    allow(Radar::ChargeRiskLevelService).to receive(:fetch).and_return(nil)
+    allow(Radar::ChargeRiskLevelService).to receive(:fetch_bulk).and_return({})
     login_as(admin)
   end
 
@@ -114,7 +116,7 @@ describe "Admin Pages Scenario", type: :system, js: true do
       expect(page).to have_no_content "MY_FINGERPRINT"
     end
 
-    it "allows admins to infinitely scroll through purchase search results" do
+    it "allows admins to paginate through purchase search results" do
       email = "searchme@gumroad.com"
 
       30.times do |i|
@@ -128,11 +130,13 @@ describe "Admin Pages Scenario", type: :system, js: true do
       fill_in "Search purchases (email, IP, card, external ID)", with: "#{email}\n"
 
       expect(page).to have_text("product #29")
-      expect(page).to have_text("product #28")
-      expect(page).not_to have_text("product #0")
-      first("main").scroll_to :bottom
+      expect(page).to have_text("product #5")
+      expect(page).not_to have_text("product #4")
 
+      click_on "Next"
+      expect(page).to have_text("product #4")
       expect(page).to have_text("product #0")
+      expect(page).not_to have_text("product #29")
     end
   end
 

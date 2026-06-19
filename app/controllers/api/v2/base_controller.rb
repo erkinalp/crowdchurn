@@ -32,7 +32,6 @@ class Api::V2::BaseController < ApplicationController
 
     # TODO we should return status code 404 Not Found when object is not found and 422 Unprocessable Entity when it's unable to be modified.
     # There's a (small) chance this will break existing integrations, but should be improved in the next version of the API.
-    # https://gumroad.slack.com/archives/C5Z7LG6Q1/p1602496811465200
     def error_with_object(object_name, object)
       message = if object.present?
         if object.respond_to?(:errors) && object.errors.present?
@@ -65,6 +64,22 @@ class Api::V2::BaseController < ApplicationController
       return unless doorkeeper_token.present?
 
       Rails.logger.info("api v2 user:#{current_resource_owner.id} token:#{doorkeeper_token.id} in #{params[:controller]}##{params[:action]}")
+
+      mark_cli_user
+    end
+
+    def mark_cli_user
+      return unless request_from_cli?
+      return if current_resource_owner.has_used_cli?
+
+      mask = User.flag_mapping["flags"][:has_used_cli]
+      User.where(id: current_resource_owner.id).where("flags & ? = 0", mask).update_all(["flags = flags | ?", mask])
+    rescue => e
+      Rails.logger.error("Failed to mark CLI user: #{e.message}")
+    end
+
+    def request_from_cli?
+      request.user_agent&.match?(/\Agumroad-cli\//i)
     end
 
     def next_page_url(page_key)

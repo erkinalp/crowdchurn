@@ -72,7 +72,7 @@ describe Settings::ProfilePolicy do
     end
   end
 
-  permissions :update_username? do
+  permissions :update_username?, :manage_social_connections? do
     it "grants access to owner" do
       seller_context = SellerContext.new(user: seller, seller:)
       expect(subject).to permit(seller_context, seller)
@@ -100,9 +100,9 @@ describe Settings::ProfilePolicy do
   end
 
   describe "#permitted_attributes" do
-    it "allows owner to update the username" do
+    it "does not allow owner to update the username" do
       policy = described_class.new(SellerContext.new(user: seller, seller:), seller)
-      expect(policy.permitted_attributes).to include(a_hash_including(user: a_collection_including(:username)))
+      expect(policy.permitted_attributes).to_not include(a_hash_including(user: a_collection_including(:username)))
     end
 
     it "does not allow accountant to update the username" do

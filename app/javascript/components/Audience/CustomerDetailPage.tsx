@@ -30,6 +30,7 @@ import {
   resendPing,
   resendPost,
   resendReceipt,
+  resetLicenseUses,
   revokeAccess,
   undoRevokeAccess,
   updateCallUrl,
@@ -138,6 +139,13 @@ const CustomerDetailPage = ({
   const userAgentInfo = useUserAgentInfo();
   const currentSeller = useCurrentSeller();
 
+  const [canGoBackToCustomers] = React.useState(() => {
+    if (typeof window === "undefined") return false;
+    const flag = window.sessionStorage.getItem("CustomersPage:canGoBack") === "1";
+    if (flag) window.sessionStorage.removeItem("CustomersPage:canGoBack");
+    return flag;
+  });
+
   const [customer, setCustomer] = React.useState(initialCustomer);
   const updateCustomer = (update: Partial<Customer>) => setCustomer((prev) => ({ ...prev, ...update }));
 
@@ -208,7 +216,16 @@ const CustomerDetailPage = ({
         showTitleOnMobile
         title={
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/customers" aria-label="Back to customers" className="mr-4 hidden no-underline sm:inline">
+            <Link
+              href="/customers"
+              aria-label="Back to customers"
+              className="mr-4 hidden no-underline sm:inline"
+              onClick={(e) => {
+                if (!canGoBackToCustomers) return;
+                e.preventDefault();
+                window.history.back();
+              }}
+            >
               ←
             </Link>
             {customer.product.name}
@@ -542,6 +559,18 @@ const CustomerDetailPage = ({
                   },
                 )
               }
+              onReset={() =>
+                resetLicenseUses(license.id).then(
+                  () => {
+                    showAlert("License uses reset", "success");
+                    updateCustomer({ license: { ...license, uses: 0 } });
+                  },
+                  (e: unknown) => {
+                    assertResponseError(e);
+                    showAlert(e.message, "error");
+                  },
+                )
+              }
             />
           </div>
         ) : null}
@@ -693,12 +722,15 @@ const CustomerDetailPage = ({
         ) : null}
         {commission ? (
           <div className="break-inside-avoid">
-            <CommissionSection commission={commission} onChange={(commission) => {
-              updateCustomer({ commission });
-              if (commission.status === "completed") {
-                void getCharges(customer.id, customer.email).then(setCharges);
-              }
-            }} />
+            <CommissionSection
+              commission={commission}
+              onChange={(commission) => {
+                updateCustomer({ commission });
+                if (commission.status === "completed") {
+                  void getCharges(customer.id, customer.email).then(setCharges);
+                }
+              }}
+            />
           </div>
         ) : null}
         {emails.length !== 0 ? (
@@ -765,20 +797,23 @@ const CustomerDetailPage = ({
           </Card>
         ) : null}
         <div className="break-inside-avoid">
-          <Deferred data={["missed_posts"]} fallback={
-            <Card asChild>
-              <section>
-                <CardContent asChild>
-                  <header>
-                    <h3 className="grow">Send missed posts</h3>
-                  </header>
-                </CardContent>
-                <CardContent>
-                  <LoadingSpinner className="mx-auto size-8" />
-                </CardContent>
-              </section>
-            </Card>
-          }>
+          <Deferred
+            data={["missed_posts"]}
+            fallback={
+              <Card asChild>
+                <section>
+                  <CardContent asChild>
+                    <header>
+                      <h3 className="grow">Send missed posts</h3>
+                    </header>
+                  </CardContent>
+                  <CardContent>
+                    <LoadingSpinner className="mx-auto size-8" />
+                  </CardContent>
+                </section>
+              </Card>
+            }
+          >
             {missedPosts.length !== 0 ? (
               <Card asChild>
                 <section>
@@ -811,7 +846,10 @@ const CustomerDetailPage = ({
                   {shownMissedPosts < missedPosts.length ? (
                     <CardContent asChild>
                       <section>
-                        <Button onClick={() => setShownMissedPosts((prev) => prev + PAGE_SIZE)} className="grow basis-0">
+                        <Button
+                          onClick={() => setShownMissedPosts((prev) => prev + PAGE_SIZE)}
+                          className="grow basis-0"
+                        >
                           Show more
                         </Button>
                       </section>
@@ -936,7 +974,6 @@ const AddressSection = ({
             <Input
               id={`${uid}-full-name`}
               type="text"
-              placeholder="Full name"
               value={address.full_name}
               onChange={(evt) => updateShipping({ full_name: evt.target.value })}
             />
@@ -948,7 +985,6 @@ const AddressSection = ({
             <Input
               id={`${uid}-street-address`}
               type="text"
-              placeholder="Street address"
               value={address.street_address}
               onChange={(evt) => updateShipping({ street_address: evt.target.value })}
             />
@@ -961,7 +997,6 @@ const AddressSection = ({
               <Input
                 id={`${uid}-city`}
                 type="text"
-                placeholder="City"
                 value={address.city}
                 onChange={(evt) => updateShipping({ city: evt.target.value })}
               />
@@ -973,7 +1008,6 @@ const AddressSection = ({
               <Input
                 id={`${uid}-state`}
                 type="text"
-                placeholder="State"
                 value={address.state}
                 onChange={(evt) => updateShipping({ state: evt.target.value })}
               />
@@ -985,7 +1019,6 @@ const AddressSection = ({
               <Input
                 id={`${uid}-zip-code`}
                 type="text"
-                placeholder="ZIP code"
                 value={address.zip_code}
                 onChange={(evt) => updateShipping({ zip_code: evt.target.value })}
               />
@@ -1132,7 +1165,14 @@ const EmailSection = ({
                 className="grow"
               />
               <div className="flex w-full gap-2">
-                <Button onClick={() => setIsEditing(false)} disabled={isLoading} className="flex-1">
+                <Button
+                  onClick={() => {
+                    setEmail(currentEmail);
+                    setIsEditing(false);
+                  }}
+                  disabled={isLoading}
+                  className="flex-1"
+                >
                   Cancel
                 </Button>
                 <Button color="primary" onClick={() => void handleSave()} disabled={isLoading} className="flex-1">
@@ -1444,13 +1484,29 @@ const OptionSection = ({
   );
 };
 
-const LicenseSection = ({ license, onSave }: { license: License; onSave: (enabled: boolean) => Promise<void> }) => {
+const LicenseSection = ({
+  license,
+  onSave,
+  onReset,
+}: {
+  license: License;
+  onSave: (enabled: boolean) => Promise<void>;
+  onReset: () => Promise<void>;
+}) => {
   const [isLoading, setIsLoading] = React.useState(false);
+  const [confirmingReset, setConfirmingReset] = React.useState(false);
 
   const handleSave = async (enabled: boolean) => {
     setIsLoading(true);
     await onSave(enabled);
     setIsLoading(false);
+  };
+
+  const handleReset = async () => {
+    setIsLoading(true);
+    await onReset();
+    setIsLoading(false);
+    setConfirmingReset(false);
   };
 
   return (
@@ -1462,9 +1518,41 @@ const LicenseSection = ({ license, onSave }: { license: License; onSave: (enable
           </header>
         </CardContent>
         <CardContent>
-          <pre className="grow">
+          <pre className="grow break-all whitespace-pre-wrap">
             <code>{license.key}</code>
           </pre>
+        </CardContent>
+        <CardContent>
+          <h5 className="grow font-bold">Uses</h5>
+          {license.uses}
+          {license.uses > 0 ? (
+            <Button
+              outline
+              disabled={isLoading}
+              onClick={() => setConfirmingReset(true)}
+              aria-label="Reset uses"
+              title="Reset uses to 0"
+            >
+              Reset
+            </Button>
+          ) : null}
+          <Modal
+            open={confirmingReset}
+            onClose={() => setConfirmingReset(false)}
+            title="Reset license uses?"
+            footer={
+              <>
+                <Button disabled={isLoading} onClick={() => setConfirmingReset(false)}>
+                  Cancel
+                </Button>
+                <Button color="primary" disabled={isLoading} onClick={() => void handleReset()}>
+                  Reset
+                </Button>
+              </>
+            }
+          >
+            <p>This sets the usage count for this license back to 0.</p>
+          </Modal>
         </CardContent>
         <CardContent>
           {license.enabled ? (

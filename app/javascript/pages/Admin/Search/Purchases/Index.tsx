@@ -1,16 +1,17 @@
 import { ArrowUpRightSquare, Copy, Search } from "@boxicons/react";
-import { Link, useForm, usePage } from "@inertiajs/react";
+import { Link, router, useForm, usePage } from "@inertiajs/react";
 import React from "react";
 
 import DateTimeWithRelativeTooltip from "$app/components/Admin/DateTimeWithRelativeTooltip";
 import EmptyState from "$app/components/Admin/EmptyState";
-import PaginatedLoader, { Pagination } from "$app/components/Admin/PaginatedLoader";
 import { type RefundPolicy, RefundPolicyTitle } from "$app/components/Admin/Purchases/RefundPolicy";
 import { PurchaseStates } from "$app/components/Admin/Purchases/States";
 import { Button } from "$app/components/Button";
 import { CopyToClipboard } from "$app/components/CopyToClipboard";
+import { Pagination, type PaginationProps } from "$app/components/Pagination";
 import { InlineList } from "$app/components/ui/InlineList";
 import { Input } from "$app/components/ui/Input";
+import { Pill } from "$app/components/ui/Pill";
 import { Select } from "$app/components/ui/Select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$app/components/ui/Table";
 import { useOriginalLocation } from "$app/components/useOriginalLocation";
@@ -34,10 +35,13 @@ type Purchase = {
   chargeback_reversed: boolean;
   error_code: string | null;
   last_chargebacked_purchase: string | null;
+  early_fraud_warning: { fraud_type: string; charge_risk_level: string } | null;
+  stripe_risk_level: string | null;
+  disputes: { state: string }[];
 };
 
 export default function Purchases() {
-  const { pagination, purchases } = usePage<{ pagination: Pagination; purchases: Purchase[] }>().props;
+  const { pagination, purchases } = usePage<{ pagination: PaginationProps; purchases: Purchase[] }>().props;
   const currentUrl = useOriginalLocation();
   const searchParams = new URL(currentUrl).searchParams;
   const { data, setData, get } = useForm({
@@ -45,6 +49,10 @@ export default function Purchases() {
     product_title_query: searchParams.get("product_title_query") || "",
     purchase_status: searchParams.get("purchase_status") || "",
   });
+
+  const onChangePage = (page: number) => {
+    router.reload({ data: { page: page.toString() } });
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -105,6 +113,34 @@ export default function Purchases() {
                       <ArrowUpRightSquare className="size-5" />
                     </a>{" "}
                     <PurchaseStates purchase={purchase} />
+                    {(purchase.stripe_risk_level && purchase.stripe_risk_level !== "normal") ||
+                    purchase.early_fraud_warning ||
+                    purchase.disputes.length > 0 ? (
+                      <span className="inline-flex flex-wrap gap-1">
+                        {purchase.stripe_risk_level && purchase.stripe_risk_level !== "normal" ? (
+                          <Pill size="small" color={purchase.stripe_risk_level === "highest" ? "danger" : "warning"}>
+                            Radar: {purchase.stripe_risk_level}
+                          </Pill>
+                        ) : null}
+                        {purchase.early_fraud_warning ? (
+                          <Pill size="small" color="warning">
+                            EFW: {purchase.early_fraud_warning.fraud_type.replaceAll("_", " ")} (risk:{" "}
+                            {purchase.early_fraud_warning.charge_risk_level})
+                          </Pill>
+                        ) : null}
+                        {purchase.disputes.map((dispute, i) => (
+                          <Pill
+                            key={i}
+                            size="small"
+                            color={
+                              dispute.state === "won" ? "success" : dispute.state === "lost" ? "danger" : "warning"
+                            }
+                          >
+                            Dispute: {dispute.state}
+                          </Pill>
+                        ))}
+                      </span>
+                    ) : null}
                     <div className="text-sm">
                       <InlineList>
                         {purchase.refund_policy ? (
@@ -137,7 +173,7 @@ export default function Purchases() {
               ))}
             </TableBody>
           </Table>
-          <PaginatedLoader itemsLength={purchases.length} pagination={pagination} only={["purchases", "pagination"]} />
+          {pagination.pages > 1 && <Pagination pagination={pagination} onChangePage={onChangePage} />}
         </>
       ) : (
         <EmptyState message="No purchases found." />

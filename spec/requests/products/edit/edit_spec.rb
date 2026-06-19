@@ -117,16 +117,15 @@ describe("Product Edit Scenario", type: :system, js: true) do
     uncheck "Use the same content for all versions"
     find(:combo_box, "Select a version").click
     select_combo_box_option "Version 2", from: "Select a version"
-    rich_text_editor = find("[contenteditable=true]")
-    rich_text_editor.send_keys "Text!"
+    expect(page).to have_text("Enter the content you want to sell.")
     save_change
 
     expect(product.rich_contents.alive.count).to eq 0
     variants = product.alive_variants
     rich_content[0]["attrs"] = a_hash_including({ "id" => variants.first.alive_product_files.sole.external_id })
     expect(variants.first.rich_contents.alive.sole.description).to match rich_content
-    rich_content[1]["content"] = [{ "type" => "text", "text" => "Text!" }]
-    expect(variants.last.rich_contents.alive.sole.description).to match rich_content
+    expect(variants.last.alive_rich_contents).to be_empty
+    expect(variants.last.alive_product_files).to be_empty
   end
 
   it "allows creating and deleting an upsell in the product description" do
@@ -514,16 +513,14 @@ describe("Product Edit Scenario", type: :system, js: true) do
 
   it "does not allow publishing when creator's email is empty" do
     allow_any_instance_of(User).to receive(:email).and_return("")
+    allow_any_instance_of(User).to receive(:unconfirmed_email).and_return(nil)
     product = create(:product, user: seller, draft: true, purchase_disabled_at: Time.current)
     visit edit_link_path(product.unique_permalink) + "/content"
 
-    click_on "Publish and continue"
-
-    within :alert, text: "To publish a product, we need you to have an email. Set an email to continue." do
-      expect(page).to have_link("Set an email", href: settings_main_url(host: UrlService.domain_with_protocol))
-    end
-    expect(page).to have_current_path(edit_link_path(product.unique_permalink) + "/content")
-    expect(page).to have_button "Publish and continue"
+    # RequireAccountEmail concern redirects empty-email users to /settings
+    # before they can reach the product edit page or the publish button.
+    expect(page).to have_current_path(settings_main_path)
+    expect(page).to have_alert(text: "Please add an email address to your account before continuing.")
     expect(product.reload.alive?).to be(false)
   end
 
@@ -681,6 +678,7 @@ describe("Product Edit Scenario", type: :system, js: true) do
     it "shows eligibility notice until dismissed and success notice if recommendable product" do
       expect(product.recommendable?).to be(false)
       visit edit_link_path(product.unique_permalink) + "/share"
+      expect(page).to have_status(text: "To appear on Gumroad Discover, make sure to meet all the")
       expect(page).not_to have_status(text: "#{product.name} is listed on Gumroad Discover.")
 
       click_on "Close"
@@ -692,14 +690,16 @@ describe("Product Edit Scenario", type: :system, js: true) do
       login_as(recommendable_seller)
 
       expect(recommendable_product.recommendable?).to be(true)
+      index_model_records(Link)
       visit edit_link_path(recommendable_product.unique_permalink) + "/share"
       expect(page).to have_status(text: "#{recommendable_product.name} is listed on Gumroad Discover.")
 
       within(:status, text: "#{recommendable_product.name} is listed on Gumroad Discover.") do
         click_on "View"
       end
-      expect(current_url).to include(UrlService.discover_domain_with_protocol)
-      expect_product_cards_with_names("product 1")
+      expect(page).to have_current_path(/#{Regexp.escape(UrlService.discover_domain_with_protocol)}/, url: true)
+      wait_for_ajax
+      expect(page).to have_link(recommendable_product.name, href: %r{/l/#{recommendable_product.unique_permalink}})
     end
   end
 

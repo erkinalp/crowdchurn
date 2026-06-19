@@ -1,24 +1,25 @@
 import { usePoll, usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { useDropbox } from "$app/hooks/useDropbox";
 import FileUtils from "$app/utils/file";
 
 import { FileItem } from "$app/components/Download/FileList";
 import { LayoutProps } from "$app/components/DownloadPage/Layout";
-import { ContentProps, WithContent } from "$app/components/DownloadPage/WithContent";
+import { ContentProps, SellerAnalyticsProps, WithContent } from "$app/components/DownloadPage/WithContent";
 
 type PageProps = LayoutProps & {
   content: ContentProps;
   product_has_third_party_analytics: boolean | null;
+  seller_analytics: SellerAnalyticsProps | null;
   audio_durations?: Record<string, FileItem["duration"]>;
   latest_media_locations?: Record<string, FileItem["latest_media_location"]>;
   dropbox_api_key: string | null;
 };
 
 function DownloadPage() {
-  const props = cast<PageProps>(usePage().props);
+  const props = typia.assert<PageProps>(usePage().props);
   const { content, dropbox_api_key, audio_durations, latest_media_locations } = props;
 
   useDropbox(dropbox_api_key);

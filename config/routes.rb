@@ -19,6 +19,8 @@ Rails.application.routes.draw do
   get "/healthcheck" => "healthcheck#index"
   get "/healthcheck/sidekiq" => "healthcheck#sidekiq"
   get "/healthcheck/paypal_balance" => "healthcheck#paypal_balance"
+  get "/healthcheck/stripe_balance" => "healthcheck#stripe_balance"
+  get "/healthcheck/purchases" => "healthcheck#purchases"
 
   use_doorkeeper do
     controllers applications: "oauth/applications"
@@ -26,6 +28,10 @@ Rails.application.routes.draw do
     controllers authorizations: "oauth/authorizations"
     controllers tokens: "oauth/tokens"
   end
+
+  post "/oauth/device/code" => "oauth/device_codes#create", as: :oauth_device_code
+  get "/oauth/device" => "oauth/device_authorizations#new", as: :oauth_device_authorization
+  post "/oauth/device" => "oauth/device_authorizations#create"
 
   namespace :oauth do
     resource :mobile_pre_authorization, only: [:new] do
@@ -44,6 +50,8 @@ Rails.application.routes.draw do
     scope "v2", module: "v2", as: "v2" do
       post "files/presign", to: "files#presign"
       post "files/complete", to: "files#complete"
+      post "files/abort", to: "files#abort"
+      post "direct_uploads", to: "direct_uploads#create"
       resources :licenses, only: [] do
         collection do
           post :verify
@@ -55,6 +63,8 @@ Rails.application.routes.draw do
       end
 
       get "/user", to: "users#show"
+      resources :categories, only: [:index]
+      resource :refund_policy, only: [:show, :update], controller: :refund_policies
       resources :links, path: "products", only: [:index, :show, :update, :create, :destroy] do
         resources :custom_fields, only: [:index, :create, :update, :destroy]
         resources :offer_codes, only: [:index, :create, :show, :update, :destroy]
@@ -79,8 +89,17 @@ Rails.application.routes.draw do
         member do
           put "disable"
           put "enable"
+          post "preview_custom_html"
         end
       end
+      resources :emails, only: [:index, :show, :create, :destroy] do
+        member do
+          post :preview
+          post :send, action: :send_email
+        end
+      end
+      post "sales/exports", to: "sales#export"
+      get "sales/summary", to: "sales#summary"
       resources :sales, only: [:index, :show] do
         member do
           put :mark_as_shipped
@@ -102,6 +121,29 @@ Rails.application.routes.draw do
       put "/resource_subscriptions", to: "resource_subscriptions#create"
       delete "/resource_subscriptions/:id", to: "resource_subscriptions#destroy"
       get "/resource_subscriptions", to: "resource_subscriptions#index"
+
+      get "/tax_forms", to: "tax_forms#index"
+      get "/tax_forms/:year/:tax_form_type/download", to: "tax_forms#download"
+      get "/earnings", to: "earnings#show"
+
+      # Gumroad Walks iOS app. Two endpoints keep our OpenAI + Anthropic
+      # keys server-side: realtime_tokens issues a short-lived ek_... for
+      # the client to connect to OpenAI's WS directly, and synthesis is a
+      # one-shot proxy to Claude for post-walk product drafting.
+      #
+      # The app_attest sub-namespace is the device-identity bootstrap: the
+      # iOS client hits challenges to get a fresh server nonce, then
+      # attestations once per install to register its Secure-Enclave-attested
+      # key. After that, every realtime_tokens / synthesis call carries an
+      # assertion signed by that key (see WalksEntitlement).
+      namespace :walks do
+        resources :realtime_tokens, only: [:create]
+        post "synthesis", to: "synthesis#create"
+        namespace :app_attest do
+          resources :challenges, only: [:create]
+          resources :attestations, only: [:create]
+        end
+      end
     end
   end
 
@@ -298,11 +340,90 @@ Rails.application.routes.draw do
 
           resources :payouts, only: [:index, :create]
           resources :instant_payouts, only: [:index, :create]
-          resources :openapi, only: :index
+
+          resources :sendgrid_emails, only: [] do
+            collection do
+              post :check_status
+              post :remove_suppression
+            end
+          end
         end
 
-        namespace :iffy do
-          post :webhook, to: "webhook#handle"
+        namespace :admin do
+          namespace :auth do
+            post :exchange
+            post :revoke
+          end
+          get :whoami, to: "whoami#show"
+
+          resources :purchases, only: [:show] do
+            collection do
+              get :search
+              get :lookup
+              post :resend_all_receipts
+              post :reassign
+            end
+            member do
+              post :refund
+              post :resend_receipt
+              post :refund_taxes
+              post :cancel_subscription
+              post :block_buyer
+              post :unblock_buyer
+              post :refund_for_fraud
+            end
+          end
+
+          resources :licenses, only: [] do
+            collection do
+              get :lookup
+            end
+          end
+
+          resources :users, only: [] do
+            collection do
+              get :info
+              get :affiliates
+              get :comments
+              get :compliance_info
+              get :purchases
+              get :radar_stats
+              get :related
+              get :suspension
+              get :unpaid_balance
+              get :credits
+              post :reset_password
+              post :update_email
+              post :two_factor_authentication
+              post :create_comment
+              post :mark_compliant
+              post :suspend_for_fraud
+              post :suspend_for_tos_violation
+              post :flag_for_tos_violation
+              post :refund_balance
+              post :add_credit
+              post :watch
+              post :update_watch
+              post :unwatch
+            end
+          end
+
+          resources :payouts, only: [:index] do
+            collection do
+              post :pause
+              post :resume
+              post :issue
+            end
+          end
+
+          resources :scheduled_payouts, only: [:index, :create] do
+            member do
+              post :execute
+              post :cancel
+            end
+          end
+
+          resources :products, only: [:index, :show]
         end
 
         namespace :grmc do
@@ -320,6 +441,7 @@ Rails.application.routes.draw do
     get "/about", to: "home#about"
     get "/careers", to: "careers#index"
     get "/careers/:slug", to: "careers#show", as: :career
+    get "/jobs", to: redirect("/careers")
     get "/features", to: "home#features"
     get "/features.md", to: "home#features_md"
     get "/pricing", to: "home#pricing"
@@ -329,6 +451,7 @@ Rails.application.routes.draw do
     get "/taxes", to: redirect("/pricing", status: 301)
     get "/hackathon", to: "home#hackathon"
     get "/small-bets", to: "home#small_bets"
+    get "/saas", to: "home#saas"
     resource :github_stars, only: [:show]
 
     namespace :gumroad_blog, path: "blog" do
@@ -360,6 +483,12 @@ Rails.application.routes.draw do
     # /robots.txt
     get "/robots.:format" => "robots#index"
 
+    # Redirect Devise's default auth paths to our custom routes.
+    # Must be defined before devise_for so they match first, preventing Devise's
+    # require_no_authentication filter from showing "You are already signed in." flash.
+    get "/users/sign_in", to: redirect { |_p, req| "/login#{req.query_string.present? ? "?#{req.query_string}" : ""}" }
+    get "/users/sign_up", to: redirect { |_p, req| "/signup#{req.query_string.present? ? "?#{req.query_string}" : ""}" }
+
     # users (logins/signups and other goodies)
     devise_for(:users,
                controllers: {
@@ -381,10 +510,13 @@ Rails.application.routes.draw do
       get "/oauth/login" => "logins#new"
 
       post "login", to: "logins#create"
+      post "login/passkey/options", to: "logins/passkeys#options", as: :login_passkey_options
+      post "login/passkey", to: "logins/passkeys#create", as: :login_passkey
       # TODO: Keeping both routes for now to support legacy GET requests until all logout links are migrated to DELETE(inertia).
       get "logout", to: "logins#destroy"
       delete "logout", to: "logins#destroy"
       scope "/users" do
+        get "/check_twitter_link", to: "users/oauth#check_twitter_link"
         get "/unsubscribe/:id", to: "users#email_unsubscribe", as: :user_unsubscribe
         scope module: :users do
           get "subscribe_review_reminders", to: "review_reminders#subscribe", as: :user_subscribe_review_reminders
@@ -462,6 +594,11 @@ Rails.application.routes.draw do
         resources :access_tokens, only: :create, controller: "oauth/access_tokens"
       end
       get :profiles, to: redirect("/settings")
+      resource :connections, only: [] do
+        member do
+          post :unlink_twitter
+        end
+      end
     end
     namespace :settings do
       resource :main, only: %i[show update], path: "", controller: "main" do
@@ -472,9 +609,15 @@ Rails.application.routes.draw do
         post :confirm
         post :regenerate_recovery_codes
       end
-      resource :profile, only: %i[show update], controller: "profile"
+      resources :passkeys, only: %i[create update destroy], controller: "passkeys" do
+        collection do
+          post :registration_options
+        end
+      end
+      get "profile", as: :profile, to: redirect { |_params, request| "/profile?#{request.query_string}".chomp("?") }
       resource :third_party_analytics, only: %i[show update], controller: "third_party_analytics"
       resource :advanced, only: %i[show update], controller: "advanced"
+      resource :billing, only: %i[show update], controller: "billing"
       resources :authorized_applications, only: :index
       resource :payments, only: %i[show update] do
         resource :verify_document, only: :create, controller: "payments/verify_document"
@@ -486,6 +629,7 @@ Rails.application.routes.draw do
         get :paypal_connect
         post :remove_credit_card
       end
+      resources :beneficial_owners, only: %i[index create update destroy], defaults: { format: :json }
       resource :stripe, controller: :stripe, only: [] do
         collection do
           post :disconnect
@@ -506,8 +650,10 @@ Rails.application.routes.draw do
       end
       resource :dismiss_ai_product_generation_promo, only: [:create]
     end
-
-    resources :stripe_account_sessions, only: :create
+    resource :profile, only: %i[show update], controller: "settings/profile" do
+      resources :products, only: :show, controller: "settings/profile/products"
+    end
+    resources :profile_sections, only: [:create, :update, :destroy]
 
     namespace :checkout do
       resources :discounts, only: %i[index create update destroy] do
@@ -725,6 +871,7 @@ Rails.application.routes.draw do
     get "/products/:id/edit", to: "links#edit", as: :edit_link
     get "/products/:id/edit/*other", to: "links#edit"
     get "/products/:id/card", to: "links#card", as: :product_card
+    post "/products/:id/price_check", to: "links#price_check", as: :price_check_product, defaults: { format: :json }
     get "/products/search", to: "links#search"
 
     namespace :integrations do
@@ -775,7 +922,12 @@ Rails.application.routes.draw do
     post "/dashboard/dismiss_getting_started_checklist" => "dashboard#dismiss_getting_started_checklist", as: :dashboard_dismiss_getting_started_checklist
 
     get "/products", to: "links#index", as: :products
+
     get "/l/:id", to: "links#show", defaults: { format: "html" }, as: :short_link
+    # Iframe content endpoint for products with custom_html. The two-segment
+    # path can't collide with the single-segment offer-code route below, so a
+    # seller's "landing" offer code keeps working.
+    get "/l/:id/landing/embed", to: "links#landing_iframe_content", as: :short_link_landing
     get "/l/:id/:code", to: "links#show", defaults: { format: "html" }, as: :short_link_offer_code
     get "/cart_items_count", to: "links#cart_items_count"
 
@@ -896,11 +1048,6 @@ Rails.application.routes.draw do
 
     resources :reviews, only: [:index]
 
-    resources :support, only: [:index] do
-      collection do
-        post :create_unauthenticated_ticket
-      end
-    end
 
     # url redirects
     get "/r/:id/expired", to: "url_redirects#expired", as: :url_redirect_expired_page
@@ -948,6 +1095,7 @@ Rails.application.routes.draw do
           member do
             resource :audience_count, only: [:show], controller: "installments/audience_counts", as: :installment_audience_count
             resource :preview_email, only: [:create], controller: "installments/preview_emails", as: :installment_preview_email
+            resource :non_opener_resend, only: [:show, :create], controller: "installments/non_opener_resends", as: :installment_non_opener_resend
           end
           collection do
             resource :recipient_count, only: [:show], controller: "installments/recipient_counts", as: :installment_recipient_count
@@ -991,6 +1139,7 @@ Rails.application.routes.draw do
     get "/CHARGE" => redirect("/charge")
 
     get "/install-cli.sh", to: redirect("https://raw.githubusercontent.com/antiwork/gumroad-cli/refs/heads/main/script/install.sh")
+    get "/docs/cli/pages", to: redirect("/api#custom-html")
 
     # discover
     get "/blackfriday", to: redirect("/discover?offer_code=BLACKFRIDAY2025"), as: :blackfriday
@@ -1018,7 +1167,8 @@ Rails.application.routes.draw do
     get "/secure_url_redirect", to: "secure_redirect#new", as: :secure_url_redirect
     post "/secure_url_redirect", to: "secure_redirect#create"
 
-    # TODO (chris): review and replace usage of routes below with UserCustomDomainConstraint routes
+    # Root-domain profile routes. Subdomain and custom-domain equivalents live in UserCustomDomainConstraint below.
+    get "/:username/edit", to: "users#edit", as: nil
     get "/:username", to: "users#show", as: "user"
     get "/:username/follow", to: "followers#new", as: "follow_user_page"
     get "/:username/p/:slug", to: "posts#show", as: :view_post
@@ -1062,8 +1212,23 @@ Rails.application.routes.draw do
   constraints ProductCustomDomainConstraint do
     get "/.well-known/acme-challenge/:token", to: "acme_challenges#show"
     product_tracking_routes(named_routes: false)
+
+    put "/product_reviews/set", to: "product_reviews#set", format: :json
+    resources :product_reviews, only: [:index, :show]
+    resources :product_review_responses, only: [:update, :destroy], format: :json
+    resources :product_review_videos, only: [] do
+      scope module: :product_review_videos do
+        resource :stream, only: [:show]
+        resources :streaming_urls, only: [:index]
+      end
+    end
+    namespace :product_review_videos do
+      resource :upload_context, only: [:show]
+    end
+
     get "/", to: "links#show", defaults: { format: "html" }
     get "/l/:id", to: "links#show", defaults: { format: "html" }
+    get "/l/:id/landing/embed", to: "links#landing_iframe_content"
     get "/l/:id/:code", to: "links#show", defaults: { format: "html" }
     get "/:code", to: "links#show", defaults: { format: "html" }
   end
@@ -1088,10 +1253,12 @@ Rails.application.routes.draw do
     post "/affiliate_requests", to: "affiliate_requests#create", as: :custom_domain_create_affiliate_request
     get "/updates", to: redirect("/posts")
     get "/l/:id", to: "links#show", defaults: { format: "html" }
+    get "/l/:id/landing/embed", to: "links#landing_iframe_content"
     get "/l/:id/:code", to: "links#show", defaults: { format: "html" }
     get "/subscribe", to: "users#subscribe", as: :custom_domain_subscribe
     get "/follow", to: redirect("/subscribe")
     get "/coffee", to: "users#coffee", as: :custom_domain_coffee
+    get "/edit", to: "users#edit", as: nil
 
     # url redirects
     get "/r/:id/expired", to: "url_redirects#expired", as: :custom_domain_url_redirect_expired_page
@@ -1138,12 +1305,6 @@ Rails.application.routes.draw do
       end
     end
 
-    namespace :settings do
-      resource :profile, only: %i[update], controller: "profile" do
-        resources :products, only: :show, controller: "profile/products"
-      end
-    end
-
     resource :follow, controller: "followers", only: :create do
       member do
         get "/:id/cancel", to: "followers#cancel"
@@ -1165,7 +1326,18 @@ Rails.application.routes.draw do
       resource :followers, only: [:create, :destroy], controller: "wishlists/followers"
     end
 
-    resources :profile_sections, only: [:create, :update, :destroy]
+    put "/product_reviews/set", to: "product_reviews#set", format: :json
+    resources :product_reviews, only: [:index, :show]
+    resources :product_review_responses, only: [:update, :destroy], format: :json
+    resources :product_review_videos, only: [] do
+      scope module: :product_review_videos do
+        resource :stream, only: [:show]
+        resources :streaming_urls, only: [:index]
+      end
+    end
+    namespace :product_review_videos do
+      resource :upload_context, only: [:show]
+    end
 
     get "/", to: "users#show"
   end

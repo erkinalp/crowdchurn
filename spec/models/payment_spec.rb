@@ -55,6 +55,26 @@ describe Payment do
         expect(payment.reload.state).to eq "cancelled"
         expect(balance.reload.state).to eq "unpaid"
       end
+
+      it "marks balances as unpaid when a processing payment transitions directly to reversed" do
+        creator = create(:user)
+        merchant_account = create(:merchant_account_paypal, user: creator)
+        balance = create(:balance, user: creator, state: "processing", merchant_account:)
+        payment = create(:payment, state: "processing", balances: [balance], processor: PayoutProcessorType::PAYPAL)
+        payment.mark!("reversed")
+        expect(payment.reload.state).to eq "reversed"
+        expect(balance.reload.state).to eq "unpaid"
+      end
+
+      it "marks balances as unpaid when a processing payment transitions directly to returned" do
+        creator = create(:user)
+        merchant_account = create(:merchant_account_paypal, user: creator)
+        balance = create(:balance, user: creator, state: "processing", merchant_account:)
+        payment = create(:payment, state: "processing", balances: [balance], processor: PayoutProcessorType::PAYPAL)
+        payment.mark!("returned")
+        expect(payment.reload.state).to eq "returned"
+        expect(balance.reload.state).to eq "unpaid"
+      end
     end
 
     context "when the processor is STRIPE" do
@@ -308,13 +328,14 @@ describe Payment do
                                    stripe_transfer_id: "po_creating", stripe_connect_account_id: "acct_creating",
                                    created_at: 3.days.ago)
 
-        stripe_payout = { "status" => "paid", "arrival_date" => 1.day.ago.to_i }
+        arrival_timestamp = 1.day.ago.to_i
+        stripe_payout = { "status" => "paid", "arrival_date" => arrival_timestamp }
         allow(Stripe::Payout).to receive(:retrieve).with("po_creating", { stripe_account: "acct_creating" }).and_return(stripe_payout)
 
         payment.send(:sync_with_stripe)
 
         expect(payment.state).to eq("completed")
-        expect(payment.arrival_date).to eq(1.day.ago.to_i)
+        expect(payment.arrival_date).to eq(arrival_timestamp)
       end
     end
 
@@ -324,14 +345,15 @@ describe Payment do
                                    stripe_transfer_id: "po_123", stripe_connect_account_id: "acct_123",
                                    created_at: 3.days.ago)
 
-        stripe_payout = { "status" => "paid", "arrival_date" => 2.days.ago.to_i }
+        arrival_timestamp = 2.days.ago.to_i
+        stripe_payout = { "status" => "paid", "arrival_date" => arrival_timestamp }
         allow(Stripe::Payout).to receive(:retrieve).with("po_123", { stripe_account: "acct_123" }).and_return(stripe_payout)
         allow(StripePayoutProcessor).to receive(:reverse_internal_transfer!)
 
         payment.send(:sync_with_stripe)
 
         expect(payment.state).to eq("completed")
-        expect(payment.arrival_date).to eq(2.days.ago.to_i)
+        expect(payment.arrival_date).to eq(arrival_timestamp)
         expect(StripePayoutProcessor).not_to have_received(:reverse_internal_transfer!)
       end
     end
@@ -843,6 +865,84 @@ describe Payment do
           expect(json).not_to have_key(:disputed_sales)
         end
       end
+    end
+  end
+
+  describe "pausing payouts after repeated failures" do
+    let(:user) { create(:user) }
+    let(:bank_account) { create(:ach_account, user:) }
+
+    def failed_payout
+      payment = create(:payment, user:, bank_account:, processor: PayoutProcessorType::STRIPE, state: "processing")
+      payment.mark_failed!
+      payment
+    end
+
+    it "pauses payouts and flags the account once the consecutive failure limit is reached" do
+      (Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS - 1).times { failed_payout }
+      expect(user.reload.payouts_paused?).to be(false)
+
+      failed_payout
+
+      expect(user.reload.payouts_paused_internally).to be(true)
+      expect(user.payouts_paused_by_source).to eq(User::PAYOUT_PAUSE_SOURCE_SYSTEM)
+      comment = user.comments.with_type_on_probation.last
+      expect(comment.content).to include("#{Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS} consecutive failed payouts")
+    end
+
+    it "pauses when a previously completed payout to the bank account is later returned" do
+      (Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS - 1).times { failed_payout }
+
+      returned = create(:payment_completed, user:, bank_account:, processor: PayoutProcessorType::STRIPE,
+                                            stripe_transfer_id: "po_1", stripe_connect_account_id: "acct_1")
+      returned.mark_returned!
+
+      expect(user.reload.payouts_paused_internally).to be(true)
+    end
+
+    it "does not pause before the limit is reached" do
+      (Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS - 1).times { failed_payout }
+
+      expect(user.reload.payouts_paused?).to be(false)
+      expect(user.comments.with_type_on_probation).to be_empty
+    end
+
+    it "counts only failures after the most recent completed payout to the bank account" do
+      (Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS - 1).times { failed_payout }
+      create(:payment_completed, user:, bank_account:, processor: PayoutProcessorType::STRIPE,
+                                 stripe_transfer_id: "po_done", stripe_connect_account_id: "acct_1")
+
+      failed_payout
+
+      expect(user.reload.payouts_paused?).to be(false)
+    end
+
+    it "scopes the count to a single bank account so a new bank account starts fresh" do
+      (Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS - 1).times { failed_payout }
+
+      other_bank_account = create(:ach_account_2, user:)
+      payment = create(:payment, user:, bank_account: other_bank_account, processor: PayoutProcessorType::STRIPE, state: "processing")
+      payment.mark_failed!
+
+      expect(user.reload.payouts_paused?).to be(false)
+    end
+
+    it "ignores payouts without a bank account, such as PayPal" do
+      (Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS + 1).times do
+        payment = create(:payment, user:, processor: PayoutProcessorType::PAYPAL, state: "processing")
+        payment.mark_failed!
+      end
+
+      expect(user.reload.payouts_paused?).to be(false)
+    end
+
+    it "does not re-pause or duplicate notes when payouts are already paused" do
+      user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_ADMIN)
+
+      (Payment::MAX_CONSECUTIVE_FAILED_PAYOUTS + 1).times { failed_payout }
+
+      expect(user.reload.payouts_paused_by_source).to eq(User::PAYOUT_PAUSE_SOURCE_ADMIN)
+      expect(user.comments.with_type_on_probation).to be_empty
     end
   end
 end

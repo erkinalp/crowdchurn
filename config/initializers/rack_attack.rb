@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require "digest"
+
 class Rack::Attack
   redis_url    = ENV.fetch("RACK_ATTACK_REDIS_HOST")
   redis_client = Redis.new(url: "redis://#{redis_url}")
-  Rack::Attack.cache.store = Rack::Attack::StoreProxy::RedisStoreProxy.new(redis_client)
+  Rack::Attack.cache.store = Rack::Attack::StoreProxy::RedisProxy.new(redis_client)
 
   class Request < ::Rack::Request
     # When the server is behind a load balancer
@@ -108,7 +110,7 @@ class Rack::Attack
     req.params # test that params are valid
 
     false
-  rescue Rack::QueryParser::InvalidParameterError
+  rescue Rack::QueryParser::InvalidParameterError, Rack::Multipart::EmptyContentError
     "#{req.path}:#{req.remote_ip}"
   end
 
@@ -126,6 +128,39 @@ class Rack::Attack
 
     # Don't allow spammer to send confirmation emails to many random emails
     throttle_by_ip path: "/settings", requests: 3, period: 20.seconds, method: :put # Initial: 9rpm, Max: 45 requests/9 hours
+
+    # Gumroad Walks: realtime token creation is an *expensive* endpoint — each
+    # successful response gives the client up to 2h of OpenAI Realtime usage
+    # against our key. JWS verification is the primary gate, but a leaked or
+    # replayed JWS would otherwise be unbounded — IP throttling caps that
+    # blast radius at ~$10/IP/hr of OpenAI spend. 5 req/IP/hour is generous
+    # for real users (1-2 walks/day).
+    #
+    # `max_level: 1` skips the exponential-backoff tiers — with a 1-hour base
+    # period, `rpm * level` rounds to <1 and Rack::Attack would block the very
+    # first request that escalates. The base 5/hour limit is already strict.
+    #
+    # Both `/api/v2/walks/...` (gumroad.com) and `/v2/walks/...` (api.gumroad.com)
+    # need throttles since `api_routes` is mounted under both prefixes.
+    # Temporarily relaxed while debugging the App Attest reinstall flow, where a
+    # fresh install can burn the 3/hr attestation cap during repeated testing
+    # and get a 429 the client surfaces as "attestation rejected." Restored in a
+    # follow-up once the reinstall bug is fixed — these cap OpenAI/Anthropic
+    # spend and prevent attested-key fan-out.
+    # throttle_by_ip path: "/api/v2/walks/realtime_tokens", method: :post, requests: 5, period: 1.hour, max_level: 1
+    # throttle_by_ip path: "/v2/walks/realtime_tokens",     method: :post, requests: 5, period: 1.hour, max_level: 1
+    # throttle_by_ip path: "/api/v2/walks/synthesis",       method: :post, requests: 5, period: 1.hour, max_level: 1
+    # throttle_by_ip path: "/v2/walks/synthesis",           method: :post, requests: 5, period: 1.hour, max_level: 1
+
+    # App Attest bootstrap. `attestations` is genuinely once-per-install on the
+    # happy path; cap at 3/IP/hr so a single corporate NAT can recover from
+    # transient failures but a botnet can't fan out attested keys.
+    # `challenges` is one-per-request on every walks call + once per
+    # attestation, so it needs more headroom.
+    # throttle_by_ip path: "/api/v2/walks/app_attest/attestations", method: :post, requests: 3,  period: 1.hour, max_level: 1
+    # throttle_by_ip path: "/v2/walks/app_attest/attestations",     method: :post, requests: 3,  period: 1.hour, max_level: 1
+    # throttle_by_ip path: "/api/v2/walks/app_attest/challenges",   method: :post, requests: 60, period: 1.hour, max_level: 1
+    # throttle_by_ip path: "/v2/walks/app_attest/challenges",       method: :post, requests: 60, period: 1.hour, max_level: 1
   end
 
   throttle_by_ip path: "/",                               requests: 60, period: 30.seconds # Initial: 120rpm, Max: 600 requests/9 hours
@@ -140,7 +175,31 @@ class Rack::Attack
 
   throttle_by_ip_for_period path: "/purchases", requests: 50, period: 1.hour
 
-  throttle_by_ip path: "/oauth/token", requests: 3000, period: 60.seconds # Initial: 3000rpm, Max: 15000 requests/9 hours
+  throttle_with_exponential_backoff(name: "oauth_device_code/ip", requests: 20, period: 60.seconds) do |req|
+    req.remote_ip if req.path.match?(%r{\A/oauth/device/code(?:\.[^/]+)?\z}) && req.post?
+  end
+  throttle_with_exponential_backoff(name: "oauth_device_authorization_lookup/ip", requests: 30, period: 60.seconds) do |req|
+    if req.path.match?(%r{\A/oauth/device(?:\.[^/]+)?\z}) && ["GET", "HEAD"].include?(req.request_method)
+      req.remote_ip
+    end
+  end
+  throttle_with_exponential_backoff(name: "oauth_device_authorization_decision/ip", requests: 10, period: 60.seconds) do |req|
+    req.remote_ip if req.path.match?(%r{\A/oauth/device(?:\.[^/]+)?\z}) && req.post?
+  end
+  throttle_with_exponential_backoff(name: "oauth_token/ip", requests: 3000, period: 60.seconds) do |req|
+    req.remote_ip if req.path.match?(%r{\A/oauth/token(?:\.[^/]+)?\z})
+  end
+  throttle("oauth_device_token/ip/device_code", limit: 120, period: 60.seconds) do |req|
+    if req.path.match?(%r{\A/oauth/token(?:\.[^/]+)?\z}) && req.post?
+      body_params = req.media_type&.include?("json") ? req.json_params : req.POST
+      request_params = body_params.is_a?(Hash) ? body_params.merge(req.GET) : req.GET
+      if request_params["grant_type"] == "urn:ietf:params:oauth:grant-type:device_code"
+        "#{req.remote_ip}:#{Digest::SHA256.hexdigest(request_params["device_code"].to_s)}"
+      end
+    end
+  rescue Rack::QueryParser::InvalidParameterError, TypeError
+    nil
+  end
 
   # Spammers have been abusing follower's endpoints. This degrades our email reputation since we send confirmation email to each follower.
   # The following rules impose stricter and per-creator rate-limiting to prevent spammers from creating followers through a distributed attack.
@@ -206,6 +265,26 @@ class Rack::Attack
                      method: :post,
                      period: 60.seconds,
                      throttle_params: Proc.new { |req| req.env["warden"]&.user&.id }
+
+  # Initial: 10rpm, Max: 60 requests/3 days (per user)
+  throttle_with_exponential_backoff(name: "/params:/settings/passkeys/registration_options:POST", requests: 10, period: 60.seconds, max_level: 6) do |req|
+    req.env["warden"]&.user&.id if req.path.match?(%r{\A/settings/passkeys/registration_options(?:\.[^/]+)?\z}) && req.post?
+  end
+
+  # Initial: 10rpm, Max: 60 requests/3 days (per user)
+  throttle_with_exponential_backoff(name: "/params:/settings/passkeys:POST", requests: 10, period: 60.seconds, max_level: 6) do |req|
+    req.env["warden"]&.user&.id if req.path.match?(%r{\A/settings/passkeys(?:\.[^/]+)?\z}) && req.post?
+  end
+
+  # Passkey login is unauthenticated, so throttle by IP. Initial: 10rpm, Max: 60 requests/3 days (per IP)
+  throttle_with_exponential_backoff(name: "/ip:/login/passkey/options:POST", requests: 10, period: 60.seconds, max_level: 6) do |req|
+    req.remote_ip if req.path.match?(%r{\A/login/passkey/options(?:\.[^/]+)?\z}) && req.post?
+  end
+
+  # Initial: 10rpm, Max: 60 requests/3 days (per IP)
+  throttle_with_exponential_backoff(name: "/ip:/login/passkey:POST", requests: 10, period: 60.seconds, max_level: 6) do |req|
+    req.remote_ip if req.path.match?(%r{\A/login/passkey(?:\.[^/]+)?\z}) && req.post?
+  end
 
   # Initial: 4rpm, Max: 24 requests/9 hours
   throttle_by_params path: "/forgot_password.json",
@@ -296,6 +375,20 @@ class Rack::Attack
   # Initial: 30rpm, Max: 150 requests/9 hours
   throttle_by_ip path: /\A\/(api\/)?v2\/products\/[^\/]+(\.\w+)?\z/, method: :put, requests: 30, period: 60.seconds
   throttle_by_ip path: /\A\/(api\/)?v2\/products\/[^\/]+(\.\w+)?\z/, method: :patch, requests: 30, period: 60.seconds
+
+  # Per-token layer on top of the per-IP rules above. Blocks the IP-rotation
+  # bypass and gives token-level attribution when an agent goes off the rails.
+  v2_product_token = Proc.new do |req|
+    req.params["access_token"].presence || req.env["HTTP_AUTHORIZATION"].to_s[/\Abearer\s+(\S+)/i, 1]
+  end
+  throttle_by_params path: /\A\/(api\/)?v2\/products\/[^\/]+(\.\w+)?\z/, method: :put, requests: 30, period: 60.seconds, throttle_params: v2_product_token
+  throttle_by_params path: /\A\/(api\/)?v2\/products\/[^\/]+(\.\w+)?\z/, method: :patch, requests: 30, period: 60.seconds, throttle_params: v2_product_token
+
+  # Preview is a non-mutating dry run intended for iteration, so it gets a
+  # higher ceiling than PUT/PATCH. Same per-IP + per-token layering.
+  # Initial: 60rpm, Max: 300 requests/9 hours
+  throttle_by_ip path: /\A\/(api\/)?v2\/products\/[^\/]+\/preview_custom_html(\.\w+)?\z/, method: :post, requests: 60, period: 60.seconds
+  throttle_by_params path: /\A\/(api\/)?v2\/products\/[^\/]+\/preview_custom_html(\.\w+)?\z/, method: :post, requests: 60, period: 60.seconds, throttle_params: v2_product_token
 
   # Do not throttle for health check requests
   safelist("allow from localhost", &:localhost?)

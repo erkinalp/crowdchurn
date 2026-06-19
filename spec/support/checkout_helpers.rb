@@ -11,7 +11,8 @@ module CheckoutHelpers
 
     fill_in "Name a fair price", with: pwyw_price if pwyw_price.present?
 
-    if product.purchase_info_for_product_page(logged_in_user, Capybara.current_session.driver.browser.manage.all_cookies.find { |cookie| cookie[:name] == "_gumroad_guid" }&.[](:value)).present?
+    purchase_info = product.purchase_info_for_product_page(logged_in_user, Capybara.current_session.driver.browser.manage.all_cookies.find { |cookie| cookie[:name] == "_gumroad_guid" }&.[](:value))
+    if purchase_info && (purchase_info[:was_paid] || product.is_recurring_billing)
       buy_text = "Purchase again"
     elsif cart
       buy_text = "Add to cart"
@@ -66,36 +67,29 @@ module CheckoutHelpers
       fill_in "A personalized message (optional)", with: gift[:note]
     end
 
-    fill_in "Business VAT ID (optional)", with: vat_id if vat_id.present?
-    fill_in "Business ABN ID (optional)", with: abn_id if abn_id.present?
-    fill_in "Business MVA ID (optional)", with: mva_id if mva_id.present?
-    fill_in "Business GST ID (optional)", with: gst_id if gst_id.present?
-    fill_in "Business QST ID (optional)", with: qst_id if qst_id.present?
-    fill_in "Business CN ID (optional)", with: cn_id if cn_id.present?
-    fill_in "Business IRD ID (optional)", with: ird_id if ird_id.present?
-    fill_in "Business SST ID (optional)", with: sst_id if sst_id.present?
-    fill_in "Business VSK ID (optional)", with: vsk_id if vsk_id.present?
-    fill_in "Business TRN ID (optional)", with: trn_id if trn_id.present?
-    fill_in "Business UNP ID (optional)", with: unp_id if unp_id.present?
-    fill_in "Business RUT ID (optional)", with: rut_id if rut_id.present?
-    fill_in "Business NIT ID (optional)", with: nit_id if nit_id.present?
-    fill_in "Business CPJ ID (optional)", with: cpj_id if cpj_id.present?
-    fill_in "Business RUC ID (optional)", with: ruc_id if ruc_id.present?
-    fill_in "Business TN ID (optional)", with: tn_id if tn_id.present?
-    fill_in "Business TIN ID (optional)", with: tin_id if tin_id.present?
-    fill_in "Business RFC ID (optional)", with: rfc_id if rfc_id.present?
-    fill_in "Business INN ID (optional)", with: inn_id if inn_id.present?
-    fill_in "Business PIB ID (optional)", with: pib_id if pib_id.present?
-    fill_in "Business BRN ID (optional)", with: brn_id if brn_id.present?
-    fill_in "Business VKN ID (optional)", with: vkn_id if vkn_id.present?
-    fill_in "Business EDRPOU ID (optional)", with: edrpou_id if edrpou_id.present?
-    fill_in "Business MST ID (optional)", with: mst_id if mst_id.present?
-    fill_in "Business KRA PIN (optional)", with: kra_pin_id if kra_pin_id.present?
-    fill_in "Business FIRS TIN (optional)", with: firs_tin_id if firs_tin_id.present?
-    fill_in "Business TRA TIN (optional)", with: tra_tin if tra_tin.present?
-    fill_in "Business VAT Number (optional)", with: oman_vat_number if oman_vat_number.present?
+    if country.present?
+      select country, from: "Country"
+      wait_for_checkout_surcharges_loaded
+    end
 
-    select country, from: "Country" if country.present?
+    tax_id_fields = [
+      ["Business VAT ID (optional)", vat_id], ["Business ABN ID (optional)", abn_id],
+      ["Business MVA ID (optional)", mva_id], ["Business GST ID (optional)", gst_id],
+      ["Business QST ID (optional)", qst_id], ["Business CN ID (optional)", cn_id],
+      ["Business IRD ID (optional)", ird_id], ["Business SST ID (optional)", sst_id],
+      ["Business VSK ID (optional)", vsk_id], ["Business TRN ID (optional)", trn_id],
+      ["Business UNP ID (optional)", unp_id], ["Business RUT ID (optional)", rut_id],
+      ["Business NIT ID (optional)", nit_id], ["Business CPJ ID (optional)", cpj_id],
+      ["Business RUC ID (optional)", ruc_id], ["Business TN ID (optional)", tn_id],
+      ["Business TIN ID (optional)", tin_id], ["Business RFC ID (optional)", rfc_id],
+      ["Business INN ID (optional)", inn_id], ["Business PIB ID (optional)", pib_id],
+      ["Business BRN ID (optional)", brn_id], ["Business VKN ID (optional)", vkn_id],
+      ["Business EDRPOU ID (optional)", edrpou_id], ["Business MST ID (optional)", mst_id],
+      ["Business KRA PIN (optional)", kra_pin_id], ["Business FIRS TIN (optional)", firs_tin_id],
+      ["Business TRA TIN (optional)", tra_tin], ["Business VAT Number (optional)", oman_vat_number],
+    ]
+    tax_id_filled = tax_id_fields.any? { |label, value| value.present? && (fill_in(label, with: value); true) }
+    wait_for_checkout_surcharges_loaded if tax_id_filled
 
     if address.present? || product.is_physical || product.require_shipping?
       address = {} if address.nil?
@@ -114,8 +108,12 @@ module CheckoutHelpers
       end
 
       fill_in country_value == "US" ? "ZIP code" : "Postal", with: address[:zip_code] || "94107"
+      wait_for_checkout_surcharges_loaded
     else
-      fill_in "ZIP code", with: zip_code if zip_code.present? && !is_free
+      if zip_code.present? && !is_free
+        fill_in "ZIP code", with: zip_code
+        wait_for_checkout_surcharges_loaded
+      end
     end
 
     if offer_code.present?
@@ -172,11 +170,11 @@ module CheckoutHelpers
       else
         if gift.present? || product.is_in_preorder_state
           # Specific cases where we show the receipt instead of the product content
-          expect(page).to have_text("Your purchase was successful!")
+          expect(page).to have_text("Your purchase was successful!", wait: 60)
           expect(page).to have_text(logged_in_user&.email&.downcase || email&.downcase)
         else
           # The alert show/hide timing can cause specs to be flaky
-          expect(page).to have_alert(text: "Your purchase was successful! We sent a receipt to #{logged_in_user&.email&.downcase || email&.downcase}", visible: :all)
+          expect(page).to have_alert(text: "Your purchase was successful! We sent a receipt to #{logged_in_user&.email&.downcase || email&.downcase}", visible: :all, wait: 60)
         end
 
         expect(page).to have_text("You bought this for #{gift[:email] || gift[:name]}") if gift&.dig(:email).present? || gift&.dig(:name).present?
@@ -197,13 +195,18 @@ end
 
 def fill_in_credit_card(number: "4242424242424242", expiry: StripePaymentMethodHelper::EXPIRY_MMYY, cvc: "123", zip_code: nil)
   within_fieldset "Card information" do
-    within_frame do
+    within_credit_card_frame do
       fill_in "Card number", with: number, visible: false if number.present?
       fill_in "MM / YY", with: expiry, visible: false if expiry.present?
       fill_in "CVC", with: cvc, visible: false if cvc.present?
       fill_in "ZIP", with: zip_code, visible: false if zip_code.present?
     end
   end
+end
+
+def within_credit_card_frame(&block)
+  stripe_frame = all("iframe", wait: 10).find { |f| f["title"]&.include?("Secure") || f["src"]&.include?("elements-inner-card") } || first("iframe", wait: 10)
+  within_frame(stripe_frame, &block)
 end
 
 def within_sca_frame(&block)

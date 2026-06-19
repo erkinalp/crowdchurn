@@ -94,7 +94,7 @@ describe Purchase::CreateService, :vcr do
     params[:purchase].merge!(
       full_name: "Edgar Gumstein",
       street_address: "123 Gum Road",
-      country: "LY",
+      country: "IR",
       state: "CA",
       city: "San Francisco",
       zip_code: "94117"
@@ -328,6 +328,39 @@ describe Purchase::CreateService, :vcr do
         expect(purchase.purchase_offer_code_discount.offer_code_amount).to eq(100)
         expect(purchase.purchase_offer_code_discount.offer_code_is_percent?).to eq(false)
         expect(purchase.purchase_offer_code_discount.pre_discount_minimum_price_cents).to eq(100)
+        expect(error).to be_nil
+      end
+    end
+
+    context "when the cross-sell offer code is only for existing customers" do
+      let(:ownership_product) { create(:product, user:) }
+      let(:existing_customer_offer_code) do
+        create(:percentage_offer_code,
+               user:,
+               products: [product],
+               ownership_products: [ownership_product],
+               existing_customers_only: true,
+               amount_percentage: 1)
+      end
+      let(:cross_sell) { create(:upsell, seller: user, product:, variant: product.alive_variants.first, selected_products: [selected_product], offer_code: existing_customer_offer_code, cross_sell: true) }
+
+      before do
+        product.update!(price_cents: 0)
+        params[:purchase][:perceived_price_cents] = 0
+      end
+
+      it "creates the cross-sell purchase without applying the ineligible offer code",
+         vcr: { cassette_name: "Purchase_CreateService/when_the_purchase_has_a_cross-sell/when_the_cross-sell_is_valid/creates_an_upsell_purchase_record" } do
+        purchase, error = Purchase::CreateService.new(
+          product:,
+          params:,
+          buyer:
+        ).perform
+
+        expect(purchase.upsell_purchase.upsell).to eq(cross_sell)
+        expect(purchase.upsell_purchase.selected_product).to eq(selected_product)
+        expect(purchase.offer_code).to be_nil
+        expect(purchase.purchase_offer_code_discount).to be_nil
         expect(error).to be_nil
       end
     end
@@ -2525,6 +2558,57 @@ describe Purchase::CreateService, :vcr do
       expect(discount.pre_discount_minimum_price_cents).to eq 350
     end
 
+    it "applies an existing-customer discount for an authenticated qualifying buyer" do
+      ownership_product = create(:product, user:)
+      create(:purchase, purchaser: buyer, link: ownership_product, seller: user, price_cents: ownership_product.price_cents)
+      offer_code = create(:offer_code,
+                          products: [product],
+                          ownership_products: [ownership_product],
+                          existing_customers_only: true,
+                          amount_cents: nil,
+                          amount_percentage: 100)
+      free_params = base_params.deep_dup
+
+      free_params[:purchase].merge!(
+        discount_code: offer_code.code,
+        perceived_price_cents: 0,
+      )
+
+      purchase, _ = Purchase::CreateService.new(product:, params: free_params, buyer:).perform
+
+      expect(purchase).to be_successful
+      expect(purchase.price_cents).to eq 0
+      expect(purchase.offer_code).to eq offer_code
+      expect(purchase.purchase_offer_code_discount.offer_code_amount).to eq 100
+      expect(purchase.purchase_offer_code_discount.offer_code_is_percent).to eq true
+    end
+
+    it "rejects an existing-customer discount for a guest using a qualifying customer's email" do
+      ownership_product = create(:product, user:)
+      create(:purchase, purchaser: buyer, link: ownership_product, seller: user, price_cents: ownership_product.price_cents)
+      offer_code = create(:offer_code,
+                          products: [product],
+                          ownership_products: [ownership_product],
+                          existing_customers_only: true,
+                          amount_cents: nil,
+                          amount_percentage: 100)
+      free_params = base_params.deep_dup
+
+      free_params[:purchase].merge!(
+        email: buyer.email,
+        discount_code: offer_code.code,
+        perceived_price_cents: 0,
+      )
+
+      purchase, error = Purchase::CreateService.new(product:, params: free_params).perform
+
+      expect(error).to eq "Sorry, this discount code is only for existing customers."
+      expect(purchase.purchase_state).to eq "failed"
+      expect(purchase.error_code).to eq "offer_code_invalid"
+      expect(purchase.offer_code).to be_nil
+      expect(purchase.purchase_offer_code_discount).to be_nil
+    end
+
     it "allows purchases with offer codes in different currencies" do
       %i[eur gbp aud inr cad hkd sgd twd nzd].each do |currency|
         product.update!(price_currency_type: currency, price_cents: 15_000)
@@ -2664,8 +2748,8 @@ describe Purchase::CreateService, :vcr do
     end
 
     it "fails if offer code has reached max purchase count" do
-      offer_code = create(:offer_code, products: [product], amount_cents: discount_cents, max_purchase_count: 1)
-      create(:purchase, offer_code:)
+      offer_code = create(:offer_code, products: [product], amount_cents: discount_cents, max_purchase_count: 2)
+      create(:purchase, offer_code:, quantity: 2)
 
       params[:purchase].merge!(
         discount_code: offer_code.code,

@@ -63,6 +63,7 @@ describe OauthApplication do
     let(:doorkeeper_scopes) { Doorkeeper.configuration.scopes.map(&:to_sym) }
     let(:default_scopes) { Doorkeeper.configuration.default_scopes.map(&:to_sym) }
     let(:public_scopes) { Doorkeeper.configuration.public_scopes.map(&:to_sym) }
+    let(:public_api_read_scopes) { Doorkeeper.configuration.public_api_read_scopes.map(&:to_sym) }
     let(:private_scopes) { %i[refund_sales mobile_api creator_api helper_api unfurl] }
 
     it "all public scopes are included in Doorkeeper's scopes" do
@@ -79,6 +80,13 @@ describe OauthApplication do
 
     it "defines private scopes as neither public nor default" do
       expect(private_scopes).to match_array(doorkeeper_scopes - public_scopes - default_scopes)
+    end
+
+    it "does not include email management in shared public API read scopes" do
+      expect(public_scopes).to include(:edit_emails)
+      expect(public_api_read_scopes).to include(:edit_products)
+      expect(public_api_read_scopes).not_to include(:edit_emails)
+      expect(public_api_read_scopes - public_scopes).to be_empty
     end
 
     it "includes public scopes in user-created applications" do
@@ -200,6 +208,45 @@ describe OauthApplication do
 
       expect(@oauth_application.access_tokens).to all be_revoked
     end
+
+    it "denies outstanding device authorizations" do
+      pending_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        status: OauthDeviceAuthorization::STATUS_PENDING,
+        device_code: "pending-deleted-app",
+        user_code: "GRD-PEND-DEL1"
+      )
+      approved_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        status: OauthDeviceAuthorization::STATUS_APPROVED,
+        device_code: "approved-deleted-app",
+        user_code: "GRD-APPR-DEL1"
+      )
+      consumed_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        status: OauthDeviceAuthorization::STATUS_CONSUMED,
+        device_code: "consumed-deleted-app",
+        user_code: "GRD-CONS-DEL1"
+      )
+      denied_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        status: OauthDeviceAuthorization::STATUS_DENIED,
+        denied_at: 1.day.ago,
+        device_code: "denied-deleted-app",
+        user_code: "GRD-DENY-DEL1"
+      )
+
+      @oauth_application.mark_deleted!
+
+      expect(pending_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_DENIED, denied_at: be_present)
+      expect(approved_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_DENIED, denied_at: be_present)
+      expect(consumed_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_CONSUMED, denied_at: nil)
+      expect(denied_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_DENIED, denied_at: be_present)
+    end
   end
 
   describe "#revoke_access_for" do
@@ -231,6 +278,74 @@ describe OauthApplication do
 
       expect(@oauth_application.resource_subscriptions.where(user: @subscriber_1).alive.count).to eq(0)
       expect(@oauth_application.resource_subscriptions.where(user: @subscriber_2).alive.count).to eq(1)
+    end
+
+    it "denies approved device authorizations for the user" do
+      pending_authorization_with_owner = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        resource_owner: @subscriber_1,
+        status: OauthDeviceAuthorization::STATUS_PENDING,
+        device_code: "pending-subscriber-1",
+        user_code: "GRD-PEN1-0001"
+      )
+      approved_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        resource_owner: @subscriber_1,
+        status: OauthDeviceAuthorization::STATUS_APPROVED,
+        device_code: "approved-subscriber-1",
+        user_code: "GRD-APP1-0001"
+      )
+      other_user_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        resource_owner: @subscriber_2,
+        status: OauthDeviceAuthorization::STATUS_APPROVED,
+        device_code: "approved-subscriber-2",
+        user_code: "GRD-APP2-0001"
+      )
+      unauthenticated_pending_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        status: OauthDeviceAuthorization::STATUS_PENDING,
+        device_code: "pending-unauthenticated",
+        user_code: "GRD-PEND-0000"
+      )
+
+      @oauth_application.revoke_access_for(@subscriber_1)
+
+      expect(pending_authorization_with_owner.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_PENDING, denied_at: nil)
+      expect(approved_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_DENIED, denied_at: be_present)
+      expect(other_user_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_APPROVED, denied_at: nil)
+      expect(unauthenticated_pending_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_PENDING, denied_at: nil)
+    end
+
+    it "does not mint a device token if the client polls while access is being revoked" do
+      device_authorization = create(
+        :oauth_device_authorization,
+        oauth_application: @oauth_application,
+        resource_owner: @subscriber_1,
+        status: OauthDeviceAuthorization::STATUS_APPROVED
+      )
+      poll_result = nil
+
+      expect(Doorkeeper::AccessToken).to receive(:revoke_all_for).with(@oauth_application.id, @subscriber_1).and_wrap_original do |method, *args|
+        expect do
+          poll_result = device_authorization.reload.poll!(
+            oauth_application: @oauth_application,
+            ip_address: "203.0.113.20",
+            user_agent: "RSpec"
+          )
+        end.not_to change { Doorkeeper::AccessToken.count }
+
+        method.call(*args)
+      end
+
+      @oauth_application.revoke_access_for(@subscriber_1)
+
+      expect(poll_result).to eq([OauthDeviceAuthorization::POLL_ACCESS_DENIED, nil])
+      expect(device_authorization.reload).to have_attributes(status: OauthDeviceAuthorization::STATUS_DENIED, access_token: nil)
     end
   end
 end

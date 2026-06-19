@@ -17,7 +17,17 @@ module WithProductFiles
   # Use this method in order to hit the db once and cache the results on the Link object and reuse them later.
   # Call this method only if you're sure that you're not changing the files within the same action.
   def alive_product_files
-    cached_alive_product_files || self.cached_alive_product_files = product_files.alive.in_order.to_a
+    cached_alive_product_files || self.cached_alive_product_files =
+      if association(:product_files).loaded?
+        # Match MySQL's `ORDER BY position ASC` (used by the `in_order`
+        # scope on the cold-cache branch): NULLs sort FIRST in MySQL's
+        # default NULL-handling. Ruby's `sort_by` puts unknowns where you
+        # put them — using `-Float::INFINITY` for `nil` positions makes
+        # the in-memory ordering match the DB ordering.
+        product_files.select(&:alive?).sort_by { |f| f.position || -Float::INFINITY }
+      else
+        product_files.alive.in_order.to_a
+      end
   end
 
   def has_files?

@@ -6,6 +6,8 @@ import { LoggedInUser } from "$app/types/user";
 import { classNames } from "$app/utils/classNames";
 import { request } from "$app/utils/request";
 
+import { useFeatureFlags } from "$app/components/FeatureFlags";
+
 import logoSvg from "$assets/images/logo.svg";
 
 type PageProps = {
@@ -84,7 +86,7 @@ const NavButton = ({
   }
 
   const className = classNames(
-    "flex w-full items-center justify-center h-full border-black bg-black p-4 text-lg text-white no-underline transition-colors duration-200 hover:bg-pink hover:text-black lg:w-auto lg:border-l lg:py-2 lg:px-6",
+    "flex w-full items-center justify-center h-full border-black bg-black p-4 text-lg text-white no-underline transition-colors duration-200 hover:bg-pink hover:text-black lg:w-auto lg:border-l lg:py-2 lg:px-6 whitespace-nowrap",
     modifier1,
     modifier2,
   );
@@ -121,10 +123,10 @@ const AuthButtons = ({
 
   return (
     <>
-      <NavButton href={Routes.new_user_session_path()} {...(onClick && { onClick })}>
+      <NavButton href={Routes.login_path()} {...(onClick && { onClick })}>
         Log in
       </NavButton>
-      <NavButton href={Routes.new_user_registration_path()} context="primary" {...(onClick && { onClick })}>
+      <NavButton href={Routes.signup_path()} context="primary" {...(onClick && { onClick })}>
         Start selling
       </NavButton>
     </>
@@ -136,6 +138,7 @@ export const HomeNav = () => {
   const [stars, setStars] = React.useState<string | null>(null);
   const { url, props } = usePage<PageProps>();
   const user = props.current_user;
+  const { career_pages } = useFeatureFlags();
 
   const toggleMobileMenu = () => setMobileMenuOpen((prev) => !prev);
   const closeMobileMenu = () => setMobileMenuOpen(false);
@@ -161,6 +164,12 @@ export const HomeNav = () => {
     if (path === Routes.gumroad_blog_root_path()) {
       return url.startsWith(path);
     }
+    if (path === Routes.careers_path()) {
+      return url.startsWith(path);
+    }
+    if (path === Routes.about_path()) {
+      return url === path || url === Routes.root_path();
+    }
     return url === path;
   };
 
@@ -170,6 +179,7 @@ export const HomeNav = () => {
     { href: Routes.pricing_path(), label: "Pricing" },
     { href: Routes.features_path(), label: "Features" },
     { href: Routes.about_path(), label: "About" },
+    ...(career_pages ? [{ href: Routes.careers_path(), label: "Jobs" }] : []),
   ];
 
   return (

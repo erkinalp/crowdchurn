@@ -665,15 +665,33 @@ describe PurchasesController, :vcr do
         index_model_records(Purchase)
       end
 
+      def csv_safe(value)
+        return value if value.nil?
+        str = value.to_s
+        return value if str.empty?
+        first = str[0]
+        if first == "+" || first == "-"
+          return value if str[1..]&.match?(/\A\d+\.?\d*\z/)
+        end
+        %w[= @ | % \r \t + -].include?(first) ? "'#{value}" : value
+      end
+
+      def find_csv_row(csv, purchase)
+        id = csv_safe(purchase.external_id)
+        csv[1..-2].find { |row| row.first == id }
+      end
+
       def expect_correct_csv(csv_string)
         csv = CSV.parse(csv_string)
         expect(csv.size).to eq(5)
         expect(csv[0]).to eq(Exports::PurchaseExportService::PURCHASE_FIELDS + ["Age", "Height", "Citizenship"])
-        # Test the correct purchase is listed with the expected custom fields values.
-        expect([csv[1].first] + csv[1].last(3)).to eq([@purchase_1.external_id, "25", nil, nil])
-        expect([csv[2].first] + csv[2].last(3)).to eq([@purchase_2.external_id, nil, nil, "Japan"])
-        expect([csv[3].first] + csv[3].last(3)).to eq([@purchase_3.external_id, nil, nil, nil])
-        expect([csv[4].first] + csv[4].last(3)).to eq(["Totals", nil, nil, nil])
+        row1 = find_csv_row(csv, @purchase_1)
+        row2 = find_csv_row(csv, @purchase_2)
+        row3 = find_csv_row(csv, @purchase_3)
+        expect([row1.first] + row1.last(3)).to eq([csv_safe(@purchase_1.external_id), "25", nil, nil])
+        expect([row2.first] + row2.last(3)).to eq([csv_safe(@purchase_2.external_id), nil, nil, "Japan"])
+        expect([row3.first] + row3.last(3)).to eq([csv_safe(@purchase_3.external_id), nil, nil, nil])
+        expect([csv.last.first] + csv.last.last(3)).to eq(["Totals", nil, nil, nil])
       end
 
       it_behaves_like "authorize called for action", :get, :export do
@@ -845,6 +863,75 @@ describe PurchasesController, :vcr do
       end
     end
 
+    describe "GET export with mobile authentication" do
+      let(:oauth_app) { create(:oauth_application, owner: seller) }
+      let(:access_token) do
+        create("doorkeeper/access_token", application: oauth_app, resource_owner_id: seller.id, scopes: "creator_api")
+      end
+      let(:tempfile) do
+        Tempfile.new(["sales", ".csv"]).tap do |file|
+          file.write("id\n")
+          file.rewind
+        end
+      end
+
+      before do
+        sign_out(user_with_role_for_seller)
+        allow(Exports::PurchaseExportService).to receive(:export).and_return(tempfile)
+      end
+
+      after do
+        tempfile.close!
+      end
+
+      it "uses the mobile token to export sales" do
+        get :export, params: {
+          access_token: access_token.token,
+          mobile_token: Api::Mobile::BaseController::MOBILE_TOKEN
+        }
+
+        expect(response).to be_successful
+        expect(Exports::PurchaseExportService).to have_received(:export).with(hash_including(seller:, recipient: seller))
+      end
+
+      context "when the token does not have the creator_api scope" do
+        let(:access_token) do
+          create("doorkeeper/access_token", application: oauth_app, resource_owner_id: seller.id, scopes: "mobile_api")
+        end
+
+        it "does not sign in the token owner" do
+          expect(controller).not_to receive(:sign_in)
+
+          get :export, params: {
+            access_token: access_token.token,
+            mobile_token: Api::Mobile::BaseController::MOBILE_TOKEN
+          }
+
+          expect(response).to have_http_status(:forbidden)
+          expect(Exports::PurchaseExportService).not_to have_received(:export)
+        end
+      end
+
+      context "when the browser has a stale seller switch cookie" do
+        let(:other_seller) { create(:user) }
+
+        before do
+          create(:team_membership, user: seller, seller: other_seller, role: TeamMembership::ROLE_ADMIN)
+          cookies.encrypted[:current_seller_id] = other_seller.id
+        end
+
+        it "exports the mobile token owner's sales" do
+          get :export, params: {
+            access_token: access_token.token,
+            mobile_token: Api::Mobile::BaseController::MOBILE_TOKEN
+          }
+
+          expect(response).to be_successful
+          expect(Exports::PurchaseExportService).to have_received(:export).with(hash_including(seller:, recipient: seller))
+        end
+      end
+    end
+
     describe "PUT revoke_access" do
       let(:product) { create(:product, user: seller) }
       let(:purchase) { create(:purchase, link: product, seller:) }
@@ -894,6 +981,23 @@ describe PurchasesController, :vcr do
         post :resend_receipt, params: { id: ObfuscateIds.encrypt(@purchase.id) }
         expect(SendPurchaseReceiptJob).to have_enqueued_sidekiq_job(@purchase.id).on("critical")
         expect(response).to be_successful
+      end
+
+      context "when the order has no successful purchases" do
+        let(:purchase) { create(:failed_purchase, email: "test@example.com") }
+
+        before do
+          order = create(:order, purchases: [purchase])
+          create(:charge, order:, purchases: [purchase], seller: purchase.seller)
+        end
+
+        it "404s instead of enqueueing a receipt job" do
+          expect do
+            post :resend_receipt, params: { id: purchase.external_id }
+          end.to raise_error(ActionController::RoutingError)
+
+          expect(SendPurchaseReceiptJob.jobs.size).to eq(0)
+        end
       end
 
       describe "gift purchase" do
@@ -1295,6 +1399,12 @@ describe PurchasesController, :vcr do
         expect { get :unsubscribe, params: { id: "notreal" } }.to raise_error(ActionController::RoutingError)
       end
 
+      it "404s when secure_external_id is invalid and confirmation_text is present" do
+        expect do
+          get :unsubscribe, params: { id: "invalid_token", confirmation_text: "bot@example.com" }
+        end.to raise_error(ActionController::RoutingError)
+      end
+
       context "with secure_external_id" do
         it "sets can_contact to false for all purchases from same seller and email" do
           purchase = create(:purchase, can_contact: true)
@@ -1503,6 +1613,24 @@ describe PurchasesController, :vcr do
         it "trims whitespace from email input" do
           get :receipt, params: { id: purchase.external_id, email: " test@example.com " }
           expect(response).to be_successful
+        end
+      end
+
+      context "when the order has no successful purchases" do
+        # A charge-backed purchase promotes the receipt's chargeable to its Order;
+        # when that Order has no successful purchase, the orderable has no email and
+        # the receipt used to 500 (gumroad-private#483 / Sentry GUMROAD-4D).
+        let(:purchase) { create(:failed_purchase, email: "test@example.com") }
+
+        before do
+          order = create(:order, purchases: [purchase])
+          create(:charge, order:, purchases: [purchase], seller: purchase.seller)
+        end
+
+        it "404s instead of raising NoMethodError" do
+          expect do
+            get :receipt, params: { id: purchase.external_id, email: "test@example.com" }
+          end.to raise_error(ActionController::RoutingError)
         end
       end
 

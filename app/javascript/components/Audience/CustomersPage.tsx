@@ -1,5 +1,5 @@
 import { ArrowInDownSquareHalf, MenuFilter, Truck } from "@boxicons/react";
-import { router } from "@inertiajs/react";
+import { router, useRemember } from "@inertiajs/react";
 import cx from "classnames";
 import { lightFormat, subMonths } from "date-fns";
 import { format } from "date-fns-tz";
@@ -24,6 +24,7 @@ import { Select } from "$app/components/Select";
 import { showAlert } from "$app/components/server-components/Alert";
 import { Card, CardContent } from "$app/components/ui/Card";
 import { Fieldset, FieldsetDescription, FieldsetTitle } from "$app/components/ui/Fieldset";
+import { Input } from "$app/components/ui/Input";
 import { Label } from "$app/components/ui/Label";
 import { PageHeader } from "$app/components/ui/PageHeader";
 import { Pill } from "$app/components/ui/Pill";
@@ -51,6 +52,7 @@ export type CustomerPageProps = {
   countries: string[];
   can_ping: boolean;
   show_refund_fee_notice: boolean;
+  license_uses_filter_enabled: boolean;
 };
 
 const year = new Date().getFullYear();
@@ -67,31 +69,34 @@ const CustomersPage = ({
   countries,
   can_ping,
   show_refund_fee_notice,
+  license_uses_filter_enabled,
   ...initialState
 }: CustomerPageProps) => {
   const currentSeller = useCurrentSeller();
   const userAgentInfo = useUserAgentInfo();
 
-  const [{ customers, pagination, count }, setState] = React.useState<{
+  const sellerKey = currentSeller?.id ?? "anonymous";
+  const [{ customers, pagination, count }, setState] = useRemember<{
     customers: Customer[];
     pagination: PaginationProps | null;
     count: number;
-  }>(initialState);
+  }>(initialState, `CustomersPage:state:${sellerKey}`);
   const [isLoading, setIsLoading] = React.useState(false);
   const activeRequest = React.useRef<{ cancel: () => void } | null>(null);
 
   const uid = React.useId();
 
-  const [includedItems, setIncludedItems] = React.useState<Item[]>(
+  const [includedItems, setIncludedItems] = useRemember<Item[]>(
     product_id ? [{ type: "product", id: product_id }] : [],
+    `CustomersPage:includedItems:${sellerKey}`,
   );
-  const [excludedItems, setExcludedItems] = React.useState<Item[]>([]);
+  const [excludedItems, setExcludedItems] = useRemember<Item[]>([], `CustomersPage:excludedItems:${sellerKey}`);
 
-  const [query, setQuery] = React.useState<Query>(() => {
-    const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-    return {
+  const initialUrlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const [query, setQuery] = useRemember<Query>(
+    {
       page: 1,
-      query: urlParams?.get("query") ?? urlParams?.get("email") ?? null,
+      query: initialUrlParams?.get("query") ?? initialUrlParams?.get("email") ?? null,
       sort: { key: "created_at", direction: "desc" },
       products: [],
       variants: [],
@@ -103,8 +108,10 @@ const CustomersPage = ({
       createdBefore: null,
       country: null,
       activeCustomersOnly: false,
-    };
-  });
+      minimumLicenseUses: null,
+    },
+    `CustomersPage:query:${sellerKey}`,
+  );
   const updateQuery = (update: Partial<Query>) => setQuery((prevQuery) => ({ ...prevQuery, ...update }));
   const {
     query: searchQuery,
@@ -115,6 +122,7 @@ const CustomersPage = ({
     createdBefore,
     country,
     activeCustomersOnly,
+    minimumLicenseUses,
   } = query;
 
   const thProps = useSortingTableDriver<SortKey>(sort, (sort) => updateQuery({ sort }));
@@ -188,7 +196,7 @@ const CustomersPage = ({
       <PageHeader
         title="Sales"
         actions={
-          <>
+          <div className="flex flex-wrap gap-2">
             <Search value={searchQuery ?? ""} onSearch={(query) => updateQuery({ query })} placeholder="Search sales" />
             <Popover>
               <PopoverAnchor>
@@ -200,7 +208,10 @@ const CustomersPage = ({
                   </PopoverTrigger>
                 </WithTooltip>
               </PopoverAnchor>
-              <PopoverContent className="max-h-[calc(100vh-8rem)] overflow-y-auto p-0">
+              <PopoverContent
+                className="max-h-[calc(100vh-8rem)] overflow-y-auto p-0"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <Card className="w-140 border-none shadow-none">
                   <CardContent>
                     <ProductSelect
@@ -309,6 +320,28 @@ const CustomersPage = ({
                       </FormSelect>
                     </Fieldset>
                   </CardContent>
+                  {license_uses_filter_enabled ? (
+                    <CardContent>
+                      <Fieldset className="grow basis-0">
+                        <Label htmlFor={`${uid}-minimum-license-uses`}>Minimum license uses</Label>
+                        <Input
+                          id={`${uid}-minimum-license-uses`}
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={minimumLicenseUses ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            updateQuery({
+                              minimumLicenseUses: value === "" ? null : Math.max(0, Number.parseInt(value, 10) || 0),
+                            });
+                          }}
+                          placeholder="1"
+                        />
+                        <FieldsetDescription>Number of times the license has been used.</FieldsetDescription>
+                      </Fieldset>
+                    </CardContent>
+                  ) : null}
                   <CardContent>
                     <h4 className="font-bold">
                       <Label htmlFor={`${uid}-active-customers-only`}>Show active customers only</Label>
@@ -324,13 +357,12 @@ const CustomersPage = ({
             </Popover>
             <Popover open={exportPopoverOpen} onOpenChange={setExportPopoverOpen}>
               <PopoverAnchor>
-                <WithTooltip tip="Export">
-                  <PopoverTrigger aria-label="Export" asChild>
-                    <Button size="icon">
-                      <ArrowInDownSquareHalf className="size-5" />
-                    </Button>
-                  </PopoverTrigger>
-                </WithTooltip>
+                <PopoverTrigger asChild>
+                  <Button>
+                    <ArrowInDownSquareHalf aria-hidden="true" className="size-5" />
+                    Export
+                  </Button>
+                </PopoverTrigger>
               </PopoverAnchor>
               <PopoverContent>
                 <div className="flex flex-col gap-4">
@@ -361,7 +393,7 @@ const CustomersPage = ({
                 </div>
               </PopoverContent>
             </Popover>
-          </>
+          </div>
         }
       />
       <section className="p-4 md:p-8">
@@ -390,6 +422,7 @@ const CustomersPage = ({
                     <TableRow
                       key={customer.id}
                       onClick={() => {
+                        window.sessionStorage.setItem("CustomersPage:canGoBack", "1");
                         router.visit(Routes.customer_sale_path(customer.id));
                       }}
                       style={{ cursor: "pointer" }}

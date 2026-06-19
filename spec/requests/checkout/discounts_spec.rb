@@ -450,6 +450,159 @@ describe("Checkout discounts page", type: :system, js: true) do
         expect(page).to have_select("Discount duration for memberships", options: ["Once (first billing period only)", "Forever"], selected: "Forever")
       end
     end
+
+    describe "ownership-based discounts" do
+      it "persists ownership products and tiers when combining both toggles, hiding the top-level Type input" do
+        visit checkout_discounts_path
+        click_on "New discount"
+
+        fill_in "Name", with: "Year 2+ renewal"
+        find(:label, "Products").click
+        select_combo_box_option "Membership", from: "Products"
+
+        check "Limit to existing customers"
+        select_combo_box_option "Membership", from: "Must have purchased"
+
+        check "Tier discount by ownership duration"
+        expect(page).to_not have_text("Type", exact: true)
+        expect(page).to_not have_select("Discount duration for memberships")
+
+        fill_in "Tier 1 percentage", with: "0"
+        click_on "Add tier"
+        fill_in "Tier 2 starting month", with: "12"
+        fill_in "Tier 2 percentage", with: "50"
+
+        click_on "Add discount"
+        expect(page).to have_alert(text: "Successfully created discount!")
+
+        offer_code = OfferCode.where(name: "Year 2+ renewal").last
+        expect(offer_code.existing_customers_only?).to eq(true)
+        expect(offer_code.products).to eq([membership])
+        expect(offer_code.ownership_products).to eq([membership])
+        expect(offer_code.normalized_ownership_duration_tiers).to eq([
+                                                                       { "months" => 0, "amount_percentage" => 0 },
+                                                                       { "months" => 12, "amount_percentage" => 50 },
+                                                                     ])
+        expect(offer_code.duration_in_billing_cycles).to be_nil
+      end
+
+      it "creates a standalone tiered discount without limiting to existing customers" do
+        visit checkout_discounts_path
+        click_on "New discount"
+
+        fill_in "Name", with: "Renewal-only"
+        find(:label, "Products").click
+        select_combo_box_option "Membership", from: "Products"
+
+        check "Tier discount by ownership duration"
+        expect(page).to_not have_text("Type", exact: true)
+        expect(page).to_not have_select("Discount duration for memberships")
+        expect(page).to_not have_text("Must have purchased")
+
+        fill_in "Tier 1 percentage", with: "0"
+        click_on "Add tier"
+        fill_in "Tier 2 starting month", with: "12"
+        fill_in "Tier 2 percentage", with: "50"
+
+        click_on "Add discount"
+        expect(page).to have_alert(text: "Successfully created discount!")
+
+        offer_code = OfferCode.where(name: "Renewal-only").last
+        expect(offer_code.existing_customers_only?).to eq(false)
+        expect(offer_code.ownership_products).to be_empty
+        expect(offer_code.normalized_ownership_duration_tiers).to eq([
+                                                                       { "months" => 0, "amount_percentage" => 0 },
+                                                                       { "months" => 12, "amount_percentage" => 50 },
+                                                                     ])
+      end
+
+      it "caps the tier percentage input at 100" do
+        visit checkout_discounts_path
+        click_on "New discount"
+
+        fill_in "Name", with: "Cap test"
+        find(:label, "Products").click
+        select_combo_box_option "Membership", from: "Products"
+
+        check "Tier discount by ownership duration"
+        click_on "Add tier"
+        fill_in "Tier 2 percentage", with: "999"
+        expect(find_field("Tier 2 percentage").value).to eq("100")
+      end
+
+      it "sorts tier rows by months only after the months input loses focus" do
+        create(:offer_code,
+               user: seller,
+               products: [membership],
+               ownership_products: [membership],
+               existing_customers_only: true,
+               amount_cents: nil,
+               amount_percentage: 0,
+               currency_type: nil,
+               code: "sortcheck",
+               name: "Sort check",
+               ownership_duration_tiers: [
+                 { "months" => 0,  "amount_percentage" => 0 },
+                 { "months" => 6,  "amount_percentage" => 25 },
+                 { "months" => 18, "amount_percentage" => 50 },
+               ])
+
+        visit checkout_discounts_path
+        within(find(:table_row, { "Discount" => "Sort check" })) { click_on "Edit" }
+
+        # Tier 2 (months=6) becomes months=99 — it should now stay in place
+        # while typing, then snap to last position only after blur.
+        tier2_input = find_field("Tier 2 starting month")
+        tier2_input.fill_in(with: "99")
+        expect(find_field("Tier 2 starting month").value).to eq("99")
+        expect(find_field("Tier 3 starting month").value).to eq("18")
+
+        # Blur by tabbing away — order should now reflect 0, 18, 99
+        tier2_input.send_keys(:tab)
+        expect(find_field("Tier 2 starting month").value).to eq("18")
+        expect(find_field("Tier 3 starting month").value).to eq("99")
+      end
+
+      it "rehydrates the form when editing an existing tiered code" do
+        tiered_code = create(:offer_code,
+                             user: seller,
+                             products: [membership],
+                             ownership_products: [membership],
+                             existing_customers_only: true,
+                             amount_cents: nil,
+                             amount_percentage: 0,
+                             currency_type: nil,
+                             code: "renew",
+                             name: "Renewal tiered",
+                             ownership_duration_tiers: [
+                               { "months" => 0, "amount_percentage" => 0 },
+                               { "months" => 12, "amount_percentage" => 50 },
+                             ])
+
+        visit checkout_discounts_path
+        within(find(:table_row, { "Discount" => "Renewal tiered" })) do
+          expect(page).to have_text("0%–50% off")
+          click_on "Edit"
+        end
+
+        expect(page).to have_checked_field("Limit to existing customers")
+        expect(page).to have_checked_field("Tier discount by ownership duration")
+        expect(page).to have_field("Tier 1 percentage", with: "0")
+        expect(page).to have_field("Tier 2 percentage", with: "50")
+        expect(page).to have_field("Tier 2 starting month", with: "12")
+
+        fill_in "Tier 2 percentage", with: "25"
+        page.scroll_to find_button("Save changes"), align: :center
+        click_on "Save changes"
+        expect(page).to have_alert(text: "Successfully updated discount!")
+
+        tiered_code.reload
+        expect(tiered_code.normalized_ownership_duration_tiers).to eq([
+                                                                        { "months" => 0, "amount_percentage" => 0 },
+                                                                        { "months" => 12, "amount_percentage" => 25 },
+                                                                      ])
+      end
+    end
   end
 
   describe "editing offer codes" do
@@ -750,6 +903,9 @@ describe("Checkout discounts page", type: :system, js: true) do
   describe "pagination" do
     before do
       stub_const("Checkout::DiscountsController::PER_PAGE", 1)
+      offer_code1.update_column(:updated_at, 1.second.from_now)
+      offer_code2.update_column(:updated_at, 1.second.ago)
+      offer_code3.update_column(:updated_at, 2.seconds.ago)
     end
 
     it "paginates the offer codes" do
@@ -884,6 +1040,9 @@ describe("Checkout discounts page", type: :system, js: true) do
     before do
       create(:offer_code, user: seller, name: "Discount 4", code: "discount4", universal: true)
       stub_const("Checkout::DiscountsController::PER_PAGE", 2)
+      offer_code1.update_column(:updated_at, 1.second.from_now)
+      offer_code2.update_column(:updated_at, 1.second.ago)
+      offer_code3.update_column(:updated_at, 2.seconds.ago)
     end
 
     it "searches the offer codes" do

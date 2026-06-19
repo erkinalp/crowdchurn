@@ -7,8 +7,8 @@ describe Product::VariantCategoryUpdaterService do
     context "when trying to update a variant from another product" do
       let(:product) { create(:product) }
       let(:other_product) { create(:product) }
-      let(:variant) { create(:variant, variant_category: create(:variant_category, link: product)) }
-      let(:other_variant) { create(:variant, variant_category: create(:variant_category, link: other_product)) }
+      let(:variant) { create(:variant, name: "Original Variant", variant_category: create(:variant_category, link: product)) }
+      let(:other_variant) { create(:variant, name: "Other Variant", variant_category: create(:variant_category, link: other_product)) }
       let(:variant_category_params) do
         {
           id: variant.variant_category.external_id, title: variant.variant_category.title,
@@ -164,6 +164,63 @@ describe Product::VariantCategoryUpdaterService do
             end.to change { @variant.reload.deleted_at }.from(nil).to(Time.current)
 
             expect(DeleteProductRichContentWorker).to have_enqueued_sidekiq_job(@product.id, @variant.id)
+          end
+        end
+      end
+    end
+
+    context "when deleting multiple obsolete variants" do
+      before do
+        @product = create(:product)
+        @variant_category = create(:variant_category, link: @product)
+        @kept_variant = create(:variant, variant_category: @variant_category)
+        @deleted_variants = create_list(:variant, 3, variant_category: @variant_category)
+      end
+
+      it "soft-deletes all obsolete variants in batch and enqueues cleanup workers" do
+        category_params = {
+          id: @variant_category.external_id,
+          title: @variant_category.title,
+          options: [
+            {
+              id: @kept_variant.external_id,
+              name: @kept_variant.name,
+              rich_content: "[]",
+            }
+          ]
+        }
+
+        freeze_time do
+          Product::VariantCategoryUpdaterService.new(product: @product, category_params:).perform
+
+          @deleted_variants.each do |variant|
+            expect(variant.reload.deleted_at).to eq(Time.current)
+            expect(DeleteProductRichContentWorker).to have_enqueued_sidekiq_job(@product.id, variant.id)
+            expect(DeleteProductFilesArchivesWorker).to have_enqueued_sidekiq_job(@product.id, variant.id)
+          end
+
+          expect(@kept_variant.reload.deleted_at).to be_nil
+        end
+      end
+    end
+
+    context "when clearing all options from a category" do
+      before do
+        @product = create(:product)
+        @variant_category = create(:variant_category, link: @product)
+        @variants = create_list(:variant, 3, variant_category: @variant_category)
+      end
+
+      it "soft-deletes all variants in batch and enqueues cleanup workers" do
+        category_params = { id: @variant_category.external_id, title: "" }
+
+        freeze_time do
+          Product::VariantCategoryUpdaterService.new(product: @product, category_params:).perform
+
+          @variants.each do |variant|
+            expect(variant.reload.deleted_at).to eq(Time.current)
+            expect(DeleteProductRichContentWorker).to have_enqueued_sidekiq_job(@product.id, variant.id)
+            expect(DeleteProductFilesArchivesWorker).to have_enqueued_sidekiq_job(@product.id, variant.id)
           end
         end
       end

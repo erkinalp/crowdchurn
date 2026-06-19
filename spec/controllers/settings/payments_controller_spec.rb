@@ -161,6 +161,66 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
       expect(flash[:notice]).to eq("Thanks! You're all set.")
     end
 
+    describe "US outlying area handling (issue #394)" do
+      def expect_territory_rejection_error
+        expect(session[:inertia_errors][:base]).to include(
+          a_string_matching(/Puerto Rico is not a valid compliance country/)
+        )
+      end
+
+      it "rejects updated_country_code=PR" do
+        put :update, params: { user: params.merge(updated_country_code: "PR") }
+        expect_territory_rejection_error
+      end
+
+      it "rejects user[country]=PR via the compliance update" do
+        put :update, params: { user: params.merge(country: "PR", is_business: true) }
+        expect_territory_rejection_error
+      end
+
+      it "rejects user[business_country]=PR via the compliance update" do
+        put :update, params: { user: params.merge(business_country: "PR", is_business: true) }
+        expect_territory_rejection_error
+      end
+
+      %w[AS GU MP UM VI].each do |territory|
+        it "allows user[country]=#{territory} because it is a valid PayPal payout country" do
+          put :update, params: { user: params.merge(country: territory, is_business: true) }
+          expect(session[:inertia_errors][:base]).to be_blank if session[:inertia_errors].present?
+          expect(session.dig(:inertia_errors, :base) || []).not_to include(
+            a_string_matching(/not a valid compliance country/)
+          )
+        end
+
+        it "allows user[business_country]=#{territory} via the compliance update" do
+          put :update, params: { user: params.merge(business_country: territory, is_business: true) }
+          expect(session.dig(:inertia_errors, :base) || []).not_to include(
+            a_string_matching(/not a valid compliance country/)
+          )
+        end
+      end
+
+      it "allows a normal US compliance update through unchanged" do
+        put :update, params: { user: params.merge(country: "US") }
+        expect(session[:inertia_errors]).to be_blank
+      end
+
+      it "lets an unmigrated PR seller update non-country settings (the form echoes their existing country=PR)" do
+        pr_seller = create(:user, email: "pr-seller-#{SecureRandom.hex(4)}@example.com")
+        create(:user_compliance_info_empty, user: pr_seller, country: "Puerto Rico")
+        sign_in pr_seller
+
+        put :update, params: { user: params.merge(country: "PR", first_name: "Sofia") }
+
+        expect(session[:inertia_errors]).to be_blank
+      end
+
+      it "rejects a US seller attempting to change their business_country to PR while submitting a non-PR personal country" do
+        put :update, params: { user: params.merge(country: "US", business_country: "PR", is_business: true) }
+        expect_territory_rejection_error
+      end
+    end
+
     describe "tos" do
       describe "with terms notice displayed" do
         describe "with time" do
@@ -204,6 +264,34 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
     end
 
     describe "minimum payout threshold" do
+      def create_current_compliance_info_matching_form_params
+        create(
+          :user_compliance_info_empty,
+          user:,
+          first_name: params[:first_name],
+          last_name: params[:last_name],
+          street_address: params[:street_address],
+          city: params[:city],
+          state: params[:state],
+          zip_code: params[:zip_code],
+          country: "United States",
+          is_business: false,
+          individual_tax_id: params[:ssn_last_four],
+          birthday: Date.new(params[:dob_year].to_i, params[:dob_month].to_i, params[:dob_day].to_i),
+          phone: params[:phone],
+        )
+      end
+
+      def enqueue_identity_verification_email_if_compliance_info_is_submitted
+        allow(StripeMerchantAccountManager).to receive(:handle_new_user_compliance_info) do
+          ContactingCreatorMailer.stripe_identity_verification_failed(user.id, "Identity verification failed").deliver_later(queue: "critical")
+        end
+      end
+
+      def payment_form_params
+        params.merge(country: "US", business_country: "US")
+      end
+
       it "updates the payout threshold for valid amounts" do
         expect do
           put :update, params: { payout_threshold_cents: 20_000 }
@@ -221,6 +309,45 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
         expect(response).to have_http_status :found
         expect(session[:inertia_errors][:base]).to include("Your payout threshold must be greater than the minimum payout amount")
         expect(user.reload.payout_threshold_cents).to eq(Payouts::MIN_AMOUNT_CENTS)
+      end
+
+      it "does not resubmit unchanged compliance info when only the payout threshold changed" do
+        create_current_compliance_info_matching_form_params
+        enqueue_identity_verification_email_if_compliance_info_is_submitted
+        initial_compliance_info_id = user.alive_user_compliance_info.id
+        initial_compliance_info_count = UserComplianceInfo.count
+
+        expect do
+          put :update, params: { user: payment_form_params, payout_threshold_cents: 20_000 }
+        end.not_to have_enqueued_mail(ContactingCreatorMailer, :stripe_identity_verification_failed)
+
+        expect(StripeMerchantAccountManager).not_to have_received(:handle_new_user_compliance_info)
+        expect(UserComplianceInfo.count).to eq(initial_compliance_info_count)
+        expect(user.reload.alive_user_compliance_info.id).to eq(initial_compliance_info_id)
+        expect(user.payout_threshold_cents.to_i).to eq(20_000)
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :see_other
+      end
+
+      it "does not resubmit identical compliance info" do
+        create_current_compliance_info_matching_form_params
+        enqueue_identity_verification_email_if_compliance_info_is_submitted
+        initial_compliance_info_id = user.alive_user_compliance_info.id
+        initial_compliance_info_count = UserComplianceInfo.count
+
+        expect do
+          put :update, params: { user: payment_form_params }
+        end.not_to have_enqueued_mail(ContactingCreatorMailer, :stripe_identity_verification_failed)
+
+        expect(StripeMerchantAccountManager).not_to have_received(:handle_new_user_compliance_info)
+        expect(UserComplianceInfo.count).to eq(initial_compliance_info_count)
+        expect(user.reload.alive_user_compliance_info.id).to eq(initial_compliance_info_id)
+        expect(request_1.reload.state).to eq("provided")
+        expect(request_2.reload.state).to eq("requested")
+        expect(request_3.reload.state).to eq("provided")
+        expect(request_4.reload.state).to eq("requested")
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :see_other
       end
     end
 
@@ -418,6 +545,26 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
             expect(response).to redirect_to(settings_payments_path)
             expect(response).to have_http_status :found
             expect(session[:inertia_errors][:base]).to eq(["An unknown error occurred"])
+          end
+
+          it "handles MerchantRegistrationUserNotReadyError gracefully instead of raising a 500" do
+            all_params.merge!(
+              bank_account: {
+                type: AchAccount.name,
+                account_number: "000123456789",
+                account_number_confirmation: "000123456789",
+                routing_number: "110000000",
+                account_holder_full_name: "gumbot"
+              }
+            )
+
+            expect(StripeMerchantAccountManager).to receive(:create_account).and_raise(MerchantRegistrationUserNotReadyError.new(user.id, "is not supported yet"))
+
+            put :update, params: all_params
+
+            expect(response).to redirect_to(settings_payments_path)
+            expect(response).to have_http_status :found
+            expect(session[:inertia_errors][:base]).to eq(["Bank payouts are not supported in your country yet. Please use PayPal instead."])
           end
         end
       end
@@ -749,6 +896,192 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
       end
     end
 
+    describe "P.O. Box validation" do
+      before do
+        compliance_info = user.alive_user_compliance_info
+        compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.country = "Ghana"
+        end
+      end
+
+      it "rejects an individual Ghana address that uses a P.O. Box" do
+        expect do
+          put :update, params: { user: params.merge(street_address: "P.O. Box 123, High street") }
+        end.to_not change { user.reload.alive_user_compliance_info.street_address }
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "allows unrelated full-form updates when a legacy Ghana P.O. Box address is unchanged" do
+        user.alive_user_compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.street_address = "PO Box 99, Accra"
+        end
+
+        expect do
+          put :update, params: {
+            user: params.merge(
+              first_name: "newfirst",
+              last_name: "newlast",
+              is_business: false,
+              country: "GH",
+              street_address: "PO Box 99, Accra"
+            )
+          }
+        end.to change { user.reload.alive_user_compliance_info.first_name }.to("newfirst")
+
+        expect(user.reload.alive_user_compliance_info.last_name).to eq("newlast")
+        expect(user.alive_user_compliance_info.street_address).to eq("PO Box 99, Accra")
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :see_other
+        expect(flash[:notice]).to eq("Thanks! You're all set.")
+      end
+
+      it "allows unrelated full-form updates when a hidden legacy Ghana business P.O. Box is unchanged for an individual" do
+        user.alive_user_compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.business_street_address = "PO Box 77, Accra"
+        end
+
+        expect do
+          put :update, params: {
+            user: params.merge(
+              first_name: "newfirst",
+              last_name: "newlast",
+              is_business: false,
+              country: "GH",
+              business_street_address: "PO Box 77, Accra",
+              business_country: "GH"
+            )
+          }
+        end.to change { user.reload.alive_user_compliance_info.first_name }.to("newfirst")
+
+        expect(user.reload.alive_user_compliance_info.last_name).to eq("newlast")
+        expect(user.alive_user_compliance_info.business_street_address).to eq("PO Box 77, Accra")
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :see_other
+        expect(flash[:notice]).to eq("Thanks! You're all set.")
+      end
+
+      it "rejects a business Ghana address that uses a P.O. Box" do
+        expect do
+          put :update, params: {
+            user: params.merge(
+              is_business: "on",
+              business_country: "Ghana",
+              business_street_address: "PO Box 456",
+              business_city: "Accra",
+              business_state: "",
+              business_zip_code: "00233",
+              business_type: UserComplianceInfo::BusinessTypes::LLC,
+              business_tax_id: "123-123-123"
+            )
+          }
+        end.to_not change { user.reload.alive_user_compliance_info.business_street_address }
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "rejects a submitted beneficiary Ghana P.O. Box even when the business address is valid" do
+        expect do
+          put :update, params: {
+            user: params.merge(
+              is_business: "on",
+              street_address: "PO Box 789",
+              business_country: "Ghana",
+              business_street_address: "12 Independence Ave",
+              business_city: "Accra",
+              business_state: "",
+              business_zip_code: "00233",
+              business_type: UserComplianceInfo::BusinessTypes::LLC,
+              business_tax_id: "123-123-123"
+            )
+          }
+        end.to_not change { user.reload.alive_user_compliance_info.street_address }
+
+        expect(user.reload.alive_user_compliance_info.business_street_address).to be_nil
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "rejects a Ghana beneficiary P.O. Box when the submitted country would not be persisted" do
+        expect do
+          put :update, params: { user: { country: "FR", street_address: "PO Box 999" } }
+        end.to_not change { user.reload.alive_user_compliance_info.street_address }
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "rejects a Ghana beneficiary P.O. Box when the submitted country cannot be mapped" do
+        expect do
+          put :update, params: { user: { is_business: "on", country: "Ghana", street_address: "PO Box 999" } }
+        end.to_not change { user.reload.alive_user_compliance_info.street_address }
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "rejects a Ghana business beneficiary P.O. Box when is_business is omitted" do
+        user.alive_user_compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.is_business = true
+        end
+
+        expect do
+          put :update, params: { user: { country: "FR", street_address: "PO Box 5" } }
+        end.to_not change { user.reload.alive_user_compliance_info.street_address }
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "rejects toggling business mode on when a legacy Ghana beneficiary P.O. Box remains on file" do
+        user.alive_user_compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.street_address = "PO Box 11, Accra"
+        end
+
+        expect do
+          put :update, params: { user: { is_business: "on" } }
+        end.to_not change { user.reload.alive_user_compliance_info.is_business }
+
+        expect(user.reload.alive_user_compliance_info.street_address).to eq("PO Box 11, Accra")
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "rejects planting a Ghana business P.O. Box while business mode is off" do
+        expect do
+          put :update, params: { user: { is_business: false, business_street_address: "PO Box 1" } }
+        end.to_not change { user.reload.alive_user_compliance_info.business_street_address }
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+
+      it "rejects toggling business mode on when a dormant Ghana business P.O. Box remains on file" do
+        user.alive_user_compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.business_street_address = "PO Box 22, Accra"
+        end
+
+        expect do
+          put :update, params: { user: { is_business: "on" } }
+        end.to_not change { user.reload.alive_user_compliance_info.is_business }
+
+        expect(user.reload.alive_user_compliance_info.business_street_address).to eq("PO Box 22, Accra")
+        expect(response).to redirect_to(settings_payments_path)
+        expect(response).to have_http_status :found
+        expect(session[:inertia_errors][:base]).to include("We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+      end
+    end
+
     describe "ach account" do
       let(:user) { create(:user) }
       before do
@@ -848,6 +1181,23 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
         end
       end
 
+      describe "concurrent payout method change" do
+        let(:params) { { card: { token: "tok_123" } } }
+        let(:service) { instance_double(UpdatePayoutMethod, process: { error: :concurrent_payout_method_change }) }
+
+        before do
+          allow(UpdatePayoutMethod).to receive(:new).and_return(service)
+        end
+
+        it "shows a retry message" do
+          put :update, params: params
+
+          expect(response).to redirect_to(settings_payments_path)
+          expect(response).to have_http_status :found
+          expect(session[:inertia_errors][:base]).to include("Another change was submitted at the same time. Please try again.")
+        end
+      end
+
       describe "account number and repeated account number don't match" do
         let(:params) do
           {
@@ -880,6 +1230,26 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
           put(:update, params:)
           request.reload
           expect(request.state).to eq("requested")
+        end
+      end
+
+      describe "account_number_confirmation is nil" do
+        let(:params) do
+          {
+            bank_account: {
+              type: AchAccount.name,
+              account_number: "000123456789",
+              routing_number: "110000000",
+              account_holder_full_name: "gumbot"
+            }
+          }
+        end
+
+        it "returns a validation error instead of raising NoMethodError" do
+          put(:update, params:)
+          expect(response).to redirect_to(settings_payments_path)
+          expect(response).to have_http_status :found
+          expect(session[:inertia_errors][:base]).to include("The account numbers do not match.")
         end
       end
 
@@ -1358,6 +1728,30 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
           expect(user.currency_type).to eq(Currency::CAD)
         end
       end
+
+      describe "US outlying areas" do
+        it "rejects PR so the catch-22 in issue #394 cannot recur via direct POST (PR is a US state)" do
+          expect do
+            post :set_country, params: params.merge(country: "PR"), as: :json
+          end.not_to change { UserComplianceInfo.count }
+          expect(response).to be_forbidden
+        end
+
+        {
+          "GU" => "Guam",
+          "VI" => "Virgin Islands, U.S.",
+          "AS" => "American Samoa",
+          "MP" => "Northern Mariana Islands",
+          "UM" => "United States Minor Outlying Islands",
+        }.each do |code, name|
+          it "allows #{code} because it routes to PayPal payouts" do
+            post :set_country, params: params.merge(country: code), as: :json
+            expect(response).to be_successful
+            user.reload
+            expect(user.fetch_or_build_user_compliance_info.country).to eq(name)
+          end
+        end
+      end
     end
   end
 
@@ -1402,7 +1796,7 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
     end
 
     before do
-      seller.mark_compliant!(author_name: "Iffy")
+      seller.mark_compliant!(author_name: "ContentModeration")
       allow_any_instance_of(User).to receive(:sales_cents_total).and_return(100_00)
       create(:payment_completed, user: seller)
     end
@@ -1606,8 +2000,69 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
       expect(response).to redirect_to settings_payments_url
     end
 
-    it "does noting and redirects to payments settings page if there's no pending stripe information request" do
-      StripeMerchantAccountManager.create_account(user, passphrase: "1234")
+    it "does nothing and redirects to payments settings page if there's no pending stripe information request and Stripe agrees" do
+      merchant_account = StripeMerchantAccountManager.create_account(user, passphrase: "1234")
+      allow(Stripe::Account).to receive(:retrieve).with(merchant_account.charge_processor_merchant_id).and_return(
+        Stripe::Account.construct_from(
+          id: merchant_account.charge_processor_merchant_id,
+          object: "account",
+          requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => [] },
+          future_requirements: { "currently_due" => [], "past_due" => [] }
+        )
+      )
+
+      get :remediation
+
+      expect(response).to redirect_to settings_payments_url
+    end
+
+    it "opens a Stripe AccountLink when local has no pending requests but Stripe still has open requirements" do
+      merchant_account = StripeMerchantAccountManager.create_account(user, passphrase: "1234")
+      stripe_connect_account_id = merchant_account.charge_processor_merchant_id
+      allow(Stripe::Account).to receive(:retrieve).with(stripe_connect_account_id).and_return(
+        Stripe::Account.construct_from(
+          id: stripe_connect_account_id,
+          object: "account",
+          requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => ["individual.id_number"] },
+          future_requirements: { "currently_due" => [], "past_due" => [] }
+        )
+      )
+      expect(Stripe::AccountLink).to receive(:create).with({
+                                                             account: stripe_connect_account_id,
+                                                             refresh_url: remediation_settings_payments_url,
+                                                             return_url: verify_stripe_remediation_settings_payments_url,
+                                                             type: "account_update",
+                                                           }).and_call_original
+
+      get :remediation
+
+      expect(response.location).to match(Regexp.new("https://connect.stripe.com/setup/c/#{stripe_connect_account_id}/"))
+    end
+
+    it "opens a Stripe AccountLink when Stripe still has future_requirements.eventually_due (volume-threshold case)" do
+      merchant_account = StripeMerchantAccountManager.create_account(user, passphrase: "1234")
+      stripe_connect_account_id = merchant_account.charge_processor_merchant_id
+      allow(Stripe::Account).to receive(:retrieve).with(stripe_connect_account_id).and_return(
+        Stripe::Account.construct_from(
+          id: stripe_connect_account_id,
+          object: "account",
+          requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => [] },
+          future_requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => ["individual.id_number"] }
+        )
+      )
+      expect(Stripe::AccountLink).to receive(:create).and_call_original
+
+      get :remediation
+
+      expect(response.location).to match(Regexp.new("https://connect.stripe.com/setup/c/#{stripe_connect_account_id}/"))
+    end
+
+    it "falls back to the 'Thanks' redirect when Stripe::Account.retrieve raises and local has no pending requests" do
+      merchant_account = StripeMerchantAccountManager.create_account(user, passphrase: "1234")
+      allow(Stripe::Account).to receive(:retrieve).with(merchant_account.charge_processor_merchant_id).and_raise(
+        Stripe::APIConnectionError.new("Stripe is down")
+      )
+      expect(ErrorNotifier).to receive(:notify).with(instance_of(Stripe::APIConnectionError), context: { user_id: user.id })
 
       get :remediation
 
@@ -1625,12 +2080,92 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
                                                              account: stripe_connect_account_id,
                                                              refresh_url: remediation_settings_payments_url,
                                                              return_url: verify_stripe_remediation_settings_payments_url,
-                                                             type: "account_onboarding",
+                                                             type: "account_update",
                                                            }).and_call_original
 
       get :remediation
 
       expect(response.location).to match(Regexp.new("https://connect.stripe.com/setup/c/#{stripe_connect_account_id}/"))
+    end
+
+    context "when Stripe::AccountLink.create raises Stripe::InvalidRequestError" do
+      let!(:merchant_account) { create(:merchant_account, user:, charge_processor_merchant_id: "acct_rejected") }
+      let!(:compliance_request) { create(:user_compliance_info_request, user:, field_needed: UserComplianceInfoFields::Individual::TAX_ID) }
+
+      before do
+        allow(Stripe::AccountLink).to receive(:create).and_raise(
+          Stripe::InvalidRequestError.new("An account link cannot be created for this account because the account has been rejected.", nil)
+        )
+      end
+
+      def stub_stripe_account_retrieve(disabled_reason:)
+        allow(Stripe::Account).to receive(:retrieve).with("acct_rejected").and_return(
+          Stripe::Account.construct_from(
+            id: "acct_rejected",
+            object: "account",
+            requirements: { "disabled_reason" => disabled_reason, "currently_due" => [], "past_due" => [] }
+          )
+        )
+      end
+
+      it "redirects back to settings with an alert instead of raising" do
+        stub_stripe_account_retrieve(disabled_reason: "rejected.listed")
+        expect(ErrorNotifier).to receive(:notify).with(instance_of(Stripe::InvalidRequestError), context: { user_id: user.id })
+
+        get :remediation
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(flash[:alert]).to eq("We couldn't open the verification page. Please contact support.")
+      end
+
+      it "records the disabled_reason returned by Stripe so the rejection alert renders on the next page load" do
+        stub_stripe_account_retrieve(disabled_reason: "rejected.listed")
+
+        get :remediation
+
+        expect(merchant_account.reload.stripe_disabled_reason).to eq("rejected.listed")
+      end
+
+      it "records the disabled_reason even when the Stripe error message does not contain 'has been rejected'" do
+        allow(Stripe::AccountLink).to receive(:create).and_raise(
+          Stripe::InvalidRequestError.new("This account cannot be onboarded.", nil)
+        )
+        stub_stripe_account_retrieve(disabled_reason: "rejected.fraud")
+
+        get :remediation
+
+        expect(merchant_account.reload.stripe_disabled_reason).to eq("rejected.fraud")
+      end
+
+      it "does not overwrite an existing stripe_disabled_reason" do
+        merchant_account.update!(stripe_disabled_reason: "rejected.listed")
+        expect(Stripe::Account).not_to receive(:retrieve)
+
+        get :remediation
+
+        expect(merchant_account.reload.stripe_disabled_reason).to eq("rejected.listed")
+      end
+
+      it "does not write a disabled_reason when Stripe returns none" do
+        stub_stripe_account_retrieve(disabled_reason: nil)
+
+        get :remediation
+
+        expect(merchant_account.reload.stripe_disabled_reason).to be_nil
+      end
+
+      it "still redirects when Stripe::Account.retrieve itself raises" do
+        allow(Stripe::Account).to receive(:retrieve).with("acct_rejected").and_raise(
+          Stripe::APIConnectionError.new("Stripe is down")
+        )
+        expect(ErrorNotifier).to receive(:notify).with(instance_of(Stripe::InvalidRequestError), context: { user_id: user.id })
+
+        get :remediation
+
+        expect(response).to redirect_to(settings_payments_path)
+        expect(flash[:alert]).to eq("We couldn't open the verification page. Please contact support.")
+        expect(merchant_account.reload.stripe_disabled_reason).to be_nil
+      end
     end
   end
 
@@ -1650,6 +2185,40 @@ describe Settings::PaymentsController, :vcr, type: :controller, inertia: true do
 
       expect(response).to redirect_to settings_payments_url
       expect(flash[:notice]).to eq("Thanks! You're all set.")
+    end
+
+    it "does not show the 'Thanks' notice when Stripe still lists eventually_due requirements" do
+      pending_request = create(:user_compliance_info_request, user:, field_needed: UserComplianceInfoFields::Individual::TAX_ID)
+      allow(Stripe::Account).to receive(:retrieve).with(stripe_connect_account_id).and_return(
+        Stripe::Account.construct_from(
+          id: stripe_connect_account_id,
+          object: "account",
+          requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => ["individual.id_number"] },
+          future_requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => [] }
+        )
+      )
+
+      get :verify_stripe_remediation
+
+      expect(response).to redirect_to settings_payments_url
+      expect(flash[:notice]).to be_nil
+      expect(pending_request.reload).to be_provided
+    end
+
+    it "does not show the 'Thanks' notice when Stripe still lists future_requirements.eventually_due" do
+      allow(Stripe::Account).to receive(:retrieve).with(stripe_connect_account_id).and_return(
+        Stripe::Account.construct_from(
+          id: stripe_connect_account_id,
+          object: "account",
+          requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => [] },
+          future_requirements: { "currently_due" => [], "past_due" => [], "eventually_due" => ["individual.id_number"] }
+        )
+      )
+
+      get :verify_stripe_remediation
+
+      expect(response).to redirect_to settings_payments_url
+      expect(flash[:notice]).to be_nil
     end
   end
 end

@@ -7,6 +7,8 @@ describe "Admin::PurchasesController Scenario", type: :system, js: true do
   let(:purchase) { create(:purchase, purchaser: create(:user), is_deleted_by_buyer: true) }
 
   before do
+    allow(Radar::ChargeRiskLevelService).to receive(:fetch).and_return(nil)
+    allow(Radar::ChargeRiskLevelService).to receive(:fetch_bulk).and_return({})
     login_as(admin)
   end
 
@@ -28,8 +30,7 @@ describe "Admin::PurchasesController Scenario", type: :system, js: true do
       expect(purchase.reload.is_deleted_by_buyer).to be(true)
 
       visit admin_purchase_path(purchase.id)
-      click_on "Undelete"
-      accept_browser_dialog
+      accept_confirm { click_on "Undelete" }
       wait_for_ajax
 
       expect(purchase.reload.is_deleted_by_buyer).to be(false)
@@ -46,8 +47,7 @@ describe "Admin::PurchasesController Scenario", type: :system, js: true do
 
     def resend_receipt(email: nil)
       fill_in "resend_receipt[email_address]", with: email
-      click_on "Send"
-      accept_browser_dialog
+      accept_confirm { click_on "Send" }
       wait_for_ajax
     end
 

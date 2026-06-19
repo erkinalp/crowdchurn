@@ -24,6 +24,21 @@ describe Installment do
     end
   end
 
+  describe "#as_json_for_api" do
+    it "only returns scheduled_at while the post is scheduled with an alive rule" do
+      installment = create(:scheduled_installment, seller: @creator, link: nil, installment_type: Installment::AUDIENCE_TYPE)
+
+      expect(installment.as_json(api_scopes: ["edit_emails"])[:scheduled_at]).to eq(installment.installment_rule.to_be_published_at)
+
+      installment.update!(published_at: Time.current)
+      installment.installment_rule.mark_deleted!
+
+      serialized_installment = installment.reload.as_json(api_scopes: ["edit_emails"])
+      expect(serialized_installment[:state]).to eq("published")
+      expect(serialized_installment[:scheduled_at]).to be_nil
+    end
+  end
+
   describe "#is_downloadable?" do
     it "returns false if post has no files" do
       expect(@installment.is_downloadable?).to eq(false)
@@ -231,7 +246,7 @@ const b = 2;</code></pre>
 <div class="item">
   <div class="product-checkout-cell">
     <div class="figure">
-        <img alt="The Works of Edgar Gumstein" src="/assets/native_types/thumbnails/digital-d4b2a661e31ec353551a8dae9996b1e75b1e629e363d683aaa5fd2fb1213311c.png">
+        <img alt="The Works of Edgar Gumstein" src="/images/native_types/thumbnails/digital.png">
     </div>
     <div class="section">
       <div class="content">
@@ -779,6 +794,100 @@ const b = 2;</code></pre>
         expect(@installment.errors.full_messages.to_sentence).to eq("You have to confirm your email address before you can do that.")
       end
     end
+
+    context "content moderation" do
+      it "blocks publishing when ContentModeration::ModerateRecordService.check fails" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).with(@installment, :post).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["policy violation"])
+        )
+
+        expect { @installment.publish! }.to raise_error(ActiveRecord::RecordInvalid)
+        expect(@installment.reload.published_at).to be(nil)
+        expect(@installment.errors.full_messages.to_sentence).to include("looks like it contains something that may violate our content guidelines")
+      end
+
+      it "skips the content moderation check for VIP creators" do
+        allow_any_instance_of(User).to receive(:vip_creator?).and_return(true)
+        expect(ContentModeration::ModerateRecordService).not_to receive(:check)
+
+        @installment.publish!
+
+        expect(@installment.reload.published_at).to be_within(2.seconds).of(Time.current)
+      end
+
+      it "publishes successfully when the content moderation check passes" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).with(@installment, :post).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: true, reasons: [])
+        )
+
+        @installment.publish!
+
+        expect(@installment.reload.published_at).to be_within(2.seconds).of(Time.current)
+      end
+
+      it "clears the publishing flag after publish! completes" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: true, reasons: [])
+        )
+
+        @installment.publish!
+
+        expect(@installment.publishing?).to eq(false)
+      end
+
+      it "clears the publishing flag even when publish! raises" do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["bad"])
+        )
+
+        expect { @installment.publish! }.to raise_error(ActiveRecord::RecordInvalid)
+        expect(@installment.publishing?).to eq(false)
+      end
+
+      context "when editing an already-published post" do
+        before do
+          allow(ContentModeration::ModerateRecordService).to receive(:check).with(@installment, :post).and_return(
+            ContentModeration::ModerateRecordService::CheckResult.new(passed: true, reasons: [])
+          )
+          @installment.publish!
+        end
+
+        it "re-checks moderation when the name changes" do
+          expect(ContentModeration::ModerateRecordService).to receive(:check).with(@installment, :post).and_return(
+            ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["blocked term in name"])
+          )
+
+          @installment.name = "New bad name"
+          expect(@installment.save).to eq(false)
+          expect(@installment.errors.full_messages.to_sentence).to include("looks like it contains something that may violate our content guidelines")
+        end
+
+        it "re-checks moderation when the message changes" do
+          expect(ContentModeration::ModerateRecordService).to receive(:check).with(@installment, :post).and_return(
+            ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["blocked term in message"])
+          )
+
+          @installment.message = "<p>New bad body</p>"
+          expect(@installment.save).to eq(false)
+          expect(@installment.errors.full_messages.to_sentence).to include("looks like it contains something that may violate our content guidelines")
+        end
+
+        it "does not re-check moderation when unrelated attributes change" do
+          expect(ContentModeration::ModerateRecordService).not_to receive(:check)
+
+          @installment.shown_on_profile = !@installment.shown_on_profile
+          @installment.save!
+        end
+      end
+
+      context "when editing a draft post" do
+        it "does not run moderation on name/message edits" do
+          expect(ContentModeration::ModerateRecordService).not_to receive(:check)
+
+          @installment.update!(name: "Still a draft", message: "<p>Still drafting</p>")
+        end
+      end
+    end
   end
 
   describe "#is_affiliate_product_post?" do
@@ -868,6 +977,23 @@ const b = 2;</code></pre>
       create_list(:purchase, 2, :from_seller, seller: @post.seller)
       expect(@post.audience_members_count).to eq(2)
       expect(@post.audience_members_count(1)).to eq(1) # supports a limit, for extra performance
+    end
+
+    context "when the audience_count_from_elasticsearch feature is active", :sidekiq_inline, :elasticsearch_wait_for_refresh do
+      before do
+        recreate_model_index(AudienceMember)
+        Feature.activate_user(:audience_count_from_elasticsearch, @post.seller)
+      end
+
+      it "counts audience members through Elasticsearch" do
+        expect(AudienceMember).to receive(:filter_count).exactly(3).times.and_call_original
+
+        expect(@post.audience_members_count).to eq(0)
+        create(:audience_member, seller: @post.seller, purchases: [{ "id" => 1 }])
+        create(:audience_member, seller: @post.seller, purchases: [{ "id" => 2 }])
+        expect(@post.audience_members_count).to eq(2)
+        expect(@post.audience_members_count(1)).to eq(1)
+      end
     end
   end
 
@@ -985,28 +1111,6 @@ const b = 2;</code></pre>
                                                                                                                                       product_post, # Published 3 days ago
                                                                                                                                       seller_post, # Published 6 days ago
                                                                                                                                     ])
-    end
-  end
-
-  describe "#trigger_iffy_ingest" do
-    let!(:installment) { create(:installment, name: "Original Name", message: "Original Message") }
-
-    it "does not trigger an iffy ingest job if neither name nor message have changed" do
-      expect do
-        installment.update!(published_at: Time.current)
-      end.not_to change { Iffy::Post::IngestJob.jobs.size }
-    end
-
-    it "triggers an iffy ingest job if the name has changed" do
-      expect do
-        installment.update!(name: "New Name")
-      end.to change { Iffy::Post::IngestJob.jobs.size }.by(1)
-    end
-
-    it "triggers an iffy ingest job if the message has changed" do
-      expect do
-        installment.update!(message: "New Message")
-      end.to change { Iffy::Post::IngestJob.jobs.size }.by(1)
     end
   end
 
@@ -1387,6 +1491,77 @@ const b = 2;</code></pre>
 
       it "returns true" do
         expect(installment.delivery_due?(purchase)).to be true
+      end
+    end
+  end
+
+  describe "non-opener queries" do
+    let(:seller) { create(:user) }
+    let(:product) { create(:product, user: seller) }
+    let(:post) { create(:product_post, :published, seller:, link: product) }
+    let(:opened_purchase) { create(:purchase, link: product, seller:) }
+    let(:delivered_purchase) { create(:purchase, link: product, seller:) }
+    let(:sent_purchase) { create(:purchase, link: product, seller:) }
+
+    before do
+      create(:creator_contacting_customers_email_info_opened, installment: post, purchase: opened_purchase)
+      create(:creator_contacting_customers_email_info_delivered, installment: post, purchase: delivered_purchase)
+      create(:creator_contacting_customers_email_info_sent, installment: post, purchase: sent_purchase)
+    end
+
+    describe "#emailed_recipient_purchase_ids" do
+      it "returns all purchase ids the post was emailed to" do
+        expect(post.emailed_recipient_purchase_ids).to match_array([opened_purchase.id, delivered_purchase.id, sent_purchase.id])
+      end
+    end
+
+    describe "#opened_recipient_purchase_ids" do
+      it "returns only purchase ids that opened the email" do
+        expect(post.opened_recipient_purchase_ids).to eq([opened_purchase.id])
+      end
+    end
+
+    describe "#unopened_recipient_purchase_ids" do
+      it "returns emailed recipients who have not opened the email" do
+        expect(post.unopened_recipient_purchase_ids).to match_array([delivered_purchase.id, sent_purchase.id])
+      end
+
+      it "returns an empty array for follower posts which have no per-recipient open linkage" do
+        follower_post = create(:follower_post, :published, seller:)
+        expect(follower_post.unopened_recipient_purchase_ids).to eq([])
+      end
+    end
+
+    describe "#unopened_recipients_count" do
+      it "counts emailed recipients who have not opened the email" do
+        expect(post.unopened_recipients_count).to eq(2)
+      end
+
+      it "still counts a buyer whose audience row's max(purchase_id) is a newer purchase than the one emailed" do
+        # Same email/buyer, second purchase later than the one we emailed.
+        newer = create(:purchase, link: product, seller:, email: delivered_purchase.email)
+        expect(newer.id).to be > delivered_purchase.id
+        # delivered_purchase has email_info state=delivered (unopened). The buyer should still count.
+        expect(post.unopened_recipients_count).to eq(2)
+      end
+    end
+
+    describe "#resendable_to_non_openers?" do
+      it "is true for a published customer post that emails" do
+        expect(post.resendable_to_non_openers?).to be(true)
+      end
+
+      it "is false for an unpublished post" do
+        expect(create(:product_post, seller:, link: product).resendable_to_non_openers?).to be(false)
+      end
+
+      it "is false for a follower post" do
+        expect(create(:follower_post, :published, seller:).resendable_to_non_openers?).to be(false)
+      end
+
+      it "is false when the post does not email" do
+        profile_only_post = create(:product_post, :published, seller:, link: product, send_emails: false, shown_on_profile: true)
+        expect(profile_only_post.resendable_to_non_openers?).to be(false)
       end
     end
   end

@@ -39,7 +39,8 @@ module Purchase::Blockable
                          PurchaseErrorCode::TEMPORARILY_BLOCKED_PRODUCT,
                          PurchaseErrorCode::BLOCKED_CHARGE_PROCESSOR_FINGERPRINT,
                          PurchaseErrorCode::BLOCKED_CUSTOMER_EMAIL_ADDRESS,
-                         PurchaseErrorCode::BLOCKED_CUSTOMER_CHARGE_PROCESSOR_FINGERPRINT]
+                         PurchaseErrorCode::BLOCKED_CUSTOMER_CHARGE_PROCESSOR_FINGERPRINT,
+                         PurchaseErrorCode::EXCEEDING_OFFER_CODE_QUANTITY]
   private_constant :IGNORED_ERROR_CODES
 
   MAX_BUYER_CHARGEBACKS_BEFORE_BLOCK = 5
@@ -64,7 +65,7 @@ module Purchase::Blockable
     block_by_paypal_email!(by_user_id: blocking_user_id)
     block_by_gifter_email!(by_user_id: blocking_user_id)
     block_by_purchaser_email!(by_user_id: blocking_user_id)
-    block_by_ip_address!(by_user_id: blocking_user_id, expires_in: BlockedObject::IP_ADDRESS_BLOCKING_DURATION_IN_MONTHS.months)
+    block_by_ip_address!(by_user_id: blocking_user_id, expires_in: PlatformBlock::IP_ADDRESS_BLOCKING_DURATION_IN_MONTHS.months)
     block_by_charge_processor_fingerprint!(by_user_id: blocking_user_id)
     block_by_recent_stripe_fingerprint!(by_user_id: blocking_user_id)
 
@@ -130,7 +131,7 @@ module Purchase::Blockable
     seller.comments.create(
       content: "Payouts automatically paused due to chargeback rate (#{chargeback_volume_percentage}) exceeding #{User::MAX_CHARGEBACK_RATE_ALLOWED_FOR_PAYOUTS}% volume.",
       comment_type: Comment::COMMENT_TYPE_ON_PROBATION,
-      author_name: "pause_payouts_for_seller_based_on_chargeback_rate"
+      author_name: User::SYSTEM_PAYOUT_PAUSE_COMMENT_AUTHORS[:high_chargeback_rate]
     )
   end
 
@@ -163,7 +164,7 @@ module Purchase::Blockable
       )
       return if unique_failed_fingerprints.count < MAX_NUMBER_OF_FAILED_FINGERPRINTS
 
-      BlockedObject.block!(BLOCKED_OBJECT_TYPES[:browser_guid], browser_guid, nil)
+      PlatformBlock.add!(object_type: PlatformBlock::TYPES[:browser_guid], object_value: browser_guid)
     end
 
     def ban_buyer_on_fraud_related_error_code!
@@ -180,9 +181,10 @@ module Purchase::Blockable
       return unless failure_code == PurchaseErrorCode::CARD_DECLINED_FRAUDULENT
       return unless purchaser.present?
       return if purchaser.created_at < MAX_PURCHASER_AGE_FOR_SUSPENSION.ago
+      return if purchaser.suspended?
 
-      purchaser.flag_for_fraud!(author_name: "fraudulent_purchases_blocker")
-      purchaser.suspend_for_fraud!(author_name: "fraudulent_purchases_blocker")
+      purchaser.flag_for_fraud!(author_name: "fraudulent_purchases_blocker") if purchaser.can_flag_for_fraud?
+      purchaser.suspend_for_fraud!(author_name: "fraudulent_purchases_blocker") if purchaser.can_suspend_for_fraud?
     end
 
     def ban_card_testers!
@@ -234,13 +236,13 @@ module Purchase::Blockable
         seller.comments.create(
           content: "Payouts paused due to high volume of failed purchases (#{failed_price_amount} USD in #{failed_seller_purchases_watch_minutes} minutes).",
           comment_type: Comment::COMMENT_TYPE_ON_PROBATION,
-          author_name: "pause_payouts_for_seller_based_on_recent_failures"
+          author_name: User::SYSTEM_PAYOUT_PAUSE_COMMENT_AUTHORS[:recent_failed_purchases]
         )
       end
     end
 
     def block_ip_address_based_on_recent_failures!
-      return if BlockedObject.ip_address.find_active_object(ip_address).present?
+      return if PlatformBlock.ip_address.active.find_by(object_value: ip_address).present?
 
       unique_failed_fingerprints = Purchase.failed.stripe.with_stripe_fingerprint
                                            .select("distinct stripe_fingerprint")
@@ -249,11 +251,10 @@ module Purchase::Blockable
 
       return if unique_failed_fingerprints.count < MAX_NUMBER_OF_FAILED_FINGERPRINTS
 
-      BlockedObject.block!(
-        BLOCKED_OBJECT_TYPES[:ip_address],
-        ip_address,
-        nil,
-        expires_in: CARD_TESTING_IP_ADDRESS_BLOCK_DURATION
+      PlatformBlock.add!(
+        object_type: PlatformBlock::TYPES[:ip_address],
+        object_value: ip_address,
+        expires_in: CARD_TESTING_IP_ADDRESS_BLOCK_DURATION,
       )
     end
 
@@ -292,11 +293,10 @@ module Purchase::Blockable
       return if failed_purchase_attempts_count < max_number_of_failed_purchases \
              && recent_purchases_failed_in_a_row < max_number_of_failed_purchases_in_a_row
 
-      BlockedObject.block!(
-        BLOCKED_OBJECT_TYPES[:product],
-        link_id,
-        nil,
-        expires_in: card_testing_product_block_hours.hours
+      PlatformBlock.add!(
+        object_type: PlatformBlock::TYPES[:product],
+        object_value: link_id,
+        expires_in: card_testing_product_block_hours.hours,
       )
     end
 
@@ -324,11 +324,10 @@ module Purchase::Blockable
 
       return if recent_free_purchases_of_same_product <= max_allowed_free_purchases_of_same_product
 
-      BlockedObject.block!(
-        BLOCKED_OBJECT_TYPES[:ip_address],
-        ip_address,
-        nil,
-        expires_in: fraudulent_free_purchases_block_hours.hours
+      PlatformBlock.add!(
+        object_type: PlatformBlock::TYPES[:ip_address],
+        object_value: ip_address,
+        expires_in: fraudulent_free_purchases_block_hours.hours,
       )
     end
 

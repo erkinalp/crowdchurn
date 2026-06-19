@@ -51,6 +51,14 @@ describe ProductPresenter::ProductProps do
               **ProductPresenter::InstallmentPlanProps.new(product:).props,
               covers: [product.asset_previews.first.as_json],
               currency_code: Currency::USD,
+              buyer_currency_display: {
+                product_id: product.external_id,
+                buyer_currency_shown: "usd",
+                product_currency: "usd",
+                buyer_local_price_cents: nil,
+                rate: nil,
+                display_mode: "default"
+              },
               custom_view_content_button_text: nil,
               custom_button_text_option: nil,
               description_html: "This is a collection of works spanning 1984 — 1994, while I spent time in a shack in the Andes.",
@@ -72,7 +80,7 @@ describe ProductPresenter::ProductProps do
                 percentages: [0, 0, 0, 0, 100],
               },
               seller: {
-                avatar_url: ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"),
+                avatar_url: ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"),
                 id: seller.external_id,
                 name: "Testy",
                 profile_url: seller.profile_url(recommended_by: "discover"),
@@ -284,6 +292,14 @@ describe ProductPresenter::ProductProps do
               **ProductPresenter::InstallmentPlanProps.new(product:).props,
               covers: [],
               currency_code: Currency::USD,
+              buyer_currency_display: {
+                product_id: product.external_id,
+                buyer_currency_shown: "usd",
+                product_currency: "usd",
+                buyer_local_price_cents: nil,
+                rate: nil,
+                display_mode: "default"
+              },
               custom_view_content_button_text: nil,
               custom_button_text_option: nil,
               description_html: "This is a collection of works spanning 1984 — 1994, while I spent time in a shack in the Andes.",
@@ -305,7 +321,7 @@ describe ProductPresenter::ProductProps do
                 percentages: [0, 0, 0, 0, 100],
               },
               seller: {
-                avatar_url: ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"),
+                avatar_url: ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"),
                 id: seller.external_id,
                 name: "Testy",
                 profile_url: seller.profile_url(recommended_by: "profile"),
@@ -492,6 +508,42 @@ describe ProductPresenter::ProductProps do
           ]
         )
       end
+
+      it "does not issue per-row queries for bundle product card associations" do
+        3.times do |i|
+          extra = create(:product, user: seller)
+          create(:bundle_product, bundle:, product: extra, position: i + 2)
+        end
+        bundle.reload
+        bundle_product_link_ids = bundle.bundle_products.alive.map { _1.product.id }
+
+        described_class.new(product: bundle).props(seller_custom_domain_url: nil, request:, pundit_user: nil)
+
+        queries = []
+        subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+          next if payload[:name] == "SCHEMA"
+          next if payload[:cached]
+          sql = payload[:sql]
+          next unless sql&.start_with?("SELECT")
+          queries << sql
+        end
+
+        begin
+          described_class.new(product: bundle).props(seller_custom_domain_url: nil, request:, pundit_user: nil)
+        ensure
+          ActiveSupport::Notifications.unsubscribe(subscriber)
+        end
+
+        bundle_product_link_ids.each do |link_id|
+          [
+            [/FROM `prices`.*WHERE `prices`\.`link_id` = #{link_id}\b/, "prices"],
+            [/FROM `product_review_stats`.*WHERE `product_review_stats`\.`product_id` = #{link_id}\b/, "product_review_stats"],
+          ].each do |pattern, label|
+            hits = queries.grep(pattern)
+            expect(hits).to be_empty, "Expected no per-row #{label} queries for bundle product link_id=#{link_id}, got #{hits.size}:\n#{hits.join("\n")}"
+          end
+        end
+      end
     end
 
     describe "collaborators" do
@@ -505,7 +557,7 @@ describe ProductPresenter::ProductProps do
           it "includes the collaborating user" do
             expect(presenter.props(seller_custom_domain_url: nil, request:, pundit_user:)[:product][:collaborating_user]).to eq(
               {
-                avatar_url: ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"),
+                avatar_url: ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"),
                 id: collaborator.affiliate_user.external_id,
                 name: collaborator.affiliate_user.username,
                 profile_url: collaborator.affiliate_user.profile_url,
@@ -531,7 +583,7 @@ describe ProductPresenter::ProductProps do
           it "includes the collaborating user" do
             expect(presenter.props(seller_custom_domain_url: nil, request:, pundit_user:)[:product][:collaborating_user]).to eq(
               {
-                avatar_url: ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"),
+                avatar_url: ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"),
                 id: collaborator.affiliate_user.external_id,
                 name: collaborator.affiliate_user.username,
                 profile_url: collaborator.affiliate_user.profile_url,

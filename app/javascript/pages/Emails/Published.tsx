@@ -1,7 +1,7 @@
 import { InfoCircle } from "@boxicons/react";
 import { router, usePage } from "@inertiajs/react";
 import React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { Pagination, PublishedInstallment } from "$app/data/installments";
 import { assertDefined } from "$app/utils/assert";
@@ -27,7 +27,7 @@ type PageProps = {
 };
 
 export default function EmailsPublished() {
-  const { installments, pagination, has_posts } = cast<PageProps>(usePage().props);
+  const { installments, pagination, has_posts } = typia.assert<PageProps>(usePage().props);
 
   const currentSeller = assertDefined(useCurrentSeller(), "currentSeller is required");
   const [selectedInstallmentId, setSelectedInstallmentId] = React.useState<string | null>(null);
@@ -175,6 +175,23 @@ export default function EmailsPublished() {
                       placeholder: "n/a",
                     })}
                   </CardContent>
+                  {selectedInstallment.non_opener_resends.length > 0 ? (
+                    <CardContent>
+                      <h5 className="font-bold">Resends to non-openers</h5>
+                      <ul className="mt-1 grid gap-1">
+                        {selectedInstallment.non_opener_resends.map((resend, i) => (
+                          <li key={i} className="text-sm">
+                            {new Date(resend.requested_at).toLocaleString(userAgentInfo.locale, {
+                              timeZone: currentSeller.timeZone.name,
+                            })}
+                            {resend.completed
+                              ? ` — ${formatStatNumber({ value: resend.delivery_count })} emailed`
+                              : " — in progress"}
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  ) : null}
                 </Card>
                 <EmailSheetActions
                   installment={selectedInstallment}

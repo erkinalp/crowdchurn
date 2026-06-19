@@ -5,6 +5,8 @@ class Checkout::DiscountsController < Sellers::BaseController
 
   PER_PAGE = 10
 
+  rescue_from ActiveModel::RangeError, with: :handle_range_error
+
   before_action :clean_params, only: [:create, :update]
 
   layout "inertia", only: [:index]
@@ -53,7 +55,11 @@ class Checkout::DiscountsController < Sellers::BaseController
     authorize [:checkout, OfferCode]
 
     parse_date_times
-    offer_code = current_seller.offer_codes.build(products: current_seller.products.by_external_ids(offer_code_params[:selected_product_ids]), **offer_code_params.except(:selected_product_ids))
+    offer_code = current_seller.offer_codes.build(
+      products: current_seller.products.by_external_ids(offer_code_params[:selected_product_ids]),
+      ownership_products: current_seller.products.by_external_ids(offer_code_params[:ownership_product_ids]),
+      **offer_code_params.except(:selected_product_ids, :ownership_product_ids)
+    )
 
     if offer_code.save
       pagination, offer_codes = fetch_offer_codes
@@ -69,7 +75,16 @@ class Checkout::DiscountsController < Sellers::BaseController
     authorize [:checkout, offer_code]
 
     parse_date_times
-    if offer_code.update(**offer_code_params.except(:selected_product_ids, :code), products: current_seller.products.by_external_ids(offer_code_params[:selected_product_ids]))
+    update_params = offer_code_params.except(:selected_product_ids, :ownership_product_ids, :code, :ownership_duration_tiers).to_h
+    if params.key?(:ownership_duration_tiers)
+      update_params[:ownership_duration_tiers] = params[:ownership_duration_tiers].nil? ? nil : offer_code_params[:ownership_duration_tiers]
+    end
+
+    if offer_code.update(
+      **update_params,
+      products: current_seller.products.by_external_ids(offer_code_params[:selected_product_ids]),
+      ownership_products: current_seller.products.by_external_ids(offer_code_params[:ownership_product_ids])
+    )
       pagination, offer_codes = fetch_offer_codes
       presenter = Checkout::DiscountsPresenter.new(pundit_user:)
       render json: { success: true, offer_codes: offer_codes.map { presenter.offer_code_props(_1) }, pagination: }
@@ -91,7 +106,13 @@ class Checkout::DiscountsController < Sellers::BaseController
 
   private
     def offer_code_params
-      params.permit(:name, :code, :universal, :max_purchase_count, :amount_cents, :amount_percentage, :currency_type, :valid_at, :expires_at, :minimum_quantity, :duration_in_billing_cycles, :minimum_amount_cents, selected_product_ids: [])
+      params.permit(
+        :name, :code, :universal, :max_purchase_count, :amount_cents, :amount_percentage,
+        :currency_type, :valid_at, :expires_at, :minimum_quantity, :duration_in_billing_cycles,
+        :minimum_amount_cents, :existing_customers_only,
+        selected_product_ids: [], ownership_product_ids: [],
+        ownership_duration_tiers: [[:months, :amount_percentage]]
+      )
     end
 
     def paged_params
@@ -113,6 +134,10 @@ class Checkout::DiscountsController < Sellers::BaseController
       offer_code_params[:expires_at] = Time.zone.parse(offer_code_params[:expires_at]) if offer_code_params[:expires_at].present?
     end
 
+    def handle_range_error
+      render json: { success: false, error_message: "The value entered is too large. Please enter a smaller number." }, status: :unprocessable_entity
+    end
+
     def fetch_offer_codes
       # Map user-facing query params to internal params
       params[:sort] = { key: params[:column], direction: params[:sort] } if params[:column].present? && params[:sort].present?
@@ -120,7 +145,7 @@ class Checkout::DiscountsController < Sellers::BaseController
       offer_codes = current_seller.offer_codes
                       .alive
                       .where.not(code: nil)
-                      .includes(:products)
+                      .includes(:products, :ownership_products)
                       .sorted_by(**paged_params[:sort].to_h.symbolize_keys).order(updated_at: :desc)
       offer_codes = offer_codes.where("name LIKE :query OR code LIKE :query", query: "%#{params[:query]}%") if params[:query].present?
       offer_codes_count = offer_codes.count.is_a?(Hash) ? offer_codes.count.length : offer_codes.count
@@ -134,7 +159,11 @@ class Checkout::DiscountsController < Sellers::BaseController
         page_num = total_pages
       end
 
-      pagination, offer_codes = pagy(offer_codes, page: page_num, limit: PER_PAGE)
+      begin
+        pagination, offer_codes = pagy(offer_codes, page: page_num, limit: PER_PAGE)
+      rescue Pagy::OverflowError => e
+        pagination, offer_codes = pagy(offer_codes, page: e.pagy.last, limit: PER_PAGE)
+      end
 
       [PagyPresenter.new(pagination).props, offer_codes]
     end

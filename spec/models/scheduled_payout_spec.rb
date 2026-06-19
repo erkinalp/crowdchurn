@@ -3,6 +3,15 @@
 require "spec_helper"
 
 describe ScheduledPayout do
+  describe "factory defaults" do
+    it "sets processor only for payout actions" do
+      payout = build(:scheduled_payout, action: "payout")
+      expect(payout.processor).to eq(payout.user.current_payout_processor)
+      expect(build(:scheduled_payout, action: "refund").processor).to be_nil
+      expect(build(:scheduled_payout, action: "hold").processor).to be_nil
+    end
+  end
+
   describe "validations" do
     it "is valid with valid attributes" do
       scheduled_payout = build(:scheduled_payout)
@@ -62,6 +71,37 @@ describe ScheduledPayout do
       scheduled_payout = build(:scheduled_payout, payout_amount_cents: 0)
       expect(scheduled_payout).to be_valid
     end
+
+    describe "no_in_progress_scheduled_payout_for_user" do
+      let(:user) { create(:user) }
+
+      %w[pending flagged held].each do |status|
+        it "is invalid when the user already has a #{status} scheduled payout" do
+          create(:scheduled_payout, user: user, status: status)
+          scheduled_payout = build(:scheduled_payout, user: user)
+
+          expect(scheduled_payout).not_to be_valid
+          expect(scheduled_payout.errors[:base]).to include("User already has a scheduled payout in progress")
+        end
+      end
+
+      %w[executed cancelled].each do |status|
+        it "is valid when the user's only existing scheduled payout is #{status}" do
+          create(:scheduled_payout, user: user, status: status)
+          scheduled_payout = build(:scheduled_payout, user: user)
+
+          expect(scheduled_payout).to be_valid
+        end
+      end
+
+      it "does not affect other users" do
+        other_user = create(:user)
+        create(:scheduled_payout, user: other_user, status: "pending")
+        scheduled_payout = build(:scheduled_payout, user: user)
+
+        expect(scheduled_payout).to be_valid
+      end
+    end
   end
 
   describe "#set_scheduled_at" do
@@ -110,6 +150,10 @@ describe ScheduledPayout do
     it "returns held payouts" do
       expect(described_class.held).to contain_exactly(held_payout)
     end
+
+    it "returns in_progress payouts" do
+      expect(described_class.in_progress).to contain_exactly(pending_payout, future_payout, flagged_payout, held_payout)
+    end
   end
 
   describe "#execute!" do
@@ -136,12 +180,19 @@ describe ScheduledPayout do
     context "when action is payout" do
       let(:scheduled_payout) { create(:scheduled_payout, user: user, action: "payout", scheduled_at: 1.day.ago) }
 
-      it "calls PayoutUsersService to create payout and marks as executed" do
-        payment = instance_double(Payment, failed?: false)
-        service = instance_double(PayoutUsersService, process: [payment])
-        expect(PayoutUsersService).to receive(:new)
-          .with(date_string: Date.yesterday.to_s, processor_type: user.current_payout_processor, user_ids: user.id)
-          .and_return(service)
+      before do
+        allow(StripePayoutProcessor).to receive(:cross_border_payout?).and_return(false)
+      end
+
+      it "creates a payment via Payouts.create_payment and marks as executed" do
+        payment = instance_double(Payment, failed?: false, reload: nil)
+        allow(payment).to receive(:reload).and_return(payment)
+        processor = class_double(StripePayoutProcessor, process_payments: nil)
+        expect(Payouts).to receive(:create_payment)
+          .with(Date.yesterday.to_s, user.current_payout_processor, user)
+          .and_return([payment, nil])
+        expect(PayoutProcessorType).to receive(:get).with(user.current_payout_processor).and_return(processor)
+        expect(processor).to receive(:process_payments).with([payment])
 
         scheduled_payout.execute!
 
@@ -149,25 +200,89 @@ describe ScheduledPayout do
         expect(scheduled_payout.executed_at).to be_present
       end
 
+      it "uses the stored processor when payout executes" do
+        scheduled_payout.update!(processor: PayoutProcessorType::STRIPE)
+        payment = instance_double(Payment, failed?: false, reload: nil)
+        allow(payment).to receive(:reload).and_return(payment)
+        processor = class_double(StripePayoutProcessor, process_payments: nil)
+        expect(Payouts).to receive(:create_payment)
+          .with(Date.yesterday.to_s, PayoutProcessorType::STRIPE, user)
+          .and_return([payment, nil])
+        expect(PayoutProcessorType).to receive(:get).with(PayoutProcessorType::STRIPE).and_return(processor)
+        expect(processor).to receive(:process_payments).with([payment])
+
+        scheduled_payout.execute!
+
+        expect(scheduled_payout.reload.status).to eq("executed")
+      end
+
+      it "falls back to the user's current processor for legacy scheduled payouts" do
+        scheduled_payout.update_column(:processor, nil)
+        payment = instance_double(Payment, failed?: false, reload: nil)
+        allow(payment).to receive(:reload).and_return(payment)
+        processor = class_double(StripePayoutProcessor, process_payments: nil)
+        expect(Payouts).to receive(:create_payment)
+          .with(Date.yesterday.to_s, user.current_payout_processor, user)
+          .and_return([payment, nil])
+        expect(PayoutProcessorType).to receive(:get).with(user.current_payout_processor).and_return(processor)
+        expect(processor).to receive(:process_payments).with([payment])
+
+        scheduled_payout.execute!
+
+        expect(scheduled_payout.reload.status).to eq("executed")
+      end
+
       it "raises if payout fails" do
         payment = instance_double(Payment, failed?: true, errors: double(full_messages: ["Stripe account not found"]))
-        service = instance_double(PayoutUsersService, process: [payment])
-        allow(PayoutUsersService).to receive(:new)
-          .with(date_string: Date.yesterday.to_s, processor_type: user.current_payout_processor, user_ids: user.id)
-          .and_return(service)
+        allow(payment).to receive(:reload).and_return(payment)
+        processor = class_double(StripePayoutProcessor, process_payments: nil)
+        allow(Payouts).to receive(:create_payment)
+          .with(Date.yesterday.to_s, user.current_payout_processor, user)
+          .and_return([payment, nil])
+        allow(PayoutProcessorType).to receive(:get).with(user.current_payout_processor).and_return(processor)
 
-        expect { scheduled_payout.execute! }.to raise_error(RuntimeError, /Payout failed/)
+        expect { scheduled_payout.execute! }.to raise_error(RuntimeError, /Payout failed: Stripe account not found/)
         expect(scheduled_payout.reload.status).to eq("pending")
       end
 
       it "raises if no payment is created" do
-        service = instance_double(PayoutUsersService, process: [])
-        allow(PayoutUsersService).to receive(:new)
-          .with(date_string: Date.yesterday.to_s, processor_type: user.current_payout_processor, user_ids: user.id)
-          .and_return(service)
+        allow(Payouts).to receive(:create_payment)
+          .with(Date.yesterday.to_s, user.current_payout_processor, user)
+          .and_return([nil, nil])
 
-        expect { scheduled_payout.execute! }.to raise_error(RuntimeError, /Payment was not sent/)
+        expect { scheduled_payout.execute! }.to raise_error(RuntimeError, /Payout failed: No payable balance available/)
         expect(scheduled_payout.reload.status).to eq("pending")
+      end
+
+      it "raises with payment errors when create_payment returns errors" do
+        allow(Payouts).to receive(:create_payment)
+          .with(Date.yesterday.to_s, user.current_payout_processor, user)
+          .and_return([nil, ["Stripe account not connected"]])
+
+        expect { scheduled_payout.execute! }.to raise_error(RuntimeError, /Payout failed: Stripe account not connected/)
+        expect(scheduled_payout.reload.status).to eq("pending")
+      end
+    end
+
+    context "when action is payout to a cross-border account" do
+      let(:scheduled_payout) { create(:scheduled_payout, user: user, action: "payout", scheduled_at: 1.day.ago) }
+
+      it "defers the bank payout instead of processing it immediately" do
+        scheduled_payout.update!(processor: PayoutProcessorType::STRIPE)
+        payment = instance_double(Payment, id: 9876, blank?: false)
+        allow(Payouts).to receive(:create_payment)
+          .with(Date.yesterday.to_s, PayoutProcessorType::STRIPE, user)
+          .and_return([payment, nil])
+        allow(StripePayoutProcessor).to receive(:cross_border_payout?).with(payment).and_return(true)
+        processor = class_double(StripePayoutProcessor)
+        allow(PayoutProcessorType).to receive(:get).and_return(processor)
+        expect(processor).not_to receive(:process_payments)
+        expect(ProcessPaymentWorker).to receive(:perform_in).with(StripePayoutProcessor::CROSS_BORDER_PAYOUT_DELAY, 9876)
+
+        scheduled_payout.execute!
+
+        expect(scheduled_payout.reload.status).to eq("executed")
+        expect(scheduled_payout.executed_at).to be_present
       end
     end
 
@@ -175,7 +290,7 @@ describe ScheduledPayout do
       let(:scheduled_payout) { create(:scheduled_payout, user: user, action: "payout", scheduled_at: 1.day.ago, payout_amount_cents: 150_000) }
 
       it "flags for review instead of executing" do
-        expect(PayoutUsersService).not_to receive(:new)
+        expect(Payouts).not_to receive(:create_payment)
 
         scheduled_payout.execute!
 

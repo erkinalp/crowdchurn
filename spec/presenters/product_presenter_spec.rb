@@ -7,6 +7,22 @@ describe ProductPresenter do
   include PreorderHelper
   include ProductsHelper
 
+  describe ".cached_sales_count" do
+    it "uses the provided latest sale id without querying sales" do
+      product = instance_double(
+        Link,
+        should_show_sales_count?: true,
+        cache_key: "links/1-#{SecureRandom.hex}",
+        price_cents: 100,
+        successful_sales_count: 7,
+      )
+
+      expect(product).not_to receive(:sales)
+
+      expect(described_class.cached_sales_count(product, latest_sale_id: 123)).to eq(7)
+    end
+  end
+
   describe ".new_page_props" do
     let(:new_seller) { create(:named_seller) }
     let(:existing_seller) { create(:user) }
@@ -94,6 +110,14 @@ describe ProductPresenter do
             **ProductPresenter::InstallmentPlanProps.new(product:).props,
             covers: [],
             currency_code: Currency::USD,
+            buyer_currency_display: {
+              product_id: product.external_id,
+              buyer_currency_shown: "usd",
+              product_currency: "usd",
+              buyer_local_price_cents: nil,
+              rate: nil,
+              display_mode: "default"
+            },
             custom_view_content_button_text: nil,
             custom_button_text_option: nil,
             description_html: "This is a collection of works spanning 1984 — 1994, while I spent time in a shack in the Andes.",
@@ -115,7 +139,7 @@ describe ProductPresenter do
               percentages: [0, 0, 0, 0, 0],
             },
             seller: {
-              avatar_url: ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"),
+              avatar_url: ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"),
               id: product.user.external_id,
               name: product.user.username,
               profile_url: product.user.profile_url(recommended_by: "discover"),
@@ -162,6 +186,7 @@ describe ProductPresenter do
             membership: nil,
             review: nil,
             should_show_receipt: true,
+            was_paid: true,
             is_gift_receiver_purchase: false,
             show_view_content_button_on_product_page: false,
             subscription_has_lapsed: false,
@@ -233,7 +258,7 @@ describe ProductPresenter do
   end
 
   describe "#edit_props" do
-    let(:request) { instance_double(ActionDispatch::Request, host: "test.gumroad.com", host_with_port: "test.gumroad.com:1234", protocol: "http") }
+    let(:request) { instance_double(ActionDispatch::Request, host: "test.gumroad.com", host_with_port: "test.gumroad.com:1234", protocol: "http", remote_ip: "0.0.0.0") }
     let(:circle_integration) { create(:circle_integration) }
     let(:discord_integration) { create(:discord_integration) }
     let(:product) do
@@ -284,7 +309,7 @@ describe ProductPresenter do
       product.user.reload
     end
 
-    it "returns the properties for the product edit page" do
+    it "returns the properties for the product edit page", :freeze_time do
       expect(presenter.edit_props).to eq(
         {
           product: {
@@ -299,6 +324,7 @@ describe ProductPresenter do
             default_offer_code: nil,
             custom_button_text_option: "pay_prompt",
             custom_summary: "To summarize, I am a product.",
+            custom_html: nil,
             custom_view_content_button_text: "Download Files",
             custom_view_content_button_text_max_length: 26,
             custom_receipt_text: "Thank you for purchasing! Feel free to contact us any time for support.",
@@ -473,10 +499,28 @@ describe ProductPresenter do
             fine_print: nil,
           },
           cancellation_discounts_enabled: false,
+          price_checker_enabled: false,
+          custom_html_pages_enabled: false,
           ai_generated: false,
           dropbox_api_key: DROPBOX_PICKER_API_KEY,
         }
       )
+    end
+
+    context "when the price_checker feature flag is enabled for the seller" do
+      before { Flipper.enable(:price_checker, product.user) }
+
+      it "exposes price_checker_enabled: true in edit_props" do
+        expect(presenter.edit_props[:price_checker_enabled]).to eq(true)
+      end
+    end
+
+    context "when the custom_html_pages feature flag is enabled for the seller" do
+      before { Feature.activate_user(:custom_html_pages, product.user) }
+
+      it "exposes custom_html_pages_enabled: true in edit_props" do
+        expect(presenter.edit_props[:custom_html_pages_enabled]).to eq(true)
+      end
     end
 
     context "with default offer code" do
@@ -495,6 +539,14 @@ describe ProductPresenter do
           name: "",
           discount: offer_code.discount,
         )
+      end
+
+      it "includes existing-customer-only default offer code data in edit_props" do
+        offer_code.update!(existing_customers_only: true, ownership_products: [product])
+
+        product_data = presenter.edit_props[:product]
+
+        expect(product_data[:default_offer_code]).to include(discount: a_hash_including(type: "fixed", cents: 100))
       end
     end
 
@@ -535,7 +587,7 @@ describe ProductPresenter do
         Feature.activate_user(:cancellation_discounts, membership.user)
       end
 
-      it "returns the properties for the product edit page" do
+      it "returns the properties for the product edit page", :freeze_time do
         expect(presenter.edit_props).to eq(
           {
             product: {
@@ -550,6 +602,7 @@ describe ProductPresenter do
               default_offer_code: nil,
               custom_button_text_option: nil,
               custom_summary: nil,
+              custom_html: nil,
               custom_view_content_button_text: nil,
               custom_view_content_button_text_max_length: 26,
               custom_receipt_text: nil,
@@ -709,6 +762,8 @@ describe ProductPresenter do
               fine_print: nil,
             },
             cancellation_discounts_enabled: true,
+            price_checker_enabled: false,
+            custom_html_pages_enabled: false,
             ai_generated: false,
             dropbox_api_key: DROPBOX_PICKER_API_KEY,
           }
@@ -794,7 +849,7 @@ describe ProductPresenter do
       let(:new_product) { create(:product, name: "Product", description: "Boring") }
       let(:presenter) { described_class.new(product: new_product, request:) }
 
-      it "returns the properties for the product edit page" do
+      it "returns the properties for the product edit page", :freeze_time do
         expect(presenter.edit_props).to eq(
           {
             product: {
@@ -809,6 +864,7 @@ describe ProductPresenter do
               default_offer_code: nil,
               custom_button_text_option: nil,
               custom_summary: nil,
+              custom_html: nil,
               custom_view_content_button_text: nil,
               custom_view_content_button_text_max_length: 26,
               custom_receipt_text: nil,
@@ -923,6 +979,8 @@ describe ProductPresenter do
               fine_print: nil,
             },
             cancellation_discounts_enabled: false,
+            price_checker_enabled: false,
+            custom_html_pages_enabled: false,
             ai_generated: false,
             dropbox_api_key: DROPBOX_PICKER_API_KEY,
           }
@@ -973,7 +1031,7 @@ describe ProductPresenter do
   end
 
   describe ".card_for_web" do
-    let(:request) { instance_double(ActionDispatch::Request, host: "test.gumroad.com", host_with_port: "test.gumroad.com:1234", protocol: "http") }
+    let(:request) { instance_double(ActionDispatch::Request, host: "test.gumroad.com", host_with_port: "test.gumroad.com:1234", protocol: "http", remote_ip: "0.0.0.0") }
     let(:product) { create(:product) }
 
     it "returns properties from the card presenter" do
@@ -1006,12 +1064,12 @@ describe ProductPresenter do
       expect(described_class.card_for_email(product:)).to eq(
         {
           name: product.name,
-          thumbnail_url: ActionController::Base.helpers.asset_url("native_types/thumbnails/digital.png"),
+          thumbnail_url: ActionController::Base.helpers.image_url("native_types/thumbnails/digital.png"),
           url: short_link_url(product.general_permalink, host: "http://#{seller.username}.test.gumroad.com:31337"),
           seller: {
             name: seller.name,
             profile_url: seller.profile_url,
-            avatar_url: ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"),
+            avatar_url: ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"),
           },
         }
       )
@@ -1089,6 +1147,72 @@ describe ProductPresenter do
 
     it "returns existing files" do
       expect(presenter.existing_files).to eq(product_files)
+    end
+
+    it "eager-loads variant_category and alive_rich_contents in edit_props variants (no N+1)" do
+      variant_product = create(:product, user: seller)
+      category = create(:variant_category, link: variant_product)
+      3.times { |i| create(:variant, variant_category: category, name: "v#{i}") }
+
+      edit_presenter = described_class.new(product: variant_product)
+      edit_presenter.edit_props
+
+      queries = []
+      subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+        next if payload[:name] == "SCHEMA"
+        next if payload[:cached]
+        sql = payload[:sql]
+        next unless sql.start_with?("SELECT")
+        queries << sql
+      end
+
+      begin
+        described_class.new(product: variant_product.reload).edit_props
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscriber)
+      end
+
+      per_row_patterns = [
+        [/FROM `variant_categories`.*WHERE `variant_categories`\.`id` = \d+/, "variant_category (per row)"],
+        [/FROM `rich_contents`.*WHERE.*`entity_id` = \d+ AND.*`entity_type` = 'Variant'/, "alive_rich_contents per Variant"],
+      ]
+      per_row_patterns.each do |pattern, label|
+        hits = queries.grep(pattern)
+        expect(hits.size).to be <= 1,
+                             "Expected at most 1 query matching #{label} (the batched IN preload), got #{hits.size}:\n#{hits.join("\n")}"
+      end
+    end
+
+    it "eager-loads thumbnail attachments and subtitle files (no N+1)" do
+      create(:product_file, link: product, position: 1, url: "#{S3_BASE_URL}attachments/two/one.pdf")
+      create(:product_file, link: product, position: 2, url: "#{S3_BASE_URL}attachments/two/two.pdf")
+
+      presenter.existing_files
+
+      queries = []
+      subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+        next if payload[:name] == "SCHEMA"
+        next if payload[:cached]
+        sql = payload[:sql]
+        next unless sql.start_with?("SELECT")
+        queries << sql
+      end
+
+      begin
+        described_class.new(product: product.reload).existing_files
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscriber)
+      end
+
+      per_row_patterns = [
+        [/FROM `subtitle_files`.*WHERE.*`product_file_id` = \d+/, "subtitle_files (per row)"],
+        [/FROM `active_storage_attachments`.*WHERE.*`record_id` = \d+ AND.*`record_type` = 'ProductFile' AND.*`name` = 'thumbnail'/, "thumbnail attachment (per row)"],
+      ]
+      per_row_patterns.each do |pattern, label|
+        hits = queries.grep(pattern)
+        expect(hits).to be_empty,
+                        "Expected no per-row queries matching #{label}, got #{hits.size}:\n#{hits.join("\n")}"
+      end
     end
   end
 end

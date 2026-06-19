@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 class License < ApplicationRecord
+  MANAGE_SECURE_ID_SCOPE = "manage_license"
+
   has_paper_trail only: %i[disabled_at serial]
 
   include FlagShihTzu
   include ExternalId
+  include SecureExternalId
 
   validates_numericality_of :uses, greater_than_or_equal_to: 0
   validates_presence_of :serial
@@ -14,6 +17,7 @@ class License < ApplicationRecord
   belongs_to :imported_customer, optional: true
 
   before_validation :generate_serial, on: :create
+  after_commit :update_purchase_search_index, on: :update
 
   has_flags 1 => :DEPRECATED_is_pregenerated,
             :column => "flags",
@@ -40,9 +44,37 @@ class License < ApplicationRecord
     save!
   end
 
+  def reset_uses!
+    update!(uses: 0)
+  end
+
   def rotate!
     self.serial = nil
     generate_serial
     save!
   end
+
+  def increment!(attribute, by = 1, touch: nil)
+    super.tap do
+      enqueue_purchase_search_index_update(["license_uses"]) if attribute.to_s == "uses"
+    end
+  end
+
+  private
+    def update_purchase_search_index
+      fields = []
+      fields << "license_serial" if previous_changes.key?("serial")
+      fields << "license_uses" if previous_changes.key?("uses")
+      enqueue_purchase_search_index_update(fields)
+    end
+
+    def enqueue_purchase_search_index_update(fields)
+      return if purchase_id.blank? || fields.blank?
+
+      ElasticsearchIndexerWorker.perform_in(2.seconds, "update", {
+                                              "record_id" => purchase_id,
+                                              "class_name" => "Purchase",
+                                              "fields" => fields
+                                            })
+    end
 end

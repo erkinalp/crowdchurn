@@ -8,7 +8,7 @@ class CustomerPresenter
   end
 
   def missed_posts
-    posts = Installment.missed_for_purchase(purchase).order(published_at: :desc)
+    posts = Installment.missed_for_purchase(purchase).order(published_at: :desc, id: :asc)
     posts.map do |post|
       {
         id: post.external_id,
@@ -92,9 +92,10 @@ class CustomerPresenter
         } : nil,
       license: purchase.linked_license.present? ?
         {
-          id: purchase.linked_license.external_id,
+          id: purchase.linked_license.secure_external_id(scope: License::MANAGE_SECURE_ID_SCOPE),
           key: purchase.linked_license.serial,
           enabled: !purchase.linked_license.disabled?,
+          uses: purchase.linked_license.uses,
         } : nil,
       review: review.present? ?
         {
@@ -164,7 +165,7 @@ class CustomerPresenter
       partially_refunded: purchase.stripe_partially_refunded?,
       refunded: purchase.stripe_refunded?,
       amount_refundable: purchase.amount_refundable_cents_in_currency,
-      currency_type: purchase.link.price_currency_type,
+      currency_type: purchase.displayed_price_currency_type.to_s,
       transaction_url_for_seller: purchase.transaction_url_for_seller,
       is_upgrade_purchase: purchase.is_upgrade_purchase?,
       chargedback: purchase.chargedback? && !purchase.chargeback_reversed?,

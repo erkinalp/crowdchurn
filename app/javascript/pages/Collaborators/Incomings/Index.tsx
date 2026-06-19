@@ -1,7 +1,7 @@
 import { Check, X } from "@boxicons/react";
 import { useForm, usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import type { CollaboratorPagesSharedProps } from "$app/data/collaborators";
 import type { IncomingCollaborator } from "$app/data/incoming_collaborators";
@@ -172,9 +172,8 @@ type IncomingCollaboratorsPageProps = {
 const IncomingCollaboratorsPage = () => {
   const loggedInUser = useLoggedInUser();
 
-  const { collaborators: incomingCollaborators, collaborators_disabled_reason } = cast<IncomingCollaboratorsPageProps>(
-    usePage().props,
-  );
+  const { collaborators: incomingCollaborators, collaborators_disabled_reason } =
+    typia.assert<IncomingCollaboratorsPageProps>(usePage().props);
 
   const [selected, setSelected] = React.useState<IncomingCollaborator | null>(null);
 

@@ -15,10 +15,10 @@ function logGumroadEvent(eventName: string, payload: Record<string, unknown>) {
 }
 
 function shouldTrack() {
-  return $('meta[property="gr:google_analytics:enabled"]').attr("content") === "true";
+  return document.querySelector('meta[property="gr:google_analytics:enabled"]')?.getAttribute("content") === "true";
 }
 
-export function trackProductEvent(config: AnalyticsConfig, data: ProductAnalyticsEvent) {
+export function trackProductEvent(config: AnalyticsConfig | undefined, data: ProductAnalyticsEvent) {
   if (!shouldTrack() || typeof gtag === "undefined") return;
 
   const page = window.location.pathname + window.location.search;
@@ -26,6 +26,7 @@ export function trackProductEvent(config: AnalyticsConfig, data: ProductAnalytic
 
   switch (data.action) {
     case "viewed":
+      if (!config) return;
       logSellerEvent(config.id, "page_view", payload);
       logSellerEvent(config.id, "view_item", {
         ...payload,
@@ -33,6 +34,7 @@ export function trackProductEvent(config: AnalyticsConfig, data: ProductAnalytic
       });
       break;
     case "iwantthis":
+      if (!config) return;
       payload.page += `?${data.action}`;
       logSellerEvent(config.id, "page_view", payload);
       logSellerEvent(config.id, "add_to_cart", {
@@ -41,6 +43,7 @@ export function trackProductEvent(config: AnalyticsConfig, data: ProductAnalytic
       });
       break;
     case "begin_checkout":
+      if (!config) return;
       logSellerEvent(config.id, "page_view", payload);
       logSellerEvent(config.id, "begin_checkout", {
         ...payload,
@@ -65,10 +68,17 @@ export function trackProductEvent(config: AnalyticsConfig, data: ProductAnalytic
         tax: data.tax,
         currency: data.currency,
         value,
+        ...(data.buyer_currency_display
+          ? {
+              buyer_currency_shown: data.buyer_currency_display.buyer_currency_shown,
+              product_currency: data.buyer_currency_display.product_currency,
+              display_mode: data.buyer_currency_display.display_mode,
+            }
+          : {}),
       };
 
-      logSellerEvent(config.id, "page_view", payload);
-      if (config.trackFreeSales || data.value !== 0) {
+      if (config) logSellerEvent(config.id, "page_view", payload);
+      if (config && (config.trackFreeSales || data.value !== 0)) {
         logSellerEvent(config.id, "purchase", purchasePayload);
       }
 
@@ -79,6 +89,17 @@ export function trackProductEvent(config: AnalyticsConfig, data: ProductAnalytic
       });
       break;
     }
+    case "buyer_currency_display_viewed":
+      logGumroadEvent("buyer_currency_display_view", {
+        ...payload,
+        product_id: data.product_id,
+        buyer_currency_shown: data.buyer_currency_shown,
+        product_currency: data.product_currency,
+        buyer_local_price_cents: data.buyer_local_price_cents,
+        rate: data.rate,
+        display_mode: data.display_mode,
+      });
+      break;
   }
 }
 
@@ -97,7 +118,7 @@ export function startTrackingForGumroad() {
   if (!shouldTrack()) return;
   if (typeof gtag === "undefined") loadGoogleAnalyticsScript();
 
-  const isLoggedIn = $('meta[property="gr:logged_in_user:id"]').attr("content") !== "";
+  const isLoggedIn = document.querySelector('meta[property="gr:logged_in_user:id"]')?.getAttribute("content") !== "";
   gtag("js", new Date());
   gtag("config", "G-6LJN6D94N6", {
     groups: "gumroad",

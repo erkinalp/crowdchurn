@@ -1,6 +1,5 @@
 import { DirectUpload } from "@rails/activestorage";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
 
 import { Thumbnail, ThumbnailPayload, createThumbnail, deleteThumbnail } from "$app/data/thumbnails";
 import { AssetPreview, ProductNativeType } from "$app/parsers/product";
@@ -11,7 +10,14 @@ import { assertResponseError } from "$app/utils/request";
 import { ImageUploader } from "$app/components/ImageUploader";
 import { showAlert } from "$app/components/server-components/Alert";
 
-const nativeTypeThumbnails = require.context("$assets/images/native_types/thumbnails/");
+const rawThumbnails = import.meta.glob<string>("$assets/images/native_types/thumbnails/*", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const nativeTypeThumbnails = Object.fromEntries(
+  Object.entries(rawThumbnails).map(([key, value]) => [`./${key.split("/").pop()}`, value]),
+);
 
 const MIN_SIDE_DIMENSION = 600;
 const MEGABYTE = 1024 * 1024;
@@ -86,7 +92,7 @@ export const ThumbnailEditor = ({
         allowedExtensions={ALLOWED_EXTENSIONS}
         helpText="This image appears in the Gumroad Library, Discover and Profile pages. Your image should be square, at least 600x600px, and JPG, PNG or GIF format."
         onRemove={() => void removeThumbnail(thumbnail?.guid ?? "")}
-        defaultImageUrl={coverUrlForThumbnail(covers) ?? cast<string>(nativeTypeThumbnails(`./${nativeType}.svg`))}
+        defaultImageUrl={coverUrlForThumbnail(covers) ?? nativeTypeThumbnails[`./${nativeType}.svg`]}
         onSelectFile={(file) =>
           new Promise((resolve, reject) => {
             validateFile(file).then(

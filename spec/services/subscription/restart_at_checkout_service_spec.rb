@@ -91,13 +91,38 @@ describe Subscription::RestartAtCheckoutService do
         expect(transformed_params[:use_existing_card]).to be true
       end
 
-      it "forwards stripe_customer_id and stripe_setup_intent_id to UpdaterService" do
-        params_with_stripe = base_params.merge(
-          stripe_payment_method_id: "pm_123",
-          stripe_customer_id: "cus_123",
-          stripe_setup_intent_id: "seti_123",
-          card_data_handling_mode: "stripe_elements"
+      it "uses the buyer identity when defaulting the perceived restart price" do
+        params_without_perceived_price = base_params.deep_dup
+        params_without_perceived_price[:purchase].delete(:perceived_price_cents)
+
+        expect(subscription).to receive(:current_subscription_price_cents).with(authenticated_offer_code_buyer: nil).and_return(10_00)
+        guest_params = described_class.new(
+          subscription: subscription,
+          product: product,
+          params: params_without_perceived_price,
+          buyer: nil
+        ).send(:updater_service_params)
+        expect(subscription).to receive(:current_subscription_price_cents).with(authenticated_offer_code_buyer: buyer).and_return(9_00)
+        buyer_params = described_class.new(
+          subscription: subscription,
+          product: product,
+          params: params_without_perceived_price,
+          buyer: buyer
+        ).send(:updater_service_params)
+
+        expect(guest_params[:perceived_price_cents]).to eq(10_00)
+        expect(buyer_params[:perceived_price_cents]).to eq(9_00)
+      end
+
+      it "treats submitted checkout payment data as a new card" do
+        params_with_stripe = ActionController::Parameters.new(
+          base_params.deep_stringify_keys.merge(
+            "stripe_payment_method_id" => "pm_123",
+            "stripe_customer_id" => "cus_123",
+            "stripe_setup_intent_id" => "seti_123"
+          )
         )
+        params_with_stripe.permit!
 
         service = described_class.new(
           subscription: subscription,
@@ -111,6 +136,7 @@ describe Subscription::RestartAtCheckoutService do
         expect(transformed_params[:stripe_customer_id]).to eq("cus_123")
         expect(transformed_params[:stripe_setup_intent_id]).to eq("seti_123")
         expect(transformed_params[:stripe_payment_method_id]).to eq("pm_123")
+        expect(transformed_params[:use_existing_card]).to be false
       end
 
       it "uses default variants when not provided in params" do
@@ -504,7 +530,7 @@ describe Subscription::RestartAtCheckoutService do
           )
         end
 
-        it "returns an error" do
+        it "returns a seller-cancelled error when no new payment method is being attached" do
           result = described_class.new(
             subscription: subscription,
             product: product,
@@ -513,7 +539,7 @@ describe Subscription::RestartAtCheckoutService do
           ).perform
 
           expect(result[:success]).to be false
-          expect(result[:error_message]).to eq("This subscription cannot be restarted.")
+          expect(result[:error_message]).to eq("This membership was cancelled by the creator. To continue, please subscribe again from the product page.")
         end
       end
 
@@ -533,7 +559,7 @@ describe Subscription::RestartAtCheckoutService do
           product.update!(deleted_at: 1.hour.ago)
         end
 
-        it "returns an error" do
+        it "returns a product-unavailable error" do
           result = described_class.new(
             subscription: subscription,
             product: product,
@@ -542,7 +568,7 @@ describe Subscription::RestartAtCheckoutService do
           ).perform
 
           expect(result[:success]).to be false
-          expect(result[:error_message]).to eq("This subscription cannot be restarted.")
+          expect(result[:error_message]).to eq("This product is no longer available, so this membership can't be restarted.")
         end
       end
     end

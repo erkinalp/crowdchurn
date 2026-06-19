@@ -356,7 +356,7 @@ describe "PurchaseRefunds", :vcr do
         expect(ChargeProcessor).to receive(:refund!).with(purchase.charge_processor_id, purchase.stripe_transaction_id,
                                                           amount_cents: nil, merchant_account: purchase.merchant_account,
                                                           reverse_transfer: false, paypal_order_purchase_unit_refund: nil,
-                                                          is_for_fraud: false).and_call_original
+                                                          is_for_fraud: false, purchase:).and_call_original
         expect(purchase).to receive(:debit_processor_fee_from_merchant_account!)
 
         purchase.refund_and_save!(create(:admin_user).id)
@@ -555,7 +555,8 @@ describe "PurchaseRefunds", :vcr do
                                                amount_cents: 20,
                                                reverse_transfer: false,
                                                merchant_account: @purchase.merchant_account,
-                                               paypal_order_purchase_unit_refund: false)
+                                               paypal_order_purchase_unit_refund: false,
+                                               purchase: @purchase)
                                          .and_call_original
           expect(@purchase).not_to receive(:debit_processor_fee_from_merchant_account!).and_call_original
 
@@ -601,7 +602,8 @@ describe "PurchaseRefunds", :vcr do
                                                amount_cents: 20,
                                                reverse_transfer: false,
                                                merchant_account: @purchase.merchant_account,
-                                               paypal_order_purchase_unit_refund: false).and_call_original
+                                               paypal_order_purchase_unit_refund: false,
+                                               purchase: @purchase).and_call_original
 
           @purchase.refund_gumroad_taxes!(refunding_user_id: nil)
 
@@ -687,7 +689,8 @@ describe "PurchaseRefunds", :vcr do
                                                    amount_cents: 20,
                                                    reverse_transfer: false,
                                                    merchant_account: @paypal_purchase.merchant_account,
-                                                   paypal_order_purchase_unit_refund: true)
+                                                   paypal_order_purchase_unit_refund: true,
+                                                   purchase: @paypal_purchase)
                                              .and_call_original
               end
 
@@ -1186,6 +1189,33 @@ describe "PurchaseRefunds", :vcr do
         flow_of_funds = FlowOfFunds.build_simple_flow_of_funds(Currency::USD, 0)
         @purchase.refund_purchase!(flow_of_funds, @refunding_user.id)
         expect(@purchase.errors[:base].first).to eq("The purchase could not be refunded. Please check the refund amount.")
+      end
+    end
+
+    context "when called directly via external webhook on a chargedback purchase" do
+      it "creates the Refund record but does not decrement seller balance again" do
+        @purchase.update!(chargeback_date: Time.current)
+        expect(@purchase.chargedback_not_reversed?).to be(true)
+
+        flow_of_funds = FlowOfFunds.build_simple_flow_of_funds(Currency::USD, @purchase.price_cents)
+        expect(@purchase).to_not receive(:decrement_balance_for_refund_or_chargeback!)
+
+        @purchase.refund_purchase!(flow_of_funds, @refunding_user.id)
+
+        expect(@purchase.reload.refunds).to_not be_empty
+        expect(@purchase.stripe_refunded).to be(true)
+      end
+    end
+
+    context "when called on a chargeback-reversed purchase (seller won dispute)" do
+      it "decrements seller balance normally because the dispute reversal already credited them back" do
+        @purchase.update!(chargeback_date: Time.current, chargeback_reversed: true)
+        expect(@purchase.chargedback_not_reversed?).to be(false)
+
+        flow_of_funds = FlowOfFunds.build_simple_flow_of_funds(Currency::USD, @purchase.price_cents)
+        expect(@purchase).to receive(:decrement_balance_for_refund_or_chargeback!).and_call_original
+
+        @purchase.refund_purchase!(flow_of_funds, @refunding_user.id)
       end
     end
 

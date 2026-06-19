@@ -7,6 +7,25 @@ describe CreateUsStatesSalesSummaryReportJob do
   let(:month) { 8 }
   let(:year) { 2022 }
 
+  it "is configured with retry: 3" do
+    expect(described_class.sidekiq_options["retry"]).to eq(3)
+  end
+
+  describe "sidekiq_retries_exhausted" do
+    it "emails payments notification with the failure context" do
+      job = { "args" => [["WA", "WI"], 4, 2026] }
+      exception = ActiveRecord::StatementTimeout.new("maximum statement execution time exceeded")
+      mailer = double("mailer")
+
+      expect(AccountingMailer).to receive(:us_states_sales_summary_report_failed)
+        .with(["WA", "WI"], 4, 2026, "ActiveRecord::StatementTimeout", "maximum statement execution time exceeded")
+        .and_return(mailer)
+      expect(mailer).to receive(:deliver_later)
+
+      described_class.sidekiq_retries_exhausted_block.call(job, exception)
+    end
+  end
+
   it "raises an argument error if the year is out of bounds" do
     expect { described_class.new.perform(subdivision_codes, month, 2013) }.to raise_error(ArgumentError)
   end
@@ -86,6 +105,24 @@ describe CreateUsStatesSalesSummaryReportJob do
 
       expect(@purchase2.purchase_taxjar_info).to be_present
       expect(@purchase7.purchase_taxjar_info).to be_present
+    end
+
+    it "retries and completes the report when TaxJar raises a transient connection error" do
+      expect(s3_bucket_double).to receive(:object).ordered.and_return(@s3_object)
+
+      raised = false
+      allow_any_instance_of(TaxjarApi).to receive(:create_order_transaction).and_wrap_original do |original, **kwargs|
+        unless raised
+          raised = true
+          raise HTTP::ConnectionError, "failed to connect: Connection reset by peer - SSL_connect"
+        end
+        original.call(**kwargs)
+      end
+      allow_any_instance_of(described_class).to receive(:sleep)
+
+      expect { described_class.new.perform(subdivision_codes, month, year) }.not_to raise_error
+
+      expect(InternalNotificationWorker).to have_enqueued_sidekiq_job("payments", "US Sales Tax Summary Report", anything, "green")
     end
 
     it "creates a summary CSV file with correct totals for each state without submitting transactions to TaxJar when push_to_taxjar is false" do

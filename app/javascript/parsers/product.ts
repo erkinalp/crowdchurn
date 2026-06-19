@@ -1,4 +1,3 @@
-import ProductSectionSchema from "$app/json_schemas/seller_profile_products_section";
 import { CurrencyCode } from "$app/utils/currency";
 import { RecurrenceId } from "$app/utils/recurringPricing";
 
@@ -37,6 +36,15 @@ export type Ratings = { count: number; average: number };
 
 export type RatingsWithPercentages = Ratings & { percentages: Tuple<number, 5> };
 
+export type BuyerCurrencyDisplay = {
+  product_id: string;
+  buyer_currency_shown: string;
+  product_currency: CurrencyCode;
+  buyer_local_price_cents: number | null;
+  rate: number | null;
+  display_mode: "buyer_local" | "default";
+};
+
 export type CardProduct = {
   id: string;
   permalink: string;
@@ -46,6 +54,12 @@ export type CardProduct = {
   price_cents: number;
   original_price_cents?: number;
   currency_code: CurrencyCode;
+  buyer_currency?: string;
+  buyer_local_currency_rate?: number;
+  buyer_local_currency_subunit_to_unit?: number;
+  buyer_local_price_cents?: number;
+  buyer_local_original_price_cents?: number;
+  buyer_currency_display?: BuyerCurrencyDisplay;
   thumbnail_url: string | null;
   native_type: ProductNativeType;
   url: string;
@@ -86,7 +100,14 @@ export const SORT_KEYS = [
   "price_desc",
 ] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
-export const PROFILE_SORT_KEYS = ProductSectionSchema.properties.default_product_sort.enum;
+export const PROFILE_SORT_KEYS = [
+  "page_layout",
+  "newest",
+  "highest_rated",
+  "most_reviewed",
+  "price_asc",
+  "price_desc",
+] as const;
 export type ProfileSortKey = (typeof PROFILE_SORT_KEYS)[number];
 
 export const COMMISSION_DEPOSIT_PROPORTION = 0.5;

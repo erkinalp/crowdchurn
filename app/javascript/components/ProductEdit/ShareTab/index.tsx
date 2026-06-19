@@ -1,5 +1,4 @@
 import { Link } from "@boxicons/react";
-import hands from "images/illustrations/hands.png";
 import * as React from "react";
 
 import { Button } from "$app/components/Button";
@@ -9,6 +8,7 @@ import { useDiscoverUrl } from "$app/components/DomainSettings";
 import { FacebookShareButton } from "$app/components/FacebookShareButton";
 import { Layout, useProductUrl } from "$app/components/ProductEdit/Layout";
 import { ProductPreview } from "$app/components/ProductEdit/ProductPreview";
+import { LandingPageEditor } from "$app/components/ProductEdit/ShareTab/LandingPageEditor";
 import { ProfileSectionsEditor } from "$app/components/ProductEdit/ShareTab/ProfileSectionsEditor";
 import { TagSelector } from "$app/components/ProductEdit/ShareTab/TagSelector";
 import { TaxonomyEditor } from "$app/components/ProductEdit/ShareTab/TaxonomyEditor";
@@ -18,6 +18,8 @@ import { Alert } from "$app/components/ui/Alert";
 import { Fieldset } from "$app/components/ui/Fieldset";
 import { Switch } from "$app/components/ui/Switch";
 import { useRunOnce } from "$app/components/useRunOnce";
+
+import hands from "$assets/images/illustrations/hands.png";
 
 export const ShareTab = () => {
   const currentSeller = useCurrentSeller();
@@ -51,6 +53,7 @@ export const ShareTab = () => {
               </CopyToClipboard>
             </div>
           </section>
+          <LandingPageEditor />
           <ProfileSectionsEditor
             sectionIds={product.section_ids}
             onChange={(sectionIds) => updateProduct({ section_ids: sectionIds })}

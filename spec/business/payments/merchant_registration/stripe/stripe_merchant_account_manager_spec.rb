@@ -128,6 +128,29 @@ describe StripeMerchantAccountManager, :vcr do
         end.to raise_error(Stripe::InvalidRequestError)
       end
 
+      it "cleans up the merchant account when onboarding is interrupted by a non-Stripe error" do
+        allow(Stripe::Account).to receive(:create).and_raise(Timeout::Error.new("execution expired"))
+        expect do
+          subject.create_account(user, passphrase: "1234")
+        end.to raise_error(Timeout::Error)
+
+        merchant_account = user.merchant_accounts.stripe.last
+        expect(merchant_account).to be_present
+        expect(merchant_account.alive?).to be(false)
+      end
+
+      it "keeps an already-alive account when a later step fails" do
+        allow(described_class).to receive(:save_stripe_bank_account_info).and_raise(StandardError.new("bank sync failed"))
+        expect do
+          subject.create_account(user, passphrase: "1234")
+        end.to raise_error(StandardError, "bank sync failed")
+
+        merchant_account = user.merchant_accounts.stripe.last
+        expect(merchant_account.charge_processor_alive_at).to be_present
+        expect(merchant_account.alive?).to be(true)
+        expect(merchant_account.charge_processor_merchant_id).to be_present
+      end
+
       context "when user compliance info contains whitespaces" do
         let(:user_compliance_info) do
           create(:user_compliance_info,
@@ -479,6 +502,101 @@ describe StripeMerchantAccountManager, :vcr do
         expect(merchant_account.charge_processor_id).to eq(StripeChargeProcessor.charge_processor_id)
         expect(merchant_account.charge_processor_merchant_id).to be_present
       end
+
+      it "deletes the half-provisioned Stripe account when interrupted after it is created" do
+        allow(Stripe::Account).to receive(:create_person).and_raise(StandardError.new("interrupted"))
+        expect(Stripe::Account).to receive(:delete).with(/\Aacct_/).and_call_original
+
+        expect do
+          subject.create_account(user, passphrase: "1234")
+        end.to raise_error(StandardError, "interrupted")
+
+        merchant_account = user.merchant_accounts.stripe.last
+        expect(merchant_account.charge_processor_merchant_id).to be_present
+        expect(merchant_account.alive?).to be(false)
+      end
+    end
+
+    describe "US business with a foreign-resident representative (person_hash)" do
+      # Regression coverage for gumroad-private#441: a US LLC with a Bangladesh-resident
+      # representative could not save settings because we sent the rep's foreign national ID
+      # as person.id_number on a US Stripe Connect account, which Stripe rejects with a
+      # "must be 9 digits" SSN error and our controller surfaces verbatim to the seller.
+      def build_us_llc_with_foreign_rep(individual_tax_id:)
+        create(:user_compliance_info_business,
+               user:,
+               first_name: "Rashed",
+               last_name: "Khan",
+               street_address: "House 12, Road 3",
+               city: "Rajshahi",
+               state: nil,
+               zip_code: "6203",
+               country: "Bangladesh",
+               individual_tax_id:)
+      end
+
+      context "with a non-US tax ID (e.g. Bangladesh national ID)" do
+        let(:user_compliance_info) { build_us_llc_with_foreign_rep(individual_tax_id: "1234567890") }
+
+        let(:person_hash) do
+          described_class.send(:person_hash, user_compliance_info, GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD"))
+        end
+
+        it "omits id_number so Stripe can request document verification instead of rejecting" do
+          expect(person_hash).not_to have_key(:id_number)
+          expect(person_hash).not_to have_key(:ssn_last_4)
+        end
+
+        it "omits nationality because the Stripe account country (US) does not require it" do
+          expect(person_hash).not_to have_key(:nationality)
+        end
+
+        it "still carries the rep's foreign address so Stripe knows where they live" do
+          expect(person_hash[:address]).to include(country: "BD", city: "Rajshahi", postal_code: "6203")
+        end
+      end
+
+      context "with a 9-digit US tax ID (e.g. an ITIN held by a foreign resident)" do
+        let(:user_compliance_info) { build_us_llc_with_foreign_rep(individual_tax_id: "900123456") }
+
+        it "submits the id_number to Stripe so the account can verify without document upload" do
+          person_hash = described_class.send(:person_hash, user_compliance_info, GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD"))
+          expect(person_hash[:id_number]).to eq("900123456")
+          expect(person_hash).not_to have_key(:ssn_last_4)
+        end
+      end
+    end
+
+    describe "Bangladesh business with a rep resident outside Bangladesh (person_hash)" do
+      # Reverse direction of the foreign-rep fix: gating nationality on the account country instead
+      # of the rep's residential country also means BGD/SGP/PAK/UAE *accounts* keep submitting
+      # nationality regardless of where the rep lives (Stripe KYC asks for citizenship here, not
+      # residence). Guards against regressing that direction.
+      let(:user_compliance_info) do
+        create(:user_compliance_info_business,
+               user:,
+               first_name: "Imran",
+               last_name: "Choudhury",
+               country: "United States",
+               business_name: "Choudhury Trading Ltd",
+               business_street_address: "Sheikh Mujib Road 14",
+               business_city: "Dhaka",
+               business_state: nil,
+               business_zip_code: "1212",
+               business_country: "Bangladesh",
+               nationality: "BD",
+               individual_tax_id: "12345678901")
+      end
+
+      it "still submits nationality because the Stripe account country (BD) requires it" do
+        person_hash = described_class.send(:person_hash, user_compliance_info, GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD"))
+        expect(person_hash[:nationality]).to eq("BD")
+      end
+
+      it "submits the rep's id_number unchanged since the account is non-US" do
+        person_hash = described_class.send(:person_hash, user_compliance_info, GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD"))
+        expect(person_hash[:id_number]).to eq("12345678901")
+      end
     end
 
     describe "all info provided of an individual (non-US)" do
@@ -528,7 +646,6 @@ describe StripeMerchantAccountManager, :vcr do
             last_name: "Bartowski",
             phone: "0000000000",
             email: user.email,
-            relationship: { title: "CEO" },
           },
           bank_account: {
             country: "US",
@@ -1929,18 +2046,31 @@ describe StripeMerchantAccountManager, :vcr do
         }
       end
 
-      it "creates an account at stripe with all the params and returns the corresponding merchant account" do
-        expect(Stripe::Account).to receive(:create).with(expected_account_params).and_call_original
+      it "raises a user not ready error because new India accounts are blocked" do
+        expect(Stripe::Account).not_to receive(:create)
 
-        merchant_account = subject.create_account(user, passphrase: "1234")
+        expect do
+          subject.create_account(user, passphrase: "1234")
+        end.to raise_error(MerchantRegistrationUserNotReadyError, /not supported yet/)
+        expect(user.merchant_accounts.alive.count).to eq(0)
+      end
 
-        expect(merchant_account.charge_processor_id).to eq(StripeChargeProcessor.charge_processor_id)
-        expect(merchant_account.charge_processor_merchant_id).to be_present
-        expect(merchant_account.country).to eq("IN")
-        expect(merchant_account.currency).to eq("inr")
-        expect(bank_account.reload.stripe_connect_account_id).to eq(merchant_account.charge_processor_merchant_id)
-        expect(bank_account.reload.stripe_bank_account_id).to match(/ba_[a-zA-Z0-9]+/)
-        expect(bank_account.reload.stripe_fingerprint).to match(/[a-zA-Z0-9]+/)
+      context "when new India account creation is not blocked" do
+        before { stub_const("StripeMerchantAccountManager::NEW_ACCOUNT_CREATION_BLOCKED_COUNTRIES", []) }
+
+        it "creates an account at stripe with all the params and returns the corresponding merchant account" do
+          expect(Stripe::Account).to receive(:create).with(expected_account_params).and_call_original
+
+          merchant_account = subject.create_account(user, passphrase: "1234")
+
+          expect(merchant_account.charge_processor_id).to eq(StripeChargeProcessor.charge_processor_id)
+          expect(merchant_account.charge_processor_merchant_id).to be_present
+          expect(merchant_account.country).to eq("IN")
+          expect(merchant_account.currency).to eq("inr")
+          expect(bank_account.reload.stripe_connect_account_id).to eq(merchant_account.charge_processor_merchant_id)
+          expect(bank_account.reload.stripe_bank_account_id).to match(/ba_[a-zA-Z0-9]+/)
+          expect(bank_account.reload.stripe_fingerprint).to match(/[a-zA-Z0-9]+/)
+        end
       end
     end
 
@@ -3081,6 +3211,22 @@ describe StripeMerchantAccountManager, :vcr do
         expect(bank_account.reload.stripe_connect_account_id).to eq(merchant_account.charge_processor_merchant_id)
         expect(bank_account.reload.stripe_bank_account_id).to match(/ba_[a-zA-Z0-9]+/)
         expect(bank_account.reload.stripe_fingerprint).to match(/[a-zA-Z0-9]+/)
+      end
+
+      context "when the seller stored a plain account number instead of an IBAN" do
+        let(:bank_account) { create(:el_salvador_bank_account, user:, bank_number: "CAGRSVSS", account_number: "3280602160", account_number_last_four: "2160") }
+
+        it "constructs an IBAN from the SWIFT/BIC and account number before sending to Stripe" do
+          captured_params = nil
+          allow(Stripe::Account).to receive(:create) do |params|
+            captured_params = params
+            raise Stripe::APIError, "stop_here"
+          end
+
+          expect { subject.create_account(user, passphrase: "1234") }.to raise_error(Stripe::APIError, "stop_here")
+          expect(captured_params[:bank_account][:account_number]).to eq("SV88CAGR00000000003280602160")
+          expect(captured_params[:bank_account][:routing_number]).to eq("CAGRSVSS")
+        end
       end
     end
     describe "all info provided of a Chile individual" do
@@ -4370,7 +4516,7 @@ describe StripeMerchantAccountManager, :vcr do
             country: "GY",
             currency: "gyd",
             account_number: "000123456789",
-            routing_number: "AAAAGYGGXYZ"
+            routing_number: "AAAAGYGGXYZ-12345678"
           },
           settings: {
             payouts: {
@@ -9107,6 +9253,28 @@ describe StripeMerchantAccountManager, :vcr do
         expect(bank_account_2.stripe_fingerprint).to match(/[a-zA-Z0-9]+/)
       end
 
+      it "soft-deletes stale Stripe bank sync failure payout notes on successful sync" do
+        stale_failure_note = user.add_payout_note(content: "Stripe bank sync failed: routing_number_invalid — We couldn't find the bank for that")
+        stale_retry_note = user.add_payout_note(content: "Stripe bank sync failed and exhausted Sidekiq retries for bank_account_id=#{bank_account_1.id}. See Sentry for the underlying Stripe error.")
+        unrelated_note = user.add_payout_note(content: "Scheduled payouts paused on May 1, 2026")
+
+        expect(subject.update_bank_account(user, passphrase: "1234")).to eq(:synced)
+
+        expect(stale_failure_note.reload).not_to be_alive
+        expect(stale_retry_note.reload).not_to be_alive
+        expect(unrelated_note.reload).to be_alive
+      end
+
+      it "does not soft-delete failure notes when sync fails" do
+        stale_failure_note = user.add_payout_note(content: "Stripe bank sync failed: routing_number_invalid — We couldn't find the bank for that")
+        expect(Stripe::Account).to receive(:update).and_raise(Stripe::InvalidRequestError.new("Invalid account number", "invalid_account_number"))
+
+        result = subject.update_bank_account(user, passphrase: "1234")
+
+        expect(result).to eq(:invalid_bank_account)
+        expect(stale_failure_note.reload).to be_alive
+      end
+
       describe "invalid account number provided" do
         before do
           expect(Stripe::Account).to receive(:update).and_raise(Stripe::InvalidRequestError.new("Invalid account number", "invalid_account_number"))
@@ -9131,6 +9299,33 @@ describe StripeMerchantAccountManager, :vcr do
           end.to have_enqueued_mail(ContactingCreatorMailer, :invalid_bank_account).with(user.id)
         end
       end
+
+      describe "account holder name rejected by Stripe" do
+        before do
+          expect(Stripe::Account).to receive(:update).and_raise(Stripe::InvalidRequestError.new("Account holder name is invalid", "account_holder_name", code: "incorrect_account_holder_name"))
+        end
+
+        it "emails the creator about the rejected name" do
+          expect do
+            subject.update_bank_account(user, passphrase: "1234")
+          end.to have_enqueued_mail(ContactingCreatorMailer, :invalid_account_holder_name).with(user.id)
+        end
+      end
+
+      describe "Stripe rejects the external account with a CardError" do
+        before do
+          expect(Stripe::Account).to receive(:update).and_raise(Stripe::CardError.new("Your card does not support this type of purchase.", "external_account", code: "card_decline_rate_limit_exceeded"))
+        end
+
+        it "emails the creator, records a payout note, and returns :card_not_supported" do
+          result = nil
+          expect do
+            result = subject.update_bank_account(user, passphrase: "1234")
+          end.to have_enqueued_mail(ContactingCreatorMailer, :invalid_bank_account).with(user.id)
+          expect(result).to eq(:card_not_supported)
+          expect(user.comments.with_type_payout_note.last.content).to include("Stripe bank sync failed")
+        end
+      end
     end
 
     describe "all info provided previously, bank account not changed" do
@@ -9145,6 +9340,22 @@ describe StripeMerchantAccountManager, :vcr do
           stripe_account
         end
         subject.update_bank_account(user, passphrase: "1234")
+      end
+
+      it "syncs to Stripe when the account holder name has changed for JP accounts" do
+        user_compliance_info.update_columns(country: "Japan")
+        bank_account_1.update!(account_holder_full_name: "Updated Name")
+
+        stripe_account = {
+          "metadata" => { "bank_account_id" => bank_account_1.external_id },
+          "external_accounts" => [{ "account_holder_name" => "Previous Name" }]
+        }
+        stripe_account.define_singleton_method(:id) { "acct_123" }
+
+        expect(Stripe::Account).to receive(:retrieve).with(merchant_account.charge_processor_merchant_id).and_return(stripe_account)
+        expect(Stripe::Account).to receive(:update).with("acct_123", hash_including(bank_account: hash_including(account_holder_name: "Updated Name"))).and_raise(StandardError, "stop here")
+
+        expect { subject.update_bank_account(user, passphrase: "1234") }.to raise_error(StandardError, "stop here")
       end
     end
 
@@ -9177,6 +9388,261 @@ describe StripeMerchantAccountManager, :vcr do
       it "raises a user not ready error" do
         expect { subject.update_bank_account(user, passphrase: "1234") }.to raise_error(MerchantRegistrationUserNotReadyError)
       end
+    end
+  end
+
+  describe "cross-border SEPA IBAN payouts" do
+    let(:user) { create(:named_user) }
+    let(:tos_agreement) { travel_to(Time.find_zone("UTC").local(2015, 4, 1)) { create(:tos_agreement, user:) } }
+
+    before { tos_agreement }
+
+    context "when a Bulgaria-based creator submits a Lithuanian IBAN (the issue case)" do
+      let(:user_compliance_info) do
+        create(:user_compliance_info, user:, city: "Sofia", street_address: "address_full_match",
+                                      state: nil, zip_code: "1000", country: "Bulgaria")
+      end
+      let(:bank_account) { create(:bulgaria_bank_account, user:, account_number: "LT121000011101001000") }
+
+      before do
+        user_compliance_info
+        bank_account
+      end
+
+      it "creates a Stripe account in BG and registers the LT IBAN as an EUR external account" do
+        expect(Stripe::Account).to receive(:create).with(
+          hash_including(
+            country: "BG",
+            default_currency: "eur",
+            bank_account: hash_including(country: "LT", currency: "eur", account_number: "LT121000011101001000")
+          )
+        ).and_call_original
+
+        merchant_account = subject.create_account(user, passphrase: "1234")
+
+        expect(merchant_account.country).to eq("BG")
+        expect(merchant_account.currency).to eq("eur")
+        expect(merchant_account.charge_processor_merchant_id).to match(/acct_[a-zA-Z0-9]+/)
+        expect(bank_account.reload.stripe_connect_account_id).to eq(merchant_account.charge_processor_merchant_id)
+        expect(bank_account.reload.stripe_external_account_id).to match(/ba_[a-zA-Z0-9]+/)
+        expect(bank_account.reload.stripe_fingerprint).to be_present
+      end
+    end
+
+    context "when a Bulgaria-based creator with an existing BG IBAN switches to a Lithuanian IBAN" do
+      let(:user_compliance_info) do
+        create(:user_compliance_info, user:, city: "Sofia", street_address: "address_full_match",
+                                      state: nil, zip_code: "1000", country: "Bulgaria")
+      end
+      let(:original_bank_account) { create(:bulgaria_bank_account, user:, account_number: "BG80BNBG96611020345678") }
+      let(:cross_border_bank_account) { create(:bulgaria_bank_account, user:, account_number: "LT121000011101001000") }
+      let(:merchant_account) { subject.create_account(user, passphrase: "1234") }
+
+      before do
+        user_compliance_info
+        original_bank_account
+        merchant_account
+        original_bank_account.update!(deleted_at: Time.current)
+        cross_border_bank_account
+      end
+
+      it "syncs the LT IBAN with EUR currency to the existing BG Stripe account" do
+        expect(Stripe::Account).to receive(:update).with(
+          merchant_account.charge_processor_merchant_id,
+          hash_including(bank_account: hash_including(country: "LT", currency: "eur", account_number: "LT121000011101001000"))
+        ).and_call_original
+
+        result = subject.update_bank_account(user, passphrase: "1234")
+
+        expect(result).to eq(:synced)
+        expect(cross_border_bank_account.reload.stripe_connect_account_id).to eq(merchant_account.charge_processor_merchant_id)
+        expect(cross_border_bank_account.reload.stripe_external_account_id).to match(/ba_[a-zA-Z0-9]+/)
+        expect(cross_border_bank_account.reload.stripe_fingerprint).to be_present
+      end
+    end
+
+    context "when a Denmark-based creator submits a Lithuanian IBAN (Stripe's stated cross-border SEPA example)" do
+      let(:user_compliance_info) do
+        create(:user_compliance_info, user:, city: "Copenhagen", street_address: "address_full_match",
+                                      state: nil, zip_code: "1050", country: "Denmark")
+      end
+      let(:bank_account) { create(:denmark_bank_account, user:, account_number: "LT121000011101001000") }
+
+      before do
+        user_compliance_info
+        bank_account
+      end
+
+      it "creates a Stripe account in DK with DKK default currency but registers the LT IBAN as an EUR external account" do
+        expect(Stripe::Account).to receive(:create).with(
+          hash_including(
+            country: "DK",
+            default_currency: "dkk",
+            bank_account: hash_including(country: "LT", currency: "eur", account_number: "LT121000011101001000")
+          )
+        ).and_call_original
+
+        merchant_account = subject.create_account(user, passphrase: "1234")
+
+        expect(merchant_account.country).to eq("DK")
+        expect(merchant_account.currency).to eq("dkk")
+        expect(merchant_account.charge_processor_merchant_id).to match(/acct_[a-zA-Z0-9]+/)
+        expect(bank_account.reload.stripe_external_account_id).to match(/ba_[a-zA-Z0-9]+/)
+      end
+    end
+
+    context "when a Bulgaria-based creator submits a Bulgarian IBAN (regression: same-country still works)" do
+      let(:user_compliance_info) do
+        create(:user_compliance_info, user:, city: "Sofia", street_address: "address_full_match",
+                                      state: nil, zip_code: "1000", country: "Bulgaria")
+      end
+      let(:bank_account) { create(:bulgaria_bank_account, user:, account_number: "BG80BNBG96611020345678") }
+
+      before do
+        user_compliance_info
+        bank_account
+      end
+
+      it "creates a Stripe account in BG and registers the BG IBAN as an EUR external account" do
+        expect(Stripe::Account).to receive(:create).with(
+          hash_including(
+            country: "BG",
+            default_currency: "eur",
+            bank_account: hash_including(country: "BG", currency: "eur", account_number: "BG80BNBG96611020345678")
+          )
+        ).and_call_original
+
+        merchant_account = subject.create_account(user, passphrase: "1234")
+
+        expect(merchant_account.country).to eq("BG")
+        expect(merchant_account.currency).to eq("eur")
+        expect(bank_account.reload.stripe_external_account_id).to match(/ba_[a-zA-Z0-9]+/)
+      end
+    end
+
+    context "when a Denmark-based creator submits a Danish IBAN (regression: same-country still works)" do
+      let(:user_compliance_info) do
+        create(:user_compliance_info, user:, city: "Copenhagen", street_address: "address_full_match",
+                                      state: nil, zip_code: "1050", country: "Denmark")
+      end
+      let(:bank_account) { create(:denmark_bank_account, user:, account_number: "DK5000400440116243") }
+
+      before do
+        user_compliance_info
+        bank_account
+      end
+
+      it "creates a Stripe account in DK and registers the DK IBAN as a DKK external account" do
+        expect(Stripe::Account).to receive(:create).with(
+          hash_including(
+            country: "DK",
+            default_currency: "dkk",
+            bank_account: hash_including(country: "DK", currency: "dkk", account_number: "DK5000400440116243")
+          )
+        ).and_call_original
+
+        merchant_account = subject.create_account(user, passphrase: "1234")
+
+        expect(merchant_account.country).to eq("DK")
+        expect(merchant_account.currency).to eq("dkk")
+        expect(bank_account.reload.stripe_external_account_id).to match(/ba_[a-zA-Z0-9]+/)
+      end
+    end
+
+    context "when a Bulgaria-based creator submits a Saudi IBAN (non-SEPA)" do
+      it "is rejected at the model layer before any Stripe call" do
+        allow(Rails.env).to receive(:production?).and_return(true)
+        bank_account = build(:bulgaria_bank_account, user:, account_number: "SA0380000000608010167519")
+
+        expect(Stripe::Account).not_to receive(:create)
+        expect(bank_account).not_to be_valid
+        expect(bank_account.errors.full_messages.to_sentence).to eq("The account number is invalid.")
+      end
+    end
+  end
+
+  describe ".save_stripe_bank_account_info" do
+    let(:user) { create(:named_user) }
+    let(:bank_account) { create(:japan_bank_account, user:) }
+    let(:stripe_external_account) { double(id: "ba_123", fingerprint: "fingerprint_123") }
+    let(:stripe_account) { double(id: "acct_123", external_accounts: [stripe_external_account]) }
+
+    before do
+      bank_account.update_columns(account_holder_full_name: "Haruna マサシ")
+    end
+
+    it "persists Stripe metadata without revalidating a legacy invalid holder name" do
+      expect(bank_account).not_to be_valid
+
+      expect do
+        described_class.send(:save_stripe_bank_account_info, bank_account, stripe_account)
+      end.to change { CheckPaymentAddressWorker.jobs.size }.by(1)
+
+      expect(bank_account.reload.stripe_connect_account_id).to eq("acct_123")
+      expect(bank_account.stripe_external_account_id).to eq("ba_123")
+      expect(bank_account.stripe_fingerprint).to eq("fingerprint_123")
+    end
+  end
+
+  describe ".handle_stripe_info_requirements" do
+    let(:active_bank_account) { instance_double(CardBankAccount, id: 123, stripe_connect_account_id: nil) }
+    let(:requested_scope) { double(find_each: nil, where: double(present?: false), last: nil) }
+    let(:user_compliance_info_requests) { double(requested: requested_scope) }
+    let(:user) do
+      instance_double(
+        User,
+        account_active?: true,
+        user_compliance_info_requests:
+      )
+    end
+    let(:merchant_account) do
+      instance_double(
+        MerchantAccount,
+        alive?: true,
+        charge_processor_alive?: true,
+        user:,
+        stripe_disabled_reason: nil
+      )
+    end
+    let(:merchant_account_relation) { double(last: merchant_account) }
+    let(:stripe_account) do
+      {
+        "id" => "acct_123",
+        "business_type" => "individual",
+        "individual" => {},
+        "requirements" => {
+          "currently_due" => [],
+          "eventually_due" => [],
+          "past_due" => []
+        },
+        "charges_enabled" => true
+      }
+    end
+
+    before do
+      allow(MerchantAccount).to receive(:where).and_return(merchant_account_relation)
+      allow(described_class).to receive(:update_bank_account).with(user, passphrase: GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD")).and_return(:stripe_unknown_error)
+      allow(active_bank_account).to receive(:is_a?) { |klass| klass == CardBankAccount }
+      allow(user).to receive(:active_bank_account).and_return(active_bank_account, active_bank_account, active_bank_account, nil, nil)
+      allow(user).to receive(:with_lock).and_yield
+      allow(merchant_account).to receive(:reload).and_return(merchant_account)
+    end
+
+    it "captures the active bank once before enqueueing the retry worker" do
+      expect do
+        described_class.send(:handle_stripe_info_requirements, "evt_123", stripe_account, {})
+      end.to change { HandleNewBankAccountWorker.jobs.size }.by(1)
+
+      expect(HandleNewBankAccountWorker.jobs.last["args"]).to eq([active_bank_account.id])
+    end
+
+    it "captures the active bank once before reading card sync state" do
+      allow(described_class).to receive(:update_bank_account).with(user, passphrase: GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD")).and_return(:synced)
+      allow(user).to receive(:active_bank_account).and_return(active_bank_account, nil, nil)
+
+      expect do
+        described_class.send(:handle_stripe_info_requirements, "evt_123", stripe_account, {})
+      end.not_to raise_error
     end
   end
 
@@ -9669,8 +10135,8 @@ describe StripeMerchantAccountManager, :vcr do
             end
 
             it "does not email the creator if they are suspended" do
-              user.flag_for_fraud!(author_name: "iffy")
-              user.suspend_for_fraud!(author_name: "iffy")
+              user.flag_for_fraud!(author_name: "ContentModeration")
+              user.suspend_for_fraud!(author_name: "ContentModeration")
 
               expect do
                 described_class.handle_stripe_event(stripe_event)
@@ -9724,6 +10190,23 @@ describe StripeMerchantAccountManager, :vcr do
               expect do
                 described_class.handle_stripe_event(stripe_event)
               end.not_to have_enqueued_mail(MerchantRegistrationMailer, :stripe_charges_disabled)
+            end
+
+            it "persists the Stripe disabled_reason on the merchant account" do
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "rejected.listed"
+
+              described_class.handle_stripe_event(stripe_event)
+
+              expect(merchant_account.reload.stripe_disabled_reason).to eq("rejected.listed")
+            end
+
+            it "clears the disabled_reason when Stripe stops reporting one" do
+              merchant_account.update!(stripe_disabled_reason: "rejected.listed")
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = nil
+
+              described_class.handle_stripe_event(stripe_event)
+
+              expect(merchant_account.reload.stripe_disabled_reason).to be_nil
             end
           end
 
@@ -9798,7 +10281,7 @@ describe StripeMerchantAccountManager, :vcr do
               }
             end
 
-            it "pauses payouts on the account and notifies the creator by email if payouts are disabled due to info requirement" do
+            it "pauses payouts, records the Stripe reason as a comment, and notifies the creator by email if payouts are disabled due to info requirement" do
               expect(user.reload.payouts_paused_internally?).to be false
               stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "requirements.past_due"
 
@@ -9807,6 +10290,30 @@ describe StripeMerchantAccountManager, :vcr do
               end.to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled).with(user.id)
 
               expect(user.reload.payouts_paused_internally?).to be true
+              comment = user.comments.with_type_payouts_paused.last
+              expect(comment).to be_present
+              expect(comment.content).to include("requirements.past_due")
+              expect(user.payouts_paused_for_reason).to eq(comment.content)
+            end
+
+            it "applies the pause under a user lock and refreshes the merchant account so concurrent webhooks are serialized" do
+              expect_any_instance_of(User).to receive(:with_lock).and_call_original
+              expect_any_instance_of(MerchantAccount).to receive(:reload).and_call_original
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to change { user.reload.payouts_paused_internally? }.from(false).to(true)
+            end
+
+            it "rolls back the pause when the reason comment cannot be written, so a retry can recover" do
+              allow_any_instance_of(MerchantAccount).to receive(:stripe_payouts_paused_comment).and_return("")
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to raise_error(ActiveRecord::RecordInvalid)
+
+              expect(user.reload.payouts_paused_internally?).to be false
+              expect(user.comments.with_type_payouts_paused).to be_empty
             end
 
             it "does not overwrite the payout pause source if payouts are already paused internally" do
@@ -9835,19 +10342,141 @@ describe StripeMerchantAccountManager, :vcr do
               expect(user.reload.payouts_paused_internally?).to be true
             end
 
-            it "does not email the creator if payouts are disabled due to a reason other than info requirement" do
-              expect(user.reload.payouts_paused_internally?).to be false
+            it "refreshes the pause reason comment when Stripe's disabled reason changes while already paused by Stripe" do
+              user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
+              user.comments.create!(
+                author_name: "Stripe payouts sync",
+                comment_type: Comment::COMMENT_TYPE_PAYOUTS_PAUSED,
+                content: "Payouts automatically paused by Stripe (disabled reason: requirements.past_due)."
+              )
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "rejected.listed"
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to change { user.comments.with_type_payouts_paused.count }.by(1)
+
+              expect(user.reload.payouts_paused_for_reason).to include("rejected.listed")
+            end
+
+            it "does not duplicate the pause reason comment when the Stripe reason is unchanged while already paused by Stripe" do
+              user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "requirements.past_due"
+              described_class.handle_stripe_event(stripe_event)
+              expect(user.comments.with_type_payouts_paused.count).to eq(1)
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.not_to change { user.comments.with_type_payouts_paused.count }
+            end
+
+            it "sends the action-required email once when Stripe escalates an account already paused for review" do
+              user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "requirements.pending_verification"
+              stripe_event["data"]["object"]["requirements"]["currently_due"] = []
+              stripe_event["data"]["object"]["requirements"]["past_due"] = []
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.not_to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled)
+
+              stripe_event["data"]["object"]["requirements"]["currently_due"] = ["individual.id_number"]
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled).with(user.id)
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.not_to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled)
+            end
+
+            it "clears the pause-email marker when Stripe re-enables payouts" do
+              merchant_account.update!(stripe_payouts_pause_email_sent: "action_required")
+              user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
+              stripe_event["data"]["object"]["payouts_enabled"] = true
+
+              described_class.handle_stripe_event(stripe_event)
+
+              expect(merchant_account.reload.stripe_payouts_pause_email_sent).to be_nil
+            end
+
+            it "does not re-send the pause email when re-paused after a non-Stripe resume while Stripe stays disabled" do
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "requirements.past_due"
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled).with(user.id)
+
+              # an admin or update_payout_method resume clears the internal pause but not the marker
+              user.update!(payouts_paused_internally: false, payouts_paused_by: nil)
+
               expect do
                 described_class.handle_stripe_event(stripe_event)
               end.not_to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled)
               expect(user.reload.payouts_paused_internally?).to be true
+            end
 
+            it "sends the action-required email for any disabled reason that still has outstanding requirements" do
+              expect(user.reload.payouts_paused_internally?).to be false
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "listed"
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled).with(user.id)
+
+              expect(user.reload.payouts_paused_internally?).to be true
+              expect(user.payouts_paused_for_reason).to include("listed")
+            end
+
+            it "does not email the creator when the platform paused payouts" do
               stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "platform_paused"
 
-              expect do
-                described_class.handle_stripe_event(stripe_event)
-              end.not_to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_disabled)
+              expect(MerchantRegistrationMailer).not_to receive(:stripe_payouts_disabled)
+              expect(MerchantRegistrationMailer).not_to receive(:stripe_payouts_under_review)
+
+              described_class.handle_stripe_event(stripe_event)
+
               expect(user.reload.payouts_paused_internally?).to be true
+              expect(user.payouts_paused_for_reason).to include("platform_paused")
+            end
+
+            it "does not email the creator when Stripe rejected the account" do
+              stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "rejected.listed"
+
+              expect(MerchantRegistrationMailer).not_to receive(:stripe_payouts_disabled)
+              expect(MerchantRegistrationMailer).not_to receive(:stripe_payouts_under_review)
+
+              described_class.handle_stripe_event(stripe_event)
+
+              expect(user.reload.payouts_paused_internally?).to be true
+              expect(user.payouts_paused_for_reason).to include("rejected.listed")
+            end
+
+            context "when Stripe is not requesting any fields" do
+              before do
+                stripe_event["data"]["object"]["requirements"]["past_due"] = []
+              end
+
+              it "sends the under-review email for a non-rejected reason with no outstanding requirements" do
+                stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "requirements.pending_verification"
+
+                expect do
+                  described_class.handle_stripe_event(stripe_event)
+                end.to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_under_review).with(user.id)
+
+                expect(user.reload.payouts_paused_internally?).to be true
+              end
+
+              it "sends the under-review email when only eventually-due (not yet required) fields exist" do
+                stripe_event["data"]["object"]["requirements"]["disabled_reason"] = "requirements.pending_verification"
+                stripe_event["data"]["object"]["requirements"]["eventually_due"] = ["individual.id_number"]
+
+                expect do
+                  described_class.handle_stripe_event(stripe_event)
+                end.to have_enqueued_mail(MerchantRegistrationMailer, :stripe_payouts_under_review).with(user.id)
+
+                expect(user.reload.payouts_paused_internally?).to be true
+              end
             end
           end
 
@@ -9932,16 +10561,43 @@ describe StripeMerchantAccountManager, :vcr do
               }
             end
 
-            it "resumes payouts on the account if payouts are paused internally by stripe" do
+            it "resumes payouts on the account and records a resume comment if payouts are paused internally by stripe" do
               user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
               expect(user.reload.payouts_paused_internally?).to be true
               expect(user.payouts_paused_by_source).to eq(User::PAYOUT_PAUSE_SOURCE_STRIPE)
 
-              described_class.handle_stripe_event(stripe_event)
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to change { user.comments.with_type_payouts_resumed.count }.by(1)
 
               expect(user.reload.payouts_paused_internally?).to be false
               expect(user.payouts_paused_by).to be nil
               expect(user.payouts_paused_by_source).to be nil
+            end
+
+            it "notes that payouts remain creator-paused when Stripe re-enables an account the creator also paused" do
+              user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
+              user.update!(payouts_paused_by_user: true)
+
+              described_class.handle_stripe_event(stripe_event)
+
+              user.reload
+              expect(user.payouts_paused_internally?).to be false
+              expect(user.payouts_paused?).to be true # still paused by the creator
+              expect(user.comments.with_type_payouts_resumed.last.content).to include("remain paused by the creator")
+            end
+
+            it "rolls back the resume when clearing the pause-email marker fails, so a retry can recover" do
+              merchant_account.update!(stripe_payouts_pause_email_sent: "action_required")
+              user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
+              allow_any_instance_of(MerchantAccount).to receive(:update!).and_raise(ActiveRecord::RecordInvalid)
+
+              expect do
+                described_class.handle_stripe_event(stripe_event)
+              end.to raise_error(ActiveRecord::RecordInvalid)
+
+              expect(user.reload.payouts_paused_internally?).to be true
+              expect(user.comments.with_type_payouts_resumed.count).to eq(0)
             end
 
             it "does not resume payouts if payouts are paused internally by admin" do
@@ -10420,7 +11076,9 @@ describe StripeMerchantAccountManager, :vcr do
           user_compliance_info_requests = UserComplianceInfoRequest.all
           expect(user_compliance_info_requests[0].emails_sent_at).to eq([frozen_time])
 
-          described_class.handle_stripe_event(stripe_event_2)
+          travel_to(frozen_time) do
+            described_class.handle_stripe_event(stripe_event_2)
+          end
 
           user_compliance_info_requests = UserComplianceInfoRequest.all
           expect(user_compliance_info_requests[0].emails_sent_at).to eq([frozen_time])
@@ -11354,6 +12012,184 @@ describe StripeMerchantAccountManager, :vcr do
           subject.handle_new_bank_account(user_compliance_info)
         end
       end
+    end
+  end
+
+  describe ".update_person" do
+    let(:user) { create(:user, email: "rep@example.com") }
+    let(:user_compliance_info) { create(:user_compliance_info_business, user:) }
+    let(:stripe_account) { Stripe::Account.construct_from(id: "acct_multi_owner_123") }
+
+    let(:representative_person) do
+      Stripe::Person.construct_from(
+        id: "person_representative",
+        object: "person",
+        account: stripe_account.id,
+        relationship: { representative: true, owner: true, percent_ownership: 33.33 }
+      )
+    end
+    let(:co_director_owner) do
+      Stripe::Person.construct_from(
+        id: "person_co_director",
+        object: "person",
+        account: stripe_account.id,
+        relationship: { representative: false, owner: true, percent_ownership: 33.33 }
+      )
+    end
+    let(:third_owner) do
+      Stripe::Person.construct_from(
+        id: "person_third_owner",
+        object: "person",
+        account: stripe_account.id,
+        relationship: { representative: false, owner: true, percent_ownership: 33.34 }
+      )
+    end
+
+    before { user_compliance_info }
+
+    context "list_persons filters by relationship.representative on Stripe's side" do
+      it "queries Stripe with relationship: { representative: true }, limit: 1 — no client-side scanning" do
+        expect(Stripe::Account).to receive(:list_persons)
+          .with(stripe_account.id, relationship: { representative: true }, limit: 1)
+          .and_return("data" => [representative_person])
+        expect(Stripe::Account).to receive(:update_person)
+          .with(stripe_account.id, representative_person.id, anything)
+          .and_return(true)
+
+        described_class.update_person(user, stripe_account, nil, "1234")
+      end
+    end
+
+    context "with the representative on the Stripe account" do
+      it "sends only representative: true and lets Stripe preserve owner/title/percent_ownership set via BeneficialOwnersSection" do
+        expect(Stripe::Account).to receive(:list_persons)
+          .with(stripe_account.id, relationship: { representative: true }, limit: 1)
+          .and_return("data" => [representative_person])
+
+        captured_attributes = nil
+        expect(Stripe::Account).to receive(:update_person) do |_account_id, _person_id, attributes|
+          captured_attributes = attributes
+          true
+        end
+
+        described_class.update_person(user, stripe_account, nil, "1234")
+
+        expect(captured_attributes[:relationship]).to eq(representative: true)
+      end
+    end
+
+    context "when Stripe returns no persons for the account" do
+      it "returns early without calling update_person" do
+        expect(Stripe::Account).to receive(:list_persons)
+          .with(stripe_account.id, relationship: { representative: true }, limit: 1)
+          .and_return("data" => [])
+        expect(Stripe::Account).not_to receive(:update_person)
+
+        described_class.update_person(user, stripe_account, nil, "1234")
+      end
+    end
+
+    context "individual→company transition" do
+      it "seeds owner: true, title, percent_ownership: 100 when transitioning from individual to business" do
+        last_individual_info = create(:user_compliance_info, user:)
+        last_individual_info.mark_deleted!
+        create(:user_compliance_info_business, user:)
+
+        expect(Stripe::Account).to receive(:list_persons)
+          .with(stripe_account.id, relationship: { representative: true }, limit: 1)
+          .and_return("data" => [representative_person])
+
+        captured_attributes = nil
+        expect(Stripe::Account).to receive(:update_person) do |_account_id, _person_id, attributes|
+          captured_attributes = attributes
+          true
+        end
+
+        described_class.update_person(user, stripe_account, last_individual_info.external_id, "1234")
+
+        expect(captured_attributes[:relationship]).to include(
+          representative: true,
+          owner: true,
+          percent_ownership: 100,
+        )
+        expect(captured_attributes[:relationship][:title]).to be_present
+      end
+    end
+  end
+
+  describe "soft-future requirement skip" do
+    let(:user) { create(:user) }
+    let(:merchant_account) { create(:merchant_account, user:) }
+
+    before { create(:user_compliance_info, user:, country: Compliance::Countries::USA.common_name) }
+
+    def stripe_event(eventually_due:, currently_due: [], past_due: [], deadline: 90.days.from_now.to_i)
+      {
+        "api_version" => API_VERSION,
+        "type" => "account.updated",
+        "id" => "stripe-event-id-soft",
+        "account" => merchant_account.charge_processor_merchant_id,
+        "user_id" => merchant_account.charge_processor_merchant_id,
+        "data" => {
+          "object" => {
+            "object" => "account",
+            "id" => merchant_account.charge_processor_merchant_id,
+            "business_type" => "individual",
+            "charges_enabled" => true,
+            "payouts_enabled" => true,
+            "requirements" => {
+              "current_deadline" => deadline,
+              "currently_due" => currently_due,
+              "eventually_due" => eventually_due,
+              "past_due" => past_due
+            }
+          }
+        }
+      }
+    end
+
+    it "records the request but does not email when the only new field is in eventually_due with a far-future deadline" do
+      expect do
+        described_class.handle_stripe_event(stripe_event(eventually_due: ["individual.id_number"]))
+      end.not_to have_enqueued_mail(ContactingCreatorMailer, :more_kyc_needed)
+      expect(user.user_compliance_info_requests.requested.count).to eq(1)
+    end
+
+    it "emails as usual when the new field is currently_due even if other fields are eventually_due" do
+      expect do
+        described_class.handle_stripe_event(stripe_event(
+                                              currently_due: ["individual.id_number"],
+                                              eventually_due: ["company.tax_id"]
+                                            ))
+      end.to have_enqueued_mail(ContactingCreatorMailer, :more_kyc_needed)
+    end
+
+    it "emails as usual when the eventually_due field has a near-term deadline" do
+      expect do
+        described_class.handle_stripe_event(stripe_event(
+                                              eventually_due: ["individual.id_number"],
+                                              deadline: 7.days.from_now.to_i
+                                            ))
+      end.to have_enqueued_mail(ContactingCreatorMailer, :more_kyc_needed)
+    end
+
+    it "still emails when an outstanding currently_due field remains alongside a new soft eventually_due field" do
+      create(:user_compliance_info_request, user:, field_needed: UserComplianceInfoFields::Business::TAX_ID)
+
+      expect do
+        described_class.handle_stripe_event(stripe_event(
+                                              currently_due: ["business.tax_id"],
+                                              eventually_due: ["individual.id_number"]
+                                            ))
+      end.to have_enqueued_mail(ContactingCreatorMailer, :more_kyc_needed)
+    end
+
+    it "does not re-notify on the monthly path when every outstanding requested field is soft" do
+      create(:user_compliance_info_request, user:, field_needed: UserComplianceInfoFields::Individual::TAX_ID, created_at: 2.months.ago)
+
+      expect do
+        described_class.handle_stripe_event(stripe_event(eventually_due: ["individual.id_number"]))
+      end.not_to have_enqueued_mail(ContactingCreatorMailer, :more_kyc_needed)
     end
   end
 end

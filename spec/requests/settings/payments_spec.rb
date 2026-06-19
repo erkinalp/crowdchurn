@@ -4,6 +4,14 @@ require "spec_helper"
 require "shared_examples/authorize_called"
 
 describe("Payments Settings Scenario", type: :system, js: true) do
+  def change_masked_tax_field(label)
+    if has_field?(label, disabled: true, wait: 0)
+      field = find_field(label, disabled: true)
+      container = field.find(:xpath, "./ancestor::div[.//button[text()='Change']][1]")
+      container.find("button", text: "Change", match: :first).click
+    end
+  end
+
   describe "PayPal section" do
     let(:user) { create(:user, name: "Gum") }
 
@@ -12,7 +20,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
       login_as user
     end
 
-    it "render Payments tab navigation" do
+    it "renders Payments tab navigation" do
       visit settings_payments_path
 
       expect(page).to have_tab_button("Payments", open: true)
@@ -101,7 +109,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
       include_context "with switching account to user as admin for seller"
 
-      it "does not Connect with Paypal button link" do
+      it "does not show the Connect with Paypal button link" do
         visit settings_payments_path
 
         expect(page).not_to have_link("Connect with Paypal")
@@ -467,6 +475,31 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         expect(@user.active_ach_account).to eq(old_ach_account)
       end
 
+      it "shows masked SSN with eye icon toggle when tax ID has been entered" do
+        visit settings_payments_path
+
+        # Should show masked field, not an empty input
+        ssn_field = find_field("Last 4 digits of SSN", disabled: true)
+        expect(ssn_field.value).to eq("•••-••-••••")
+        expect(ssn_field).to be_disabled
+
+        # Toggle eye icon to reveal last 4 digits
+        find("button[aria-label='Show last 4 digits']").click
+        ssn_field = find_field("Last 4 digits of SSN", disabled: true)
+        expect(ssn_field.value).to eq("•••-••-1234")
+
+        # Toggle back to hide
+        find("button[aria-label='Hide tax ID']").click
+        ssn_field = find_field("Last 4 digits of SSN", disabled: true)
+        expect(ssn_field.value).to eq("•••-••-••••")
+
+        # Click Change to re-enable editing
+        click_on("Change")
+        ssn_field = find_field("Last 4 digits of SSN")
+        expect(ssn_field).not_to be_disabled
+        expect(ssn_field.value).to eq("")
+      end
+
       it "allows the creator to edit their personal info that is locked at Stripe after account verification, and displays an error" do
         error_message = "You cannot change legal_entity[first_name] via API if an account is verified. Please contact us via https://support.stripe.com/contact if you need to change the information associated with this account."
         param = "legal_entity[first_name]"
@@ -657,12 +690,12 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         visit settings_payments_path
 
         choose "Individual"
-        fill_in "Street address", with: "P.O. Box 123, Smith street"
+        find_field("Address", match: :first).set("P.O. Box 123, Smith street")
         expect do
           click_on "Update settings"
           expect(page).to have_status(text: "We require a valid physical US address. We cannot accept a P.O. Box as a valid address.")
         end.to_not change { @user.alive_user_compliance_info.reload.street_address }
-        fill_in "Street address", with: "123, Smith street"
+        find_field("Address", match: :first).set("123, Smith street")
         expect do
           click_on "Update settings"
           wait_for_ajax
@@ -689,7 +722,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
           expect(page).to have_alert(text: "Thanks! You're all set.")
           sleep 0.5 # Since the previous Alerts takes time to disappear, checking alert returns early before the api call is complete
         end.to change { @user.alive_user_compliance_info.reload.business_street_address }.to("123 North street")
-        fill_in "Street address", with: "po box 123 smith street"
+        find(:css, "input[id$='creator-street-address']").set("po box 123 smith street")
         expect do
           click_on "Update settings"
           expect(page).to have_status(text: "We require a valid physical US address. We cannot accept a P.O. Box as a valid address.")
@@ -777,6 +810,36 @@ describe("Payments Settings Scenario", type: :system, js: true) do
       end
     end
 
+    describe "US business with EIN already saved, editing non-EIN fields" do
+      before do
+        create(:ach_account_stripe_succeed, user: @user)
+        ActiveRecord::Base.transaction do
+          @user.alive_user_compliance_info.mark_deleted!
+          create(
+            :user_compliance_info_business,
+            user: @user,
+            business_phone: "+15052426789",
+            phone: "+15022541982",
+            birthday: Date.new(1980, 1, 1),
+          )
+        end
+      end
+
+      it "saves changes without rejecting the saved EIN" do
+        visit settings_payments_path
+
+        fill_in "Address", match: :first, with: "456 Updated Business Lane", fill_options: { clear: :backspace }
+
+        click_on("Update settings")
+
+        expect(page).to have_alert(text: "Thanks! You're all set.")
+
+        compliance_info = @user.reload.alive_user_compliance_info
+        expect(compliance_info.business_street_address).to eq("456 Updated Business Lane")
+        expect(compliance_info.business_tax_id.decrypt("1234")).to eq("000000000")
+      end
+    end
+
     describe "CA corporation requiring company registration verification document" do
       before do
         old_user_compliance_info = @user.alive_user_compliance_info
@@ -806,7 +869,6 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
         fill_in("First name", with: "CA")
         fill_in("Last name", with: "Creator")
-        fill_in("Job title", with: "General Manager")
         all('select[id$="creator-country"]').last.select("Canada")
         all('input[id$="creator-street-address"]').last.set("address_full_match")
         all('input[id$="creator-city"]').last.set("Toronto")
@@ -846,7 +908,6 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         expect(compliance_info.business_tax_id.decrypt("1234")).to eq("111111111")
         expect(compliance_info.first_name).to eq("CA")
         expect(compliance_info.last_name).to eq("Creator")
-        expect(compliance_info.job_title).to eq("General Manager")
         expect(compliance_info.street_address).to eq("address_full_match")
         expect(compliance_info.city).to eq("Toronto")
         expect(compliance_info.state).to eq("ON")
@@ -962,7 +1023,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
       it "shows confirmation modal and updates the country if confirmed" do
         visit settings_payments_path
-        expect(find(:select, "Country")).to have_selector(:option, "Somalia (not supported)", disabled: true)
+        expect(find(:select, "Country")).to have_selector(:option, "Cuba (not supported)", disabled: true)
         select(@update_country, from: "Country")
 
         within_modal do
@@ -1031,6 +1092,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
           select("January", from: "Month")
           select("1980", from: "Year")
           select("India", from: "Nationality")
+          change_masked_tax_field("Emirates ID")
           fill_in("Emirates ID", with: "000000000000000")
 
           expect(page).to have_status(text: "PayPal payouts are subject to a 2% processing fee.")
@@ -1072,6 +1134,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
           select("January", from: "Month")
           select("1980", from: "Year")
           select("India", from: "Nationality")
+          change_masked_tax_field("Emirates ID")
           fill_in("Emirates ID", with: "000000000000000")
 
           expect(page).to have_status(text: "PayPal payouts are subject to a 2% processing fee.")
@@ -1349,7 +1412,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         expect(page).to have_content("Payouts will be made in EUR.")
 
         click_on("Update settings")
-        expect(page).to have_content("The postal code you entered is not valid for Germany.")
+        expect(page).to have_content("We couldn't verify the postal code you entered for Germany. If you're sure it's correct, such as a newly built address, contact support and we'll look into it.")
 
         fill_in("Postal code", with: "01067")
         click_on("Update settings")
@@ -1448,7 +1511,6 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
         fill_in("First name", with: "Canadian")
         fill_in("Last name", with: "Manager")
-        fill_in("Job title", with: "Sales Manager")
         all('select[id$="creator-country"]').last.select("Canada")
         all('input[id$="creator-street-address"]').last.set("address_full_match")
         all('input[id$="creator-city"]').last.set("Toronto")
@@ -1474,7 +1536,6 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
         expect(page).to have_alert(text: "Thanks! You're all set.")
         expect(page).to have_content("Transit and institution #")
-        expect(page).to have_field("Job title", with: "Sales Manager")
 
         compliance_info = @user.alive_user_compliance_info
         expect(compliance_info.is_business).to be true
@@ -1485,7 +1546,6 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         expect(compliance_info.business_country).to eq("Canada")
         expect(compliance_info.business_zip_code).to eq("M4C 1T2")
         expect(compliance_info.business_phone).to eq("+15052426789")
-        expect(compliance_info.job_title).to eq("Sales Manager")
         expect(compliance_info.business_type).to eq("private_partnership")
         expect(compliance_info.business_tax_id.decrypt("1234")).to eq("000000000")
         expect(compliance_info.first_name).to eq("Canadian")
@@ -1828,6 +1888,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         fill_in("Last name", with: "creator")
         fill_in("Phone number", with: "98765432")
         select("India", from: "Nationality")
+        change_masked_tax_field("Emirates ID")
         fill_in("Emirates ID", with: "000000000000000")
 
         select("1", from: "Day")
@@ -1898,6 +1959,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         select("January", from: "Month")
         select("1980", from: "Year")
         select("India", from: "Nationality")
+        change_masked_tax_field("Emirates ID")
         fill_in("Emirates ID", with: "000000000000000")
 
         expect(page).to have_status(text: "PayPal payouts are subject to a 2% processing fee.")
@@ -1944,6 +2006,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         select("January", from: "Month")
         select("1980", from: "Year")
         select("India", from: "Nationality")
+        change_masked_tax_field("Emirates ID")
         fill_in("Emirates ID", with: "000000000000000")
 
         expect(page).to have_status(text: "PayPal payouts are subject to a 2% processing fee.")
@@ -1980,6 +2043,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         select("January", from: "Month")
         select("1980", from: "Year")
         select("India", from: "Nationality")
+        change_masked_tax_field("Emirates ID")
         fill_in("Emirates ID", with: "000000000000000")
 
         expect(page).not_to have_status(text: "PayPal payouts are subject to a 2% processing fee.")
@@ -4192,6 +4256,102 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         expect(@user.reload.active_bank_account.routing_number).to eq("022112")
         expect(@user.reload.active_bank_account.send(:account_number_decrypted)).to eq("000123456789")
       end
+
+      it "allows saving unrelated changes when a legacy individual P.O. Box address is unchanged" do
+        allow_any_instance_of(User).to receive(:can_setup_paypal_payouts?).and_return(true)
+        @user.update!(payment_address: "ghanaian@example.com")
+        @user.alive_user_compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.first_name = "ghanaian"
+          new_compliance_info.last_name = "creator"
+          new_compliance_info.street_address = "PO Box 99, Accra"
+          new_compliance_info.city = "Accra"
+          new_compliance_info.phone = "+233302213850"
+          new_compliance_info.zip_code = "00233"
+          new_compliance_info.birthday = Date.new(1980, 1, 1)
+        end
+
+        visit settings_payments_path
+
+        fill_in("First name", with: "newfirst")
+        click_on("Update settings")
+
+        expect(page).to have_alert(text: "Thanks! You're all set.")
+        expect(@user.reload.alive_user_compliance_info.first_name).to eq("newfirst")
+        expect(@user.alive_user_compliance_info.street_address).to eq("PO Box 99, Accra")
+      end
+
+      it "allows saving unrelated changes when a hidden legacy business P.O. Box address is unchanged for an individual" do
+        allow_any_instance_of(User).to receive(:can_setup_paypal_payouts?).and_return(true)
+        @user.update!(payment_address: "ghanaian@example.com")
+        @user.alive_user_compliance_info.dup_and_save! do |new_compliance_info|
+          new_compliance_info.first_name = "ghanaian"
+          new_compliance_info.last_name = "creator"
+          new_compliance_info.street_address = "address_full_match"
+          new_compliance_info.business_street_address = "PO Box 77, Accra"
+          new_compliance_info.city = "Accra"
+          new_compliance_info.phone = "+233302213850"
+          new_compliance_info.zip_code = "00233"
+          new_compliance_info.birthday = Date.new(1980, 1, 1)
+        end
+
+        visit settings_payments_path
+
+        fill_in("First name", with: "newfirst")
+        click_on("Update settings")
+
+        expect(page).to have_alert(text: "Thanks! You're all set.")
+        expect(@user.reload.alive_user_compliance_info.first_name).to eq("newfirst")
+        expect(@user.alive_user_compliance_info.business_street_address).to eq("PO Box 77, Accra")
+      end
+
+      it "does not allow saving an individual P.O. Box address" do
+        visit settings_payments_path
+
+        choose "Individual"
+        fill_in("Phone number", with: "302213850")
+
+        find_field("Address", match: :first).set("P.O. Box 123, High street")
+
+        expect do
+          click_on "Update settings"
+          expect(page).to have_status(text: "We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+        end.to_not change { @user.alive_user_compliance_info.reload.street_address }
+      end
+
+      it "does not allow saving a business P.O. Box address" do
+        visit settings_payments_path
+
+        fill_in("First name", with: "ghanaian")
+        fill_in("Last name", with: "creator")
+        fill_in("Address", with: "address_full_match")
+        fill_in("City", with: "Accra")
+        fill_in("Phone number", with: "302213850")
+        fill_in("Postal code", with: "00233")
+
+        select("1", from: "Day")
+        select("January", from: "Month")
+        select("1980", from: "Year")
+
+        choose "Business"
+
+        fill_in "Legal business name", with: "Acme"
+        select("LLC", from: "Type")
+        find_field("Address", match: :first).set("PO Box 123 High street")
+        find_field("City", match: :first).set("Accra")
+        find_field("Postal code", match: :first).set("00233")
+        fill_in "Business phone number", with: "302213850"
+        fill_in "Company tax ID", with: "000000000"
+
+        fill_in("Pay to the order of", with: "ghanaian creator")
+        fill_in("Bank code", with: "022112")
+        fill_in("Account #", with: "000123456789")
+        fill_in("Confirm account #", with: "000123456789")
+
+        expect do
+          click_on "Update settings"
+          expect(page).to have_status(text: "We require a valid physical address in Ghana. We cannot accept a P.O. Box as a valid address.")
+        end.to_not change { @user.alive_user_compliance_info.reload.business_street_address }
+      end
     end
 
     describe "Jamaican creator" do
@@ -4419,8 +4579,8 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         select("1901", from: "Year")
 
         fill_in("Pay to the order of", with: "Uzbekistan Creator")
-        fill_in("Bank code", with: "AAAAUZUZXXX")
-        fill_in("Branch code", with: "00000")
+        fill_in("SWIFT/BIC code", with: "AAAAUZUZXXX")
+        fill_in("MFO (branch code)", with: "00000")
         fill_in("Account #", with: "99934500012345670024")
         fill_in("Confirm account #", with: "99934500012345670024")
 
@@ -4821,6 +4981,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
         fill_in("Pay to the order of", with: "Guyana Creator")
         fill_in("SWIFT / BIC Code", with: "AAAAGYGGXYZ")
+        fill_in("Branch code", with: "12345678")
         fill_in("Account #", with: "000123456789")
         fill_in("Confirm account #", with: "000123456789")
 
@@ -4830,7 +4991,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         click_on("Update settings")
 
         expect(page).to have_alert(text: "Thanks! You're all set.")
-        expect(page).to have_content("SWIFT / BIC code")
+        expect(page).to have_content("SWIFT/BIC and branch code")
         compliance_info = @user.alive_user_compliance_info
         expect(compliance_info.first_name).to eq("Guyana")
         expect(compliance_info.last_name).to eq("Creator")
@@ -4840,7 +5001,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         expect(compliance_info.phone).to eq("+5926291234")
         expect(compliance_info.birthday).to eq(Date.new(1901, 1, 1))
         expect(@user.reload.active_bank_account.send(:account_number_decrypted)).to eq("000123456789")
-        expect(@user.reload.active_bank_account.routing_number).to eq("AAAAGYGGXYZ")
+        expect(@user.reload.active_bank_account.routing_number).to eq("AAAAGYGGXYZ-12345678")
       end
     end
 
@@ -5180,8 +5341,8 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         select("1901", from: "Year")
 
         fill_in("Pay to the order of", with: "El Salvadorian Creator")
-        fill_in("IBAN", with: "SV44BCIE12345678901234567890")
-        fill_in("Confirm IBAN", with: "SV44BCIE12345678901234567890")
+        fill_in("Account number", with: "12345678901234")
+        fill_in("Confirm account number", with: "12345678901234")
         fill_in("SWIFT / BIC Code", with: "AAAASVS1XXX")
 
         expect(page).to have_content("Must exactly match the name on your bank account")
@@ -5199,7 +5360,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         expect(compliance_info.zip_code).to eq("1101")
         expect(compliance_info.phone).to eq("+50368765432")
         expect(compliance_info.birthday).to eq(Date.new(1901, 1, 1))
-        expect(@user.reload.active_bank_account.send(:account_number_decrypted)).to eq("SV44BCIE12345678901234567890")
+        expect(@user.reload.active_bank_account.send(:account_number_decrypted)).to eq("12345678901234")
         expect(@user.reload.active_bank_account.routing_number).to eq("AAAASVS1XXX")
       end
     end
@@ -5332,8 +5493,8 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
         fill_in("Pay to the order of", with: "malagasy creator")
         fill_in("SWIFT / BIC Code", with: "AAAAMGMGXXX")
-        fill_in("Account #", with: "MG4800005000011234567890123")
-        fill_in("Confirm account #", with: "MG4800005000011234567890123")
+        fill_in("IBAN", with: "MG4800005000011234567890123")
+        fill_in("Confirm IBAN", with: "MG4800005000011234567890123")
 
         expect(page).to have_content("Must exactly match the name on your bank account")
         expect(page).to have_content("Payouts will be made in MGA.")
@@ -6155,13 +6316,12 @@ describe("Payments Settings Scenario", type: :system, js: true) do
         visit settings_payments_path
         within_modal do
           expect(page).to have_content "Where are you located?"
-          expect(page).to have_content "You may have to forfeit your balance if you want to change your country in the future."
           expect(page).to have_button "Save", disabled: true
-          expect(find(:select, "Country")).to have_selector(:option, "Somalia (not supported)", disabled: true)
+          expect(find(:select, "Country")).to have_selector(:option, "Cuba (not supported)", disabled: true)
           select "United States", from: "Country"
           check "I have a valid, government-issued photo ID"
           check "I have proof of residence within this country"
-          check "If I am signing up as a business, it is registered in the country above"
+          check "I am signing up as an individual, or my business is registered in the country above"
           click_on "Save"
           wait_for_ajax
         end
@@ -6276,7 +6436,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
           click_on "Opt-in to backtaxes collection"
 
-          expect(page).to have_field("Type your full name to opt-in", placeholder: "Full name")
+          expect(page).to have_field("Type your full name to opt-in")
         end
       end
     end
@@ -6394,7 +6554,7 @@ describe("Payments Settings Scenario", type: :system, js: true) do
 
         within_section "Account status", section_element: :section do
           expect(page).to have_text("Please provide your tax ID.")
-          expect(page).to have_link("contact support", href: "https://help.gumroad.com")
+          expect(page).to have_link("contact support", href: help_center_root_path)
           expect(page).not_to have_text("Action needed")
         end
       end

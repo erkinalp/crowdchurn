@@ -13,7 +13,7 @@ module CapybaraHelpers
 
   def wait_for_ajax
     Timeout.timeout(Capybara.default_max_wait_time) do
-      loop until finished_all_ajax_requests?
+      sleep 0.05 until finished_all_ajax_requests?
     end
   end
 
@@ -23,12 +23,36 @@ module CapybaraHelpers
     EOS
   end
 
+  DISABLE_ANIMATIONS_JS = <<~JS
+    if (!document.getElementById('__disable_animations')) {
+      const style = document.createElement('style');
+      style.id = '__disable_animations';
+      style.textContent = '*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; transition-delay: 0s !important; }';
+      document.head.appendChild(style);
+    }
+  JS
+
   def visit(url)
     page.visit(url)
     return if Capybara.current_driver == :rack_test
     Timeout.timeout(Capybara.default_max_wait_time) do
-      loop until page.evaluate_script("document.readyState") == "complete"
+      sleep 0.05 until page.evaluate_script("document.readyState") == "complete"
     end
+    # With Vite, JS is loaded via ESM (type="module") which is deferred —
+    # modules execute after DOMContentLoaded but may not have finished by
+    # the time readyState == "complete". Wait for the Inertia React app to
+    # mount (the #app div gets children) or for non-Inertia pages to load
+    # their JS entry points.
+    Timeout.timeout(Capybara.default_max_wait_time) do
+      sleep 0.05 until page.evaluate_script(<<~JS)
+        (function() {
+          var app = document.getElementById('app');
+          if (!app) return true;
+          return app.children.length > 0;
+        })()
+      JS
+    end
+    disable_animations
     wait_for_ajax
   end
 
@@ -69,14 +93,33 @@ module CapybaraHelpers
   end
 
   def accept_browser_dialog
-    wait = Selenium::WebDriver::Wait.new(timeout: 30)
-    wait.until do
-      page.driver.browser.switch_to.alert
-      true
-    rescue Selenium::WebDriver::Error::NoAlertPresentError
-      false
-    end
     page.driver.browser.switch_to.alert.accept
+  rescue StandardError
+    sleep 0.5
+    page.driver.browser.switch_to.alert.accept
+  end
+
+  # Reads the flash/toast alert message and immediately dismisses it.
+  # Use this instead of `have_alert` when the alert overlays content
+  # you need to interact with next — it prevents the 5s auto-dismiss
+  # from blocking clicks on elements underneath.
+  #
+  # Usage:
+  #   click_on "Save"
+  #   expect(flash_message).to eq "Changes saved!"
+  #   # alert is now dismissed, safe to interact with content beneath it
+  def flash_message
+    toast = find("[data-testid='toast-alert']")
+    message = toast.text
+    within(toast) { find('button[aria-label="Close"]').click }
+    message
+  end
+
+  # Waits for checkout surcharges to load after country/ZIP/tax ID changes.
+  # The checkout form debounces these at 300ms before firing the API call.
+  def wait_for_checkout_surcharges_loaded
+    sleep 0.4 # debounce (300ms) + margin
+    wait_for_ajax
   end
 
   def with_throttled_network(fixture_file, factor: 4)
@@ -86,4 +129,11 @@ module CapybaraHelpers
     yield
     page.driver.browser.execute_cdp("Network.emulateNetworkConditions", offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1)
   end
+
+  private
+    def disable_animations
+      page.execute_script(DISABLE_ANIMATIONS_JS)
+    rescue StandardError
+      nil
+    end
 end

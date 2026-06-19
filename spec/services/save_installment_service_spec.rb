@@ -164,6 +164,41 @@ describe SaveInstallmentService do
       expect(SendPostBlastEmailsJob.jobs).to be_empty
     end
 
+    context "when publishing fails content moderation" do
+      before do
+        allow(ContentModeration::ModerateRecordService).to receive(:check).and_return(
+          ContentModeration::ModerateRecordService::CheckResult.new(passed: false, reasons: ["adult content", "spam promoting escort services"])
+        )
+      end
+
+      it "returns the moderation error without reporting it to Sentry" do
+        expect(ErrorNotifier).not_to receive(:notify)
+
+        service = described_class.new(seller:, installment:, params: params.merge(publish: true), preview_email_recipient:)
+        expect do
+          service.process
+        end.to_not change { Installment.count }
+
+        expect(service.error).to include("looks like it contains something that may violate our content guidelines")
+        expect(SendPostBlastEmailsJob.jobs).to be_empty
+      end
+    end
+
+    it "reports unexpected blast setup validation failures to Sentry" do
+      invalid_blast = PostEmailBlast.new.tap { |blast| blast.errors.add(:base, "unexpected failure") }
+      record_invalid = ActiveRecord::RecordInvalid.new(invalid_blast)
+      allow(PostEmailBlast).to receive(:create!).and_raise(record_invalid)
+      expect(ErrorNotifier).to receive(:notify).with(record_invalid)
+
+      service = described_class.new(seller:, installment:, params: params.merge(publish: true), preview_email_recipient:)
+      expect do
+        service.process
+      end.to_not change { Installment.count }
+
+      expect(service.error).to include("unexpected failure")
+      expect(SendPostBlastEmailsJob.jobs).to be_empty
+    end
+
     it "creates and sends a preview email" do
       allow(PostSendgridApi).to receive(:process).and_call_original
 
@@ -543,5 +578,44 @@ describe SaveInstallmentService do
     end
 
     include_examples "updates profile posts sections"
+  end
+
+  describe "#save_with_unique_slug!" do
+    it "retries with a unique suffix on ActiveRecord::RecordNotUnique for slug index" do
+      other_seller = create(:user)
+      existing = create(:installment, seller: other_seller, name: "Hello")
+      expect(existing.slug).to eq("hello")
+
+      service = described_class.new(seller:, params: params.deep_merge(installment: { name: "Hello" }), installment: nil, preview_email_recipient:)
+
+      save_call_count = 0
+      allow_any_instance_of(Installment).to receive(:save).and_wrap_original do |original_method|
+        save_call_count += 1
+        if save_call_count == 1
+          original_method.receiver.send(:set_slug)
+          raise ActiveRecord::RecordNotUnique.new("Mysql2::Error: Duplicate entry 'hello' for key 'installments.index_installments_on_slug'")
+        else
+          original_method.call
+        end
+      end
+
+      service.process
+
+      expect(service.error).to be_nil
+      expect(service.installment).to be_persisted
+      expect(service.installment.slug).to include("hello")
+      expect(service.installment.slug).not_to eq("hello")
+    end
+
+    it "re-raises RecordNotUnique for non-slug index violations" do
+      service = described_class.new(seller:, params:, installment: nil, preview_email_recipient:)
+
+      allow_any_instance_of(Installment).to receive(:save).and_raise(
+        ActiveRecord::RecordNotUnique.new("Mysql2::Error: Duplicate entry for key 'installments.some_other_index'")
+      )
+
+      service.process
+      expect(service.error).to include("Duplicate entry")
+    end
   end
 end

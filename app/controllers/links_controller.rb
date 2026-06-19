@@ -6,6 +6,7 @@ class LinksController < ApplicationController
           CreateDiscoverSearch, DiscoverCuratedProducts, FetchProductByUniquePermalink
 
   include PageMeta::Favicon, PageMeta::Product
+  include RequireAccountEmail
 
   DEFAULT_PRICE = 500
 
@@ -13,22 +14,25 @@ class LinksController < ApplicationController
 
 
 
-  PUBLIC_ACTIONS = %i[show search increment_views track_user_action cart_items_count].freeze
+  PUBLIC_ACTIONS = %i[show search increment_views track_user_action cart_items_count landing_iframe_content].freeze
   before_action :authenticate_user!, except: PUBLIC_ACTIONS
   after_action :verify_authorized, except: PUBLIC_ACTIONS
+  skip_before_action :require_account_email, only: PUBLIC_ACTIONS + %i[publish]
 
-  before_action :fetch_product_for_show, only: :show
-  before_action :check_banned, only: :show
+  before_action :stick_to_primary_for_landing_iframe, only: :landing_iframe_content
+  before_action :fetch_product_for_show, only: %i[show landing_iframe_content]
+  before_action :check_banned, only: %i[show landing_iframe_content]
+  before_action :ensure_seller_is_not_deleted, only: %i[show landing_iframe_content]
   before_action :set_x_robots_tag_header, only: :show
   before_action :check_payment_details, only: :index
 
   before_action :set_affiliate_cookie, only: [:show]
 
   before_action :fetch_product, only: %i[increment_views track_user_action]
-  before_action :ensure_seller_is_not_deleted, only: [:show]
   before_action :check_if_needs_redirect, only: [:show]
+  before_action :ensure_domain_belongs_to_seller, only: %i[show landing_iframe_content]
+  before_action :render_custom_html_if_present, only: [:show]
   before_action :prepare_product_page, only: %i[show]
-  before_action :ensure_domain_belongs_to_seller, only: [:show]
   before_action :fetch_product_and_enforce_ownership, only: %i[destroy]
   before_action :fetch_product_and_enforce_access, only: %i[update publish unpublish release_preorder update_sections]
 
@@ -121,7 +125,8 @@ class LinksController < ApplicationController
         discount_result = BestOfferCodeService.new(
           product: @product,
           url_code: params[:offer_code] || params[:code],
-          quantity: (params[:quantity] || 1).to_i
+          quantity: (params[:quantity] || 1).to_i,
+          buyer: logged_in_user
         ).result
         code = discount_result&.dig(:code) if discount_result&.dig(:valid)
         redirect_params = params.permit!.except(:code, :offer_code)
@@ -179,7 +184,7 @@ class LinksController < ApplicationController
           end
         end
       end
-      format.json { render json: @product.as_json }
+      format.json { render json: ProductPresenter::PublicApiProps.new(product: @product, seller_custom_domain_url:).props }
       format.any { e404 }
     end
   end
@@ -191,18 +196,35 @@ class LinksController < ApplicationController
     }
   end
 
+  def landing_iframe_content
+    return head :not_found unless custom_html_visible?
+
+    # Opt out of SecureHeaders' default CSP so the strict, seller-scoped CSP we
+    # set below survives. Without this, the middleware overwrites our header
+    # with the app default (no 'unsafe-inline'), silently blocking the seller's
+    # inline scripts. X-Frame-Options and Referrer-Policy aren't managed by
+    # SecureHeaders here, so setting those directly is fine.
+    SecureHeaders.opt_out_of_header(request, :csp)
+    response.set_header("Content-Security-Policy", CUSTOM_HTML_CSP)
+    response.set_header("X-Frame-Options", "SAMEORIGIN")
+    response.set_header("Referrer-Policy", "no-referrer")
+    interpolated = Pages::Interpolator.interpolate(@product.custom_html, product: @product)
+    render html: custom_html_document(interpolated).html_safe, layout: false
+  end
+
   def search
+    format_search_params!
     search_params = params
     in_section = search_params[:user_id].present?
     if in_section
       user = User.find_by_external_id(search_params[:user_id])
       section = user && user.seller_profile_products_sections.find_by_external_id(search_params[:section_id])
-      return render json: { total: 0, filetypes_data: [], tags_data: [], products: [] } if section.nil?
-      search_params[:section] = section
+      return render json: { total: 0, filetypes_data: [], tags_data: [], products: [] } if user.nil? || (section.nil? && search_params[:ids].blank?)
+      search_params[:section] = section if section
       search_params[:is_alive_on_profile] = true
       search_params[:user_id] = user.id
-      search_params[:sort] = section.default_product_sort if search_params[:sort].nil?
-      search_params[:sort] = ProductSortKey::PAGE_LAYOUT if search_params[:sort] == "default"
+      search_params[:sort] = section&.default_product_sort if search_params[:sort].nil?
+      search_params[:sort] = ProductSortKey::PAGE_LAYOUT if search_params[:sort] == "default" || search_params[:sort].nil?
       search_params[:ids]&.map! { ObfuscateIds.decrypt(_1) }
     else
       search_params[:sort] = ProductSortKey::FEATURED if search_params[:sort] == "default"
@@ -305,9 +327,45 @@ class LinksController < ApplicationController
     render inertia: "Products/Edit", props: presenter.edit_props
   end
 
+  def price_check
+    fetch_product_by_unique_permalink
+    authorize @product, :edit?
+    return head :not_found unless Feature.active?(:price_checker, @product.user)
+
+    begin
+      result = PriceCheckerService.call(
+        product: @product,
+        overrides: sanitized_price_check_overrides,
+        force_refresh: params[:refresh].present?,
+      )
+    rescue PriceCheckerService::TimeoutError
+      return render json: { error: "timeout" }, status: :gateway_timeout
+    end
+
+    render json: result
+  end
+
   def update
     authorize @product
     begin
+      if custom_html_removal_update?
+        @product.with_lock do
+          @product.update!(custom_html: nil)
+        end
+        return render json: { success: true }
+      end
+
+      # This dashboard endpoint serves the editor's full-form save (which strips
+      # custom_html) and the Remove button (custom_html-only, handled above). A
+      # request mixing custom_html with other fields isn't a real client flow,
+      # and it would fall through to the partial-update path below that clears any
+      # collection the request omits (rich content, covers, shipping). Reject it;
+      # the API v2 endpoint owns multi-field custom_html writes, guarding each
+      # field independently.
+      if custom_html_update?
+        return render json: { error_message: "Use the API to publish custom_html; the dashboard only supports removing it." }, status: :unprocessable_entity
+      end
+
       ActiveRecord::Base.transaction do
         @product.assign_attributes(product_permitted_params.except(
           :products,
@@ -456,6 +514,9 @@ class LinksController < ApplicationController
       @product.publish!
     rescue Link::LinkInvalid, ActiveRecord::RecordInvalid
       return render json: { success: false, error_message: @product.errors.full_messages[0] }
+    rescue Errno::ENOENT => e
+      ErrorNotifier.notify(e)
+      return render json: { success: false, error_message: "There was a temporary issue processing your product images. Please try again." }
     rescue => e
       ErrorNotifier.notify(e)
       return render json: { success: false, error_message: "Something broke. We're looking into what happened. Sorry about this!" }
@@ -515,6 +576,42 @@ class LinksController < ApplicationController
   end
 
   private
+    NAME_OVERRIDE_MAX = 250
+    DESCRIPTION_OVERRIDE_MAX = 5_000
+
+    def sanitized_price_check_overrides
+      raw = params.permit(overrides: [:name, :description, :taxonomy_id, :native_type, :currency_code])[:overrides]
+      return {} unless raw.is_a?(ActionController::Parameters) || raw.is_a?(Hash)
+      overrides = {}
+
+      if raw.key?(:name) || raw.key?("name")
+        candidate = raw[:name].to_s.strip
+        overrides[:name] = candidate if candidate.length <= NAME_OVERRIDE_MAX
+      end
+      if raw.key?(:description) || raw.key?("description")
+        candidate = raw[:description].to_s
+        overrides[:description] = candidate if candidate.length <= DESCRIPTION_OVERRIDE_MAX
+      end
+      if raw.key?(:taxonomy_id) || raw.key?("taxonomy_id")
+        candidate = raw[:taxonomy_id]
+        if candidate.nil? || candidate.to_s.empty?
+          overrides[:taxonomy_id] = nil
+        else
+          taxonomy_id = candidate.to_i
+          overrides[:taxonomy_id] = taxonomy_id if taxonomy_id > 0 && Taxonomy.exists?(id: taxonomy_id)
+        end
+      end
+      if raw.key?(:native_type) || raw.key?("native_type")
+        candidate = raw[:native_type].to_s
+        overrides[:native_type] = candidate if Link::NATIVE_TYPES.include?(candidate)
+      end
+      if raw.key?(:currency_code) || raw.key?("currency_code")
+        candidate = raw[:currency_code].to_s.downcase
+        overrides[:currency_code] = candidate if CURRENCY_CHOICES.key?(candidate)
+      end
+      overrides
+    end
+
     def fetch_product_for_show
       fetch_product_by_custom_domain || fetch_product_by_general_permalink
     end
@@ -529,6 +626,10 @@ class LinksController < ApplicationController
         secure: Rails.env.production?
       }
       cookies.signed[:ab_test_buyer_id]
+    end
+
+    def stick_to_primary_for_landing_iframe
+      ActiveRecord::Base.connection.stick_to_primary!
     end
 
     def fetch_product_by_custom_domain
@@ -574,7 +675,11 @@ class LinksController < ApplicationController
     end
 
     def product_permitted_params
-      @_product_permitted_params ||= params.permit(policy(@product).product_permitted_attributes)
+      @_product_permitted_params ||= begin
+        permitted = params.permit(policy(@product).product_permitted_attributes)
+        permitted.delete(:custom_html) unless Feature.active?(:custom_html_pages, @product.user)
+        permitted
+      end
     end
 
     def check_banned
@@ -589,6 +694,22 @@ class LinksController < ApplicationController
       if @is_user_custom_domain
         e404_page unless @product.user == user_by_domain(request.host)
       end
+    end
+
+    def custom_html_visible?
+      @product.present? && Feature.active?(:custom_html_pages, @product.user) && @product.custom_html.present? && (@product.alive? || can_preview_custom_html?)
+    end
+
+    def can_preview_custom_html?
+      logged_in_user.present? && (logged_in_user == @product.user || logged_in_user.collaborator_for?(@product) || logged_in_user.is_team_member?)
+    end
+
+    def custom_html_removal_update?
+      product_permitted_params.keys == ["custom_html"] && product_permitted_params[:custom_html].blank?
+    end
+
+    def custom_html_update?
+      product_permitted_params.key?("custom_html")
     end
 
     def prepare_product_page
@@ -865,5 +986,200 @@ class LinksController < ApplicationController
       rescue => e
         ErrorNotifier.notify(e)
       end
+    end
+
+    PAGE_ASSET_HOSTS = [CDN_S3_PROXY_HOST, PUBLIC_STORAGE_CDN_S3_PROXY_HOST].compact.uniq.join(" ")
+
+    CUSTOM_HTML_CSP = [
+      # Sandbox the response itself, not just the wrapper's iframe attribute.
+      # A buyer can navigate straight to /l/:id/landing/embed (top-level, not
+      # framed), where the iframe sandbox doesn't apply — without this the
+      # seller's inline scripts would run on the real subdomain origin. Matches
+      # the wrapper iframe's sandbox: scripts + forms + popups, no same-origin/top-nav.
+      "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox",
+      "default-src 'none'",
+      "script-src 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com",
+      "style-src 'unsafe-inline' https://cdn.tailwindcss.com https://fonts.googleapis.com https://fonts.bunny.net",
+      "frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com",
+      "img-src data: blob: #{PAGE_ASSET_HOSTS}",
+      # Mirror img-src so the <audio>/<video>/<source> tags the sanitizer
+      # allows actually load — without this they'd inherit default-src 'none'.
+      "media-src data: blob: #{PAGE_ASSET_HOSTS}",
+      "font-src data: https://fonts.gstatic.com https://fonts.bunny.net",
+      "connect-src 'none'",
+      "form-action 'self'",
+    ].join("; ") + ";"
+
+    # Loaded in <head> so it runs before any seller script (without becoming the
+    # body's first child). On the opaque origin (allow-scripts, no
+    # allow-same-origin) localStorage/sessionStorage/document.cookie throw, so a
+    # seller script reading them on load throws and halts — commonly a theme
+    # toggle — leaving the page blank. In-memory stand-ins let those scripts run
+    # instead of throwing; nothing persists, which already matched this origin.
+    # data-cfasync stops Rocket Loader deferring it.
+    SANDBOX_COMPAT_SCRIPT = <<~HTML
+      <script data-cfasync="false" data-gumroad-sandbox-shim>
+        (function () {
+          function memStorage() {
+            var store = Object.create(null);
+            return {
+              getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+              setItem: function (k, v) { store[k] = String(v); },
+              removeItem: function (k) { delete store[k]; },
+              clear: function () { store = {}; },
+              key: function (i) { return Object.keys(store)[i] || null; },
+              get length() { return Object.keys(store).length; }
+            };
+          }
+          ["localStorage", "sessionStorage"].forEach(function (name) {
+            var throws = false;
+            try { void window[name]; } catch (e) { throws = true; }
+            if (throws) {
+              try { Object.defineProperty(window, name, { value: memStorage(), configurable: true }); } catch (e) {}
+            }
+          });
+          var cookieThrows = false;
+          try { void document.cookie; } catch (e) { cookieThrows = true; }
+          if (cookieThrows) {
+            var jar = Object.create(null);
+            try {
+              Object.defineProperty(document, "cookie", {
+                configurable: true,
+                get: function () { return Object.keys(jar).map(function (k) { return k + "=" + jar[k]; }).join("; "); },
+                set: function (v) {
+                  var first = String(v).split(";")[0];
+                  var eq = first.indexOf("=");
+                  if (eq < 1) { return; }
+                  jar[first.slice(0, eq).trim()] = first.slice(eq + 1).trim();
+                }
+              });
+            } catch (e) {}
+          }
+        })();
+      </script>
+    HTML
+
+    def render_custom_html_if_present
+      return unless custom_html_visible?
+      # The public JSON API (GET /l/:permalink.json) must return the documented
+      # product payload, not the custom-HTML landing page — only intercept HTML.
+      return unless request.format.html?
+      # Buyer clicked Buy — fall through to the show action's checkout-bearing
+      # product page so the existing ?wanted=true flow handles the redirect.
+      return if params[:wanted] == "true"
+
+      nonce = SecureHeaders.content_security_policy_script_nonce(request)
+      render html: custom_html_wrapper_document(@product, nonce:, offer_code: params[:offer_code].presence || params[:code].presence).html_safe, layout: false
+    end
+
+    def custom_html_document(custom_html)
+      <<~HTML
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            #{SANDBOX_COMPAT_SCRIPT}
+            #{self.class.pages_tailwind_inline}
+          </head>
+          <body>
+            #{custom_html}
+            <script data-cfasync="false">
+              document.addEventListener("click", function (e) {
+                var target = e.target;
+                var buyButton = target && target.closest ? target.closest('[data-gumroad-action="buy"]') : null;
+                if (!buyButton) return;
+                e.preventDefault();
+
+                var params = {};
+                try {
+                  params = JSON.parse(buyButton.dataset.gumroadCheckoutParams || "{}");
+                } catch (_e) {}
+
+                parent.postMessage({type:"gumroad:checkout",params:params},"*");
+              }, true);
+            </script>
+          </body>
+        </html>
+      HTML
+    end
+
+    # Memoized per process — the file ships with the deployed artifact and
+    # only changes on deploy, which restarts the process.
+    def self.pages_tailwind_inline
+      path = Rails.root.join("public/pages-tailwind.css")
+      return "" unless File.exist?(path)
+
+      @pages_tailwind_inline ||= "<style>#{File.read(path)}</style>"
+    end
+
+    # Omitting `allow-same-origin` keeps the seller's HTML on an opaque origin
+    # — no access to gumroad.com cookies or parent DOM. We also omit
+    # `allow-top-navigation`: the seller's HTML must never navigate the buyer's
+    # tab (that would let a malicious onclick redirect to a phishing site with
+    # gumroad.com still in the URL bar). Instead the buy button posts a message
+    # to this wrapper, which navigates to the one checkout URL we control here.
+    def custom_html_wrapper_document(product, nonce:, offer_code: nil)
+      iframe_src = ERB::Util.h("/l/#{product.unique_permalink}/landing/embed")
+      checkout_params = { wanted: true }
+      checkout_params[:code] = offer_code if offer_code.present?
+      checkout_url_js = ERB::Util.json_escape("/l/#{product.unique_permalink}?#{Rack::Utils.build_query(checkout_params)}".to_json)
+      title = ERB::Util.h(product.name.to_s)
+      canonical = ERB::Util.h(product.long_url.to_s)
+      og_image = product.thumbnail&.alive&.url
+      og_image_tag = og_image ? %(<meta property="og:image" content="#{ERB::Util.h(og_image)}">) : ""
+      <<~HTML
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>#{title}</title>
+            <link rel="canonical" href="#{canonical}">
+            <meta property="og:title" content="#{title}">
+            <meta property="og:type" content="product">
+            <meta property="og:url" content="#{canonical}">
+            #{og_image_tag}
+            <style>html,body{margin:0;padding:0;height:100%;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0}</style>
+          </head>
+          <body>
+            <iframe
+              id="gumroad-landing-frame"
+              src="#{iframe_src}"
+              title="#{title}"
+              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+            ></iframe>
+            <script nonce="#{ERB::Util.h(nonce)}" data-cfasync="false">
+              var frame = document.getElementById("gumroad-landing-frame");
+              var BASE_CHECKOUT = #{checkout_url_js};
+              // Whitelist the selection-state keys the checkout already accepts on the
+              // URL (see LinksController#show). The iframe is opaque-origin and untrusted,
+              // so anything not in this list is ignored even if the buy button claims it.
+              var ALLOWED_CHECKOUT_KEYS = ["variant","option","quantity","price","recurrence"];
+              function buildCheckoutUrl(base, params) {
+                if (!params || typeof params !== "object") return base;
+                try {
+                  var u = new URL(base, window.location.origin);
+                  for (var i = 0; i < ALLOWED_CHECKOUT_KEYS.length; i++) {
+                    var k = ALLOWED_CHECKOUT_KEYS[i], v = params[k];
+                    if (v == null || v === "") continue;
+                    u.searchParams.set(k, String(v));
+                  }
+                  return u.pathname + u.search;
+                } catch (_e) { return base; }
+              }
+              window.addEventListener("message", function (e) {
+                if (e.source !== frame.contentWindow || e.origin !== "null") return;
+                // String form: back-compat for any caller still sending the old signal.
+                if (e.data === "gumroad:checkout") { window.location.href = BASE_CHECKOUT; return; }
+                // Structured form: {type:"gumroad:checkout", params:{variant,quantity,price,recurrence}}.
+                if (e.data && typeof e.data === "object" && e.data.type === "gumroad:checkout") {
+                  window.location.href = buildCheckoutUrl(BASE_CHECKOUT, e.data.params);
+                }
+              });
+            </script>
+          </body>
+        </html>
+      HTML
     end
 end

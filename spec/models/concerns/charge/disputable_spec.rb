@@ -74,6 +74,25 @@ describe Charge::Disputable, :vcr do
       expect(paypal_charge.charge_processor_transaction_id).to eq("pp_12345")
       expect(braintree_charge.charge_processor_transaction_id).to eq("bt_12345")
     end
+
+    context "when the Charge has no processor_transaction_id" do
+      let(:charge_without_processor_txn) do
+        create(:charge,
+               processor: StripeChargeProcessor.charge_processor_id,
+               processor_transaction_id: nil)
+      end
+
+      it "falls back to the single underlying purchase's stripe_transaction_id" do
+        charge_without_processor_txn.purchases << stripe_purchase
+        expect(charge_without_processor_txn.charge_processor_transaction_id).to eq("ch_12345")
+      end
+
+      it "returns nil when multiple underlying purchases are present" do
+        charge_without_processor_txn.purchases << stripe_purchase
+        charge_without_processor_txn.purchases << create(:purchase, stripe_transaction_id: "ch_67890")
+        expect(charge_without_processor_txn.charge_processor_transaction_id).to be_nil
+      end
+    end
   end
 
   describe "#purchase_for_dispute_evidence" do
@@ -1001,6 +1020,18 @@ describe Charge::Disputable, :vcr do
           end
         end
 
+        context "with an unsubmitted dispute evidence on the purchase" do
+          let!(:dispute) { create(:dispute_formalized, purchase:) }
+          let!(:dispute_evidence) { create(:dispute_evidence, dispute:) }
+
+          it "resolves the dispute evidence as rejected" do
+            Purchase.handle_charge_event(event)
+            expect(dispute_evidence.reload.resolved?).to eq(true)
+            expect(dispute_evidence.resolution).to eq(DisputeEvidence::RESOLUTION_REJECTED)
+            expect(dispute_evidence.error_message).to include("Dispute closed (lost)")
+          end
+        end
+
         describe "dispute object" do
           let!(:purchase) { create(:purchase, link: product, seller:, stripe_transaction_id: "1", price_cents: 100, fee_cents: 30, total_transaction_cents: 100, chargeback_date: Time.current) }
           let(:event) { build(:charge_event_dispute_lost, charge_id: "1", extras: { charge_processor_dispute_id: "2" }) }
@@ -1082,6 +1113,117 @@ describe Charge::Disputable, :vcr do
             end
           end
         end
+
+        context "when the purchase is partially refunded and not fully reversed" do
+          let!(:partially_refunded_purchase) do
+            create(
+              :purchase,
+              link: product,
+              seller:,
+              stripe_transaction_id: "ch_partial_refund_lost",
+              price_cents: 100,
+              total_transaction_cents: 100,
+              fee_cents: 30,
+              chargeback_date: 1.day.ago,
+              stripe_partially_refunded: true,
+              stripe_refunded: false,
+              charge_processor_id: PaypalChargeProcessor.charge_processor_id,
+            )
+          end
+          let(:partial_refund_event) { build(:charge_event_dispute_lost, charge_id: "ch_partial_refund_lost") }
+
+          it "restores access by setting chargeback_reversed" do
+            expect do
+              Purchase.handle_charge_event(partial_refund_event)
+            end.to change { partially_refunded_purchase.reload.chargeback_reversed }.from(false).to(true)
+          end
+
+          it "marks the dispute as lost" do
+            Purchase.handle_charge_event(partial_refund_event)
+            expect(partially_refunded_purchase.reload.dispute.state).to eq("lost")
+          end
+
+          it "does not credit the seller's balance" do
+            expect do
+              Purchase.handle_charge_event(partial_refund_event)
+            end.not_to change { Credit.count }
+          end
+        end
+
+        context "when the purchase is fully refunded" do
+          let!(:fully_refunded_purchase) do
+            create(
+              :purchase,
+              link: product,
+              seller:,
+              stripe_transaction_id: "ch_fully_refunded_lost",
+              price_cents: 100,
+              total_transaction_cents: 100,
+              fee_cents: 30,
+              chargeback_date: 1.day.ago,
+              stripe_partially_refunded: false,
+              stripe_refunded: true,
+              charge_processor_id: PaypalChargeProcessor.charge_processor_id,
+            )
+          end
+          let(:fully_refunded_event) { build(:charge_event_dispute_lost, charge_id: "ch_fully_refunded_lost") }
+
+          it "does not restore access" do
+            expect do
+              Purchase.handle_charge_event(fully_refunded_event)
+            end.not_to change { fully_refunded_purchase.reload.chargeback_reversed }
+          end
+        end
+
+        context "when there is no refund at all" do
+          let!(:unrefunded_purchase) do
+            create(
+              :purchase,
+              link: product,
+              seller:,
+              stripe_transaction_id: "ch_unrefunded_lost",
+              price_cents: 100,
+              total_transaction_cents: 100,
+              fee_cents: 30,
+              chargeback_date: 1.day.ago,
+              stripe_partially_refunded: false,
+              stripe_refunded: false,
+              charge_processor_id: PaypalChargeProcessor.charge_processor_id,
+            )
+          end
+          let(:unrefunded_event) { build(:charge_event_dispute_lost, charge_id: "ch_unrefunded_lost") }
+
+          it "does not restore access" do
+            expect do
+              Purchase.handle_charge_event(unrefunded_event)
+            end.not_to change { unrefunded_purchase.reload.chargeback_reversed }
+          end
+        end
+
+        context "when a Stripe purchase is partially refunded and the dispute is lost" do
+          let!(:stripe_partially_refunded_purchase) do
+            create(
+              :purchase,
+              link: product,
+              seller:,
+              stripe_transaction_id: "ch_stripe_partial_refund_lost",
+              price_cents: 100,
+              total_transaction_cents: 100,
+              fee_cents: 30,
+              chargeback_date: 1.day.ago,
+              stripe_partially_refunded: true,
+              stripe_refunded: false,
+              charge_processor_id: StripeChargeProcessor.charge_processor_id,
+            )
+          end
+          let(:stripe_event) { build(:charge_event_dispute_lost, charge_id: "ch_stripe_partial_refund_lost") }
+
+          it "does not restore access (Stripe-lost disputes pull funds via the bank)" do
+            expect do
+              Purchase.handle_charge_event(stripe_event)
+            end.not_to change { stripe_partially_refunded_purchase.reload.chargeback_reversed }
+          end
+        end
       end
     end
 
@@ -1105,6 +1247,21 @@ describe Charge::Disputable, :vcr do
         it "marks all bundle product purchases as chargeback reversed" do
           expect_any_instance_of(Purchase).to receive(:mark_product_purchases_as_chargeback_reversed!)
           Purchase.handle_charge_event(build(:charge_event_dispute_won, charge_id: purchase.stripe_transaction_id))
+        end
+      end
+
+      describe "chargeback reversed via partial-refund dispute lost" do
+        before do
+          purchase.update!(
+            chargeback_date: 1.day.ago,
+            stripe_partially_refunded: true,
+            charge_processor_id: PaypalChargeProcessor.charge_processor_id,
+          )
+        end
+
+        it "marks all bundle product purchases as chargeback reversed" do
+          expect_any_instance_of(Purchase).to receive(:mark_product_purchases_as_chargeback_reversed!)
+          Purchase.handle_charge_event(build(:charge_event_dispute_lost, charge_id: purchase.stripe_transaction_id))
         end
       end
     end

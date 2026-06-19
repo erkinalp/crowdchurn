@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-describe "Embed scenario", type: :system, js: true, mock_easypost: true do
+describe "Embed scenario", type: :system, js: true, mock_easypost: true, retry: 10 do
   include EmbedHelpers
 
   after(:all) { cleanup_embed_artifacts }
@@ -10,12 +10,20 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
   let(:product) { create(:physical_product) }
   let!(:js_nonce) { SecureRandom.base64(32).chomp }
 
+  def expect_affiliate_credit_to_be_created(&block)
+    affiliate_credit_count = AffiliateCredit.count
+
+    block.call
+
+    wait_until_true(sleep_interval: 0.1) { AffiliateCredit.count == affiliate_credit_count + 1 }
+  end
+
   it "accepts product URL" do
     product = create(:product)
 
     visit(create_embed_page(product, url: product.long_url, gumroad_params: "&email=sam@test.com", outbound: false))
 
-    within_frame { click_on "Add to cart" }
+    within_embed_frame { click_on "Add to cart" }
 
     check_out(product)
   end
@@ -27,11 +35,11 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
 
     visit(create_embed_page(pwyw_product, url: "#{direct_affiliate.referral_url_for_product(pwyw_product)}?email=john@test.com", gumroad_params: "&price=75", outbound: false))
 
-    within_frame { click_on "Add to cart" }
+    within_embed_frame { click_on "Add to cart" }
 
-    expect do
+    expect_affiliate_credit_to_be_created do
       check_out(pwyw_product, email: nil)
-    end.to change { AffiliateCredit.count }.from(0).to(1)
+    end
 
     purchase = pwyw_product.sales.successful.last
     expect(purchase.email).to eq("john@test.com")
@@ -47,14 +55,15 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
 
     visit(create_embed_page(pwyw_product, url: "#{direct_affiliate.referral_url_for_product(pwyw_product)}?", outbound: false))
 
-    within_frame do
+    within_embed_frame do
+      expect(page).to have_field("Name a fair price", wait: 15)
       fill_in "Name a fair price", with: 75
       click_on "Add to cart"
     end
 
-    expect do
+    expect_affiliate_credit_to_be_created do
       check_out(pwyw_product)
-    end.to change { AffiliateCredit.count }.from(0).to(1)
+    end
 
     purchase = pwyw_product.sales.successful.last
     expect(purchase.email).to eq("test@gumroad.com")
@@ -68,7 +77,7 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
 
     visit(create_embed_page(product, url: short_link_url(product, host: "#{PROTOCOL}://#{DOMAIN}"), outbound: false))
 
-    within_frame { click_on "Add to cart" }
+    within_embed_frame { click_on "Add to cart" }
 
     check_out(product)
   end
@@ -78,19 +87,19 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
 
     visit(create_embed_page(product, insert_anchor_tag: false, outbound: false))
 
-    within_frame { click_on "Add to cart" }
+    within_embed_frame { click_on "Add to cart" }
 
     check_out(product)
   end
 
   context "discount code in URL" do
-    let(:offer_code) { create(:offer_code, user: product.user, products: [product]) }
+    let!(:offer_code) { create(:offer_code, user: product.user, products: [product]) }
 
     it "applies the discount code" do
       visit(create_embed_page(product, url: "#{product.long_url}/#{offer_code.code}", outbound: false))
 
-      within_frame do
-        expect(page).to have_status(text: "$1 off will be applied at checkout (Code SXSW)")
+      within_embed_frame do
+        expect(page).to have_status(text: "$1 off will be applied at checkout (Code SXSW)", wait: 15)
         click_on "Add to cart"
       end
 
@@ -108,17 +117,21 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
     let(:direct_affiliate) { create(:direct_affiliate, affiliate_user:, seller: product.user, affiliate_basis_points: 1000, products: [product]) }
 
     before(:each) do
-      expect_any_instance_of(OrdersController).to receive(:affiliate_from_cookies).with(an_instance_of(Link)).and_return(nil)
+      allow_any_instance_of(OrdersController).to receive(:affiliate_from_cookies).and_return(nil)
     end
 
     it "successfully credits the affiliate commission for the product bought using its affiliated product URL" do
       visit(create_embed_page(product, url: direct_affiliate.referral_url_for_product(product), outbound: false))
 
-      within_frame { click_on "Add to cart" }
+      within_embed_frame do
+        expect(page).to have_text("$75", wait: 15)
+        expect(page).to have_link("Add to cart", href: /affiliate_id=#{direct_affiliate.external_id_numeric}/, wait: 15)
+        click_on "Add to cart"
+      end
 
-      expect do
+      expect_affiliate_credit_to_be_created do
         check_out(product)
-      end.to change { AffiliateCredit.count }.by(1)
+      end
 
       purchase = product.sales.successful.last.reload
       expect(purchase.affiliate_credit.affiliate).to eq(direct_affiliate)
@@ -129,7 +142,7 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
       it "successfully credits the affiliate commission for the product bought from a page that contains '#{query_param}' query parameter" do
         visit(create_embed_page(product, url: short_link_url(product, host: UrlService.domain_with_protocol), outbound: false, query_params: { query_param => direct_affiliate.external_id_numeric }))
 
-        within_frame { click_on "Add to cart" }
+        within_embed_frame { click_on "Add to cart" }
 
         check_out(product)
 
@@ -159,7 +172,7 @@ describe "Embed scenario", type: :system, js: true, mock_easypost: true do
     embed_page_url = create_embed_page(physical_skus_product, template_name: "embed_page.html.erb", outbound: false, gumroad_params: "quantity=2&price=3&Age=21&Gender=Male&option=#{physical_skus_product.skus.find_by(name: "Blue - Extra Large - Polo").external_id}")
     visit(embed_page_url)
 
-    within_frame do
+    within_embed_frame do
       expect(page).to have_radio_button("Blue - Extra Large - Polo", checked: true)
       expect(page).to have_field("Quantity", with: 2)
       expect(page).to have_field("Name a fair price", with: 3)

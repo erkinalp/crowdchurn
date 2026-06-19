@@ -72,7 +72,7 @@ For Linux:
 ```bash
 $ wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
 $ sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
-$ sudo sudo apt-get update
+$ sudo apt-get update
 $ sudo apt-get install google-chrome-stable
 ```
 
@@ -81,7 +81,7 @@ $ sudo apt-get install google-chrome-stable
 For macOS, you need to install XQuartz to run the request specs.
 
 ```bash
-$ brew install XQuartz
+$ brew install xquartz
 ```
 
 ### Reproduce Buildkite test failures locally
@@ -147,9 +147,44 @@ DISABLE_RACK_TIMEOUT="1"
 
 For the new env variables to take effect, you might need to run `bin/spring stop` before running the tests again.
 
+## VCR Cassettes
+
+We use [VCR](https://github.com/vcr/vcr) to record HTTP interactions (Stripe, PayPal, etc.) so specs replay recorded responses instead of hitting real APIs in CI. Cassettes are YAML files under `spec/support/fixtures/vcr_cassettes/`.
+
+### When to regenerate cassettes
+
+If your code change causes a spec to follow a **new HTTP code path** (e.g., removing a guard clause that previously short-circuited before an API call, changing request parameters, or adding a new external call), the existing cassette won't cover the new interaction. You need to regenerate it.
+
+### How to regenerate
+
+1. Make your code change
+2. Run the affected spec locally:
+   ```bash
+   DISABLE_SPRING=1 bin/rspec spec/path/to_spec.rb
+   ```
+3. VCR automatically records new HTTP interactions into `.yml` cassette files
+4. `git add` the new or updated cassettes under `spec/support/fixtures/vcr_cassettes/`
+5. Commit them with your PR
+
+### Rules
+
+- **Do not stub external API calls to work around missing cassettes.** Run the spec locally to record the real interaction.
+- **Do not share cassettes across test files.** Scope them to specific tests to avoid collisions.
+- **Delete stale cassettes** when the test or endpoint they cover no longer exists.
+- If the spec needs real API credentials to record, see the deployment repo for credential setup.
+
+### Common scenarios
+
+| Scenario | What to do |
+|----------|------------|
+| Removed a guard clause (e.g., admin login block) | Test now reaches an API call it didn't before. Run locally to record new cassette. |
+| Changed API parameters | Old cassette won't match. Delete it, run locally to re-record. |
+| New test in an existing `:vcr` describe block | Just run locally. VCR auto-records. |
+| Test passes locally but fails in CI with VCR error | You forgot to commit the cassette file. |
+
 ## Previewing Emails
 
-You can preview emails locally at [/rails/mailers](https://gumroad.dev/rails/mailers)
+You can preview emails locally at [/rails/mailers](http://localhost:3000/rails/mailers)
 
 ## Custom domains
 
@@ -165,7 +200,7 @@ Use `domains-staging.gumroad.com` instead of `domains.gumroad.com` in the DNS re
    127.0.0.1 sample-custom-domain.example.com
    ```
 
-2. Configure sample-custom-domain.example.com as a custom domain in [gumroad.dev/settings/advanced](https://gumroad.dev/settings/advanced)
+2. Configure sample-custom-domain.example.com as a custom domain in [localhost:3000/settings/advanced](http://localhost:3000/settings/advanced)
 
 3. Remove `Rails.env.development? ||` part from this [line](https://github.com/antiwork/gumroad/blob/main/lib/gumroad_domain_constraint.rb#L5)
 
@@ -208,7 +243,7 @@ Used for Payouts. No sandbox sales/transactions will show up here as Braintree d
 
 We currently rely on IPN messages for:
 
-- Chargebacks and reveresed chargebacks
+- Chargebacks and reversed chargebacks
 - Payouts completion notification, which also contains the payouts fee information.
 
 #### Viewing IPN messages
@@ -223,7 +258,7 @@ We currently rely on IPN messages for:
 
 ### PayPal setting and other comments
 
-- No operation apart form payouts currently goes through the Gumroad PayPal app itself. We use user credentials w/ their classic API offerings to perform payouts.
+- No operation apart from payouts currently goes through the Gumroad PayPal app itself. We use user credentials w/ their classic API offerings to perform payouts.
 - Create and manage new sandbox accounts in the <https://developer.paypal.com> site. Use shared PayPal credentials or get an account created from someone who has payments admin access.
 
 #### PayPal portal and IPN message encoding settings
@@ -244,7 +279,7 @@ Ask someone who has payments credentials for an account for Braintree in either 
 
 The overlay and embed widgets both rely on iFrames and are best tested by running a host page on a separate web server. [Sinatra](https://www.sinatrarb.com/) is a great tool to get up and running quickly with a web page running on its own server.
 
-Both widgets now detect the Rails application environment automatically -- simply include the script from whichever environment you wish to investigate, e.g. `<script src="https://gumroad.dev/js/gumroad.js"/>`. The code snippets on the `/widgets` page also reflect the current environment.
+Both widgets now detect the Rails application environment automatically -- simply include the script from whichever environment you wish to investigate, e.g. `<script src="http://localhost:3000/js/gumroad.js"/>`. The code snippets on the `/widgets` page also reflect the current environment.
 
 ### Testing locally
 
@@ -280,7 +315,7 @@ Add a payment method to your browser (Eg: for Chrome, add the Stripe `4242 4242 
 #### Apple Pay
 
 1. You need to [set up Apple Pay](https://support.apple.com/en-us/HT204506) with a real card on an iPhone or touch bar Macbook. This card will not be charged on local and staging environments.
-2. Add the domain to [Stripe's list of Apple Pay Domains](https://dashboard.stripe.com/settings/payments/apple_pay) if testing on deploy branch. For staging and main, `discover.gumroad.dev`, `creator.gumroad.dev`, `discover.staging.gumroad.com` are already added.
+2. Add the domain to [Stripe's list of Apple Pay Domains](https://dashboard.stripe.com/settings/payments/apple_pay) if testing on a deploy branch. `discover.staging.gumroad.com` is already added for staging. For local development see [Apple Pay docs](apple_pay.md) — the app must be exposed over HTTPS (e.g. via ngrok) since Stripe requires HTTPS for Apple Pay domain registration.
 
 #### Google Pay
 
@@ -299,7 +334,7 @@ To overcome this:
 ```ruby
 # Run this in a rails console
 purchase = Purchase.last
-BlockedObject.browser_guid.active.find_by(purchase.browser_guid).destroy
+BlockedObject.browser_guid.active.find_by(guid: purchase.browser_guid).destroy
 purchase.destroy
 ```
 

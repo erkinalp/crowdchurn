@@ -26,7 +26,7 @@ describe Admin::ProductPresenter::Card do
           created_at: product.created_at,
           user: {
             external_id: product.user.external_id,
-            name: product.user.name,
+            name: product.user.display_name,
             suspended: false,
             flagged_for_tos_violation: false
           },
@@ -35,6 +35,7 @@ describe Admin::ProductPresenter::Card do
           html_safe_description: product.html_safe_description,
           alive: product.alive?,
           is_adult: product.is_adult?,
+          content_moderation_disabled: false,
           active_integrations: [],
           admins_can_mark_as_staff_picked: false,
           admins_can_unmark_as_staff_picked: false,
@@ -182,9 +183,18 @@ describe Admin::ProductPresenter::Card do
 
       it "returns correct user values" do
         expect(props[:user][:external_id]).to eq(product.user.external_id)
-        expect(props[:user][:name]).to eq(product.user.name)
+        expect(props[:user][:name]).to eq(product.user.display_name)
         expect(props[:user][:suspended]).to eq(false)
         expect(props[:user][:flagged_for_tos_violation]).to eq(false)
+      end
+
+      context "when user has no name" do
+        let(:user) { create(:user) }
+
+        it "falls back to display_name" do
+          expect(props[:user][:name]).to eq(product.user.display_name)
+          expect(props[:user][:name]).to be_present
+        end
       end
 
       context "when user is suspended" do

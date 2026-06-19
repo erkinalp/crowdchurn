@@ -43,6 +43,7 @@ export const GetOfferCodes = () => (
   -d "access_token=ACCESS_TOKEN" \\
   -X GET`}
     </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">gumroad offer-codes list --product A-m3CDDC5dlrSdKZp0RFhA==</CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
   "success": true,
@@ -80,6 +81,10 @@ export const GetOfferCode = () => (
   -d "amount_cents=100" \\
   -X GET`}
     </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">
+      {`gumroad offer-codes view bfi_30HLgGWL8H2wo_Gzlg== \\
+  --product A-m3CDDC5dlrSdKZp0RFhA==`}
+    </CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
   "success": true,
@@ -106,6 +111,10 @@ export const CreateOfferCode = () => (
       <ApiParameter name="amount_off" />
       <ApiParameter name="offer_type" description='(optional, "cents" or "percent") Default: "cents"' />
       <ApiParameter name="max_purchase_count" description="(optional)" />
+      <ApiParameter
+        name="minimum_amount_cents"
+        description="(optional) Minimum order total in cents required for the offer code to apply"
+      />
       <ApiParameter name="universal" description="(optional, true or false) Default: false" />
     </ApiParameters>
     <OfferCodeResponseFields />
@@ -117,6 +126,11 @@ export const CreateOfferCode = () => (
   -d "offer_type=cents" \\
   -X POST`}
     </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">
+      {`gumroad offer-codes create --product A-m3CDDC5dlrSdKZp0RFhA== \\
+  --name 1OFF \\
+  --amount 1.00`}
+    </CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
   "success": true,
@@ -125,6 +139,7 @@ export const CreateOfferCode = () => (
     "name": "1OFF",
     "amount_cents": 100,
     "max_purchase_count": null,
+    "minimum_amount_cents": null,
     "times_used": 1
   }
 }`}
@@ -141,6 +156,10 @@ export const UpdateOfferCode = () => (
     <ApiParameters>
       <ApiParameter name="offer_code" />
       <ApiParameter name="max_purchase_count" />
+      <ApiParameter
+        name="minimum_amount_cents"
+        description="(optional) Minimum order total in cents required for the offer code to apply"
+      />
     </ApiParameters>
     <OfferCodeResponseFields />
     <CodeSnippet caption="cURL example">
@@ -148,6 +167,11 @@ export const UpdateOfferCode = () => (
   -d "access_token=ACCESS_TOKEN" \\
   -d "max_purchase_count=10" \\
   -X PUT`}
+    </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">
+      {`gumroad offer-codes update bfi_30HLgGWL8H2wo_Gzlg== \\
+  --product A-m3CDDC5dlrSdKZp0RFhA== \\
+  --max-purchase-count 10`}
     </CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
@@ -174,6 +198,10 @@ export const DeleteOfferCode = () => (
       {`curl https://api.gumroad.com/v2/products/A-m3CDDC5dlrSdKZp0RFhA==/offer_codes/bfi_30HLgGWL8H2wo_Gzlg== \\
   -d "access_token=ACCESS_TOKEN" \\
   -X DELETE`}
+    </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">
+      {`gumroad offer-codes delete bfi_30HLgGWL8H2wo_Gzlg== \\
+  --product A-m3CDDC5dlrSdKZp0RFhA==`}
     </CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{

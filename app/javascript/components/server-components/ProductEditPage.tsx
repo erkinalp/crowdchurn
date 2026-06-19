@@ -2,7 +2,7 @@ import { DirectUpload } from "@rails/activestorage";
 import { isEqual } from "lodash-es";
 import * as React from "react";
 import { createBrowserRouter, RouteObject, RouterProvider } from "react-router-dom";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { saveProduct } from "$app/data/product_edit";
 import { OtherRefundPolicy } from "$app/data/products/other_refund_policies";
@@ -91,6 +91,8 @@ type Props = {
   seller_refund_policy_enabled: boolean;
   seller_refund_policy: Pick<RefundPolicy, "title" | "fine_print">;
   cancellation_discounts_enabled: boolean;
+  price_checker_enabled: boolean;
+  custom_html_pages_enabled: boolean;
   ai_generated: boolean;
   fund_cart_id: string | null;
 };
@@ -131,6 +133,8 @@ const createContextValue = (props: Props) => ({
   seller_refund_policy_enabled: props.seller_refund_policy_enabled,
   seller_refund_policy: props.seller_refund_policy,
   cancellationDiscountsEnabled: props.cancellation_discounts_enabled,
+  priceCheckerEnabled: props.price_checker_enabled,
+  customHtmlPagesEnabled: props.custom_html_pages_enabled,
   contentUpdates: null,
   setContentUpdates: () => {},
   aiGenerated: props.ai_generated,
@@ -251,7 +255,7 @@ const ProductEditPage = (props: Props) => {
                 url: Routes.s3_utility_cdn_url_for_blob_path({ key: blob.key }),
               })
                 .then((response) => response.json())
-                .then((data) => resolve(cast<{ url: string }>(data).url))
+                .then((data) => resolve(typia.assert<{ url: string }>(data).url))
                 .catch((e: unknown) => {
                   assertResponseError(e);
                   reject(e);

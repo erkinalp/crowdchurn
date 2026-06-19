@@ -10,8 +10,7 @@
 
     <%= yield %>
 
-    <%= javascript_include_tag "application" %>
-    <%= load_pack("admin") %>
+    <%= vite_typescript_tag "admin", skip_style_tags: true %>
     <%= yield :script %>
   <% end %>
 </html>

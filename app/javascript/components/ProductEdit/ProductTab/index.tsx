@@ -29,6 +29,7 @@ import { GoogleCalendarIntegrationEditor } from "$app/components/ProductEdit/Pro
 import { GrossPriceEditor } from "$app/components/ProductEdit/ProductTab/GrossPriceEditor";
 import { MaxPurchaseCountToggle } from "$app/components/ProductEdit/ProductTab/MaxPurchaseCountToggle";
 import { MultiCurrencyPriceEditor } from "$app/components/ProductEdit/ProductTab/MultiCurrencyPriceEditor";
+import { PriceCheckerCard } from "$app/components/ProductEdit/ProductTab/PriceChecker";
 import { PriceEditor } from "$app/components/ProductEdit/ProductTab/PriceEditor";
 import { PricingModeSelector } from "$app/components/ProductEdit/ProductTab/PricingModeSelector";
 import { ShippingDestinationsEditor } from "$app/components/ProductEdit/ProductTab/ShippingDestinationsEditor";
@@ -65,6 +66,7 @@ export const ProductTab = () => {
     googleCalendarEnabled,
     seller_refund_policy_enabled,
     cancellationDiscountsEnabled,
+    priceCheckerEnabled,
     aiGenerated,
   } = useProductEditContext();
   const [initialProduct] = React.useState(product);

@@ -79,7 +79,13 @@ class Api::Mobile::PurchasesController < Api::Mobile::BaseController
     end
 
     def purchases_to_json(purchases)
-      purchases.map(&:json_data_for_mobile)
+      purchases_array = purchases.to_a
+      ActiveRecord::Associations::Preloader.new(
+        records: purchases_array,
+        associations: [:seller, { link: :user }]
+      ).call
+      Purchase.preload_product_updates_data!(purchases_array)
+      purchases_array.map(&:json_data_for_mobile)
     end
 
     def search_purchases

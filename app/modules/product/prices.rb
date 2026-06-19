@@ -144,6 +144,11 @@ module Product::Prices
   # create and associated the proper Price(s) object. If the product is a tiered membership product, it does not create or update a new price since
   # these prices are set on the variant.
   def price_cents=(price_cents)
+    if price_cents.present? && price_cents.to_i > BasePrice::Shared::MAX_PRICE_CENTS
+      errors.add(:base, "Sorry, the price entered is too large.")
+      raise Link::LinkInvalid, "Sorry, the price entered is too large."
+    end
+
     return super(price_cents) if !persisted? || is_tiered_membership
 
     create_or_update_new_price!(price_cents:, recurrence: subscription_duration.try(:to_s), is_rental: rent_only?)
@@ -255,8 +260,7 @@ module Product::Prices
   def validate_product_price_against_all_offer_codes?
     all_alive_offer_codes = product_and_universal_offer_codes
     all_alive_offer_codes.each do |offer_code|
-      price_after_code = default_price_cents - offer_code.amount_off(default_price_cents)
-      next if price_after_code <= 0 || price_after_code >= currency["min_price"]
+      next if offer_code.is_amount_valid?(self)
 
       errors.add(:base, "An existing discount code puts the price of this product below the #{min_price_formatted} minimum after discount.")
       return false
@@ -265,7 +269,7 @@ module Product::Prices
   end
 
   def suggested_price_greater_than_price
-    return if suggested_price_cents.blank? || !customizable_price || suggested_price_cents >= default_price_cents
+    return if suggested_price_cents.blank? || !customizable_price || default_price_cents.nil? || suggested_price_cents >= default_price_cents
 
     errors.add(:base, "The suggested price you entered was too low.")
   end
@@ -367,6 +371,22 @@ module Product::Prices
   end
 
   private
+    # Returns the alive prices matching the product's current `price_currency_type`.
+    # Filters in memory when `alive_prices` is already preloaded (the read path used by
+    # ProductPresenter::Card / CardForWeb), and falls back to a `.where` when it isn't.
+    # The `loaded?` guard is required: callers like the test helper
+    # `change_membership_product_currency_to` do `prices.update_all(currency: ...)`
+    # which mutates the DB rows without invalidating the in-memory cache, so an
+    # unconditional in-memory `select` would see stale data and validation
+    # (`default_price` returning nil) would fail.
+    def prices_for_currency
+      if association(:alive_prices).loaded?
+        alive_prices.select { |p| p.currency == price_currency_type }
+      else
+        alive_prices.where(currency: price_currency_type)
+      end
+    end
+
     # Private: Called only on create to instantiate Price object(s) and associate it to the newly created product.
     def associate_price
       # for tiered memberships, price is set at the tier level
@@ -423,23 +443,60 @@ module Product::Prices
       # 1. there are multiple tiers, or
       # 2. any tiers have PWYW enabled, or
       # 3. there's only 1 tier but it has multiple prices
-      tiers.size > 1 || tiers.where(customizable_price: true).exists? || (default_tier.present? && default_tier.prices.alive.is_buy.size > 1)
+      any_customizable =
+        if association(:tiers).loaded?
+          tiers.any?(&:customizable_price?)
+        else
+          tiers.where(customizable_price: true).exists?
+        end
+      multiple_tier_prices =
+        if default_tier.present? && default_tier.association(:alive_prices).loaded?
+          default_tier.alive_prices.count(&:is_buy?) > 1
+        else
+          default_tier.present? && default_tier.prices.alive.is_buy.size > 1
+        end
+      tiers.size > 1 || any_customizable || multiple_tier_prices
     end
 
     def lowest_tier_price(for_default_duration: false)
       return unless is_tiered_membership
 
-      prices = VariantPrice.where(variant_id: tiers.map(&:id)).alive.is_buy
-      prices = prices.where(recurrence: subscription_duration) if for_default_duration
-      prices.order("price_cents asc").take ||
+      lowest =
+        if association(:tiers).loaded? && tiers.all? { |t| t.association(:alive_prices).loaded? }
+          candidates = tiers.flat_map(&:alive_prices).select(&:is_buy?)
+          candidates = candidates.select { |p| p.recurrence == subscription_duration } if for_default_duration
+          candidates.min_by(&:price_cents)
+        else
+          relation = VariantPrice.where(variant_id: tiers.map(&:id)).alive.is_buy
+          relation = relation.where(recurrence: subscription_duration) if for_default_duration
+          relation.order("price_cents asc").take
+        end
+
+      lowest ||
         default_tier&.prices&.is_buy&.build(price_cents: 0, recurrence: subscription_duration) ||
         VariantPrice.new(price_cents: 0, recurrence: subscription_duration)
     end
 
     def lowest_variant_price_difference_cents
       return if is_tiered_membership?
-      lowest_variant = current_base_variants.order(price_difference_cents: :asc).first
-      lowest_variant&.price_difference_cents
+      # Mirrors `current_base_variants`: SKUs attached directly to the link
+      # (default SKU has price_difference_cents: 0 for physical products) plus
+      # alive variants under each alive variant category. Walks preloaded
+      # associations when available to avoid N+1; otherwise falls through to
+      # a single batched aggregate so non-card callers
+      # (DashboardProductsPagePresenter#display_price_cents,
+      # CollabProductsPagePresenter#display_price_cents,
+      # Product::StructuredData#minimum_offer_price_cents) don't pay a
+      # per-category N+1.
+      if association(:variant_categories_alive).loaded? &&
+         variant_categories_alive.all? { |c| c.association(:alive_variants).loaded? } &&
+         association(:skus).loaded?
+        candidates = skus.select(&:alive?) +
+                     variant_categories_alive.flat_map(&:alive_variants)
+        candidates.map(&:price_difference_cents).compact.min
+      else
+        current_base_variants.minimum(:price_difference_cents)
+      end
     end
 
     def display_recurrence
