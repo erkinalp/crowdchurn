@@ -157,5 +157,4 @@ class InvoicePresenter
 
       first_purchase.displayed_price_currency_type.to_s.upcase
     end
-
 end

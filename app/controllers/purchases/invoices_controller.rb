@@ -35,8 +35,8 @@ class Purchases::InvoicesController < ApplicationController
       elsif submitted_vat_id && InvoicePresenter::FormInfo::BUSINESS_ID_COUNTRY_CODES.include?(selected_country_code)
         submitted_vat_id
       end
-    business_vat_id_country_code = selected_country_code if business_vat_id.present? && refundable_vat_id.blank?
-    show_reverse_charge_note = refundable_vat_id.present? if business_vat_id.present?
+    selected_country_code if business_vat_id.present? && refundable_vat_id.blank?
+    refundable_vat_id.present? if business_vat_id.present?
     additional_notes = invoice_params[:additional_notes]&.strip
     invoice_format = invoice_params[:export_format].presence || "pdf"
 

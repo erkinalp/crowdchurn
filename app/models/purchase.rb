@@ -3198,7 +3198,6 @@ class Purchase < ApplicationRecord
       Rails.logger.warn("Failed to auto-delete single-use offer code #{offer_code.id}: #{e.message}")
     end
 
-
     def offer_amount_off(purchase_min_price)
       # For commissions, apply deposit purchase's offer code to its completion
       # purchase even if it has been soft deleted.
@@ -4428,7 +4427,6 @@ class Purchase < ApplicationRecord
       price_cents > 0 && !not_charged? && charged_using_server_owner_account?
     end
 
-
     def all_workflows
       link.workflows.alive + seller.workflows.alive.seller_or_audience_type
     end
@@ -4512,7 +4510,6 @@ class Purchase < ApplicationRecord
         Iffy::Product::IngestJob.perform_async(link.id)
       end
     end
-
 
     def fetch_installment_plan
       installment_plan || subscription&.last_payment_option&.installment_plan

@@ -632,7 +632,6 @@ class LinksController < ApplicationController
       ActiveRecord::Base.connection.stick_to_primary!
     end
 
-
     def fetch_product_by_custom_domain
       @product = product_by_custom_domain
     end
