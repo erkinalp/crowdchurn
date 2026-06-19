@@ -1160,8 +1160,8 @@ describe CustomerMailer do
       expect(mail.to).to contain_exactly(buyer.email)
       expect(mail.subject).to eq("Olivander responded to your review")
       expect(mail.body).to have_selector("[aria-label='4 stars']")
-      expect(mail.body).to have_selector("img[src='#{ActionController::Base.helpers.asset_path("email/solid-star.png")}']", count: 4)
-      expect(mail.body).to have_selector("img[src='#{ActionController::Base.helpers.asset_path("email/outline-star.png")}']", count: 1)
+      expect(mail.body).to have_selector("img[src='#{ActionController::Base.helpers.image_path("email/solid-star.png")}']", count: 4)
+      expect(mail.body).to have_selector("img[src='#{ActionController::Base.helpers.image_path("email/outline-star.png")}']", count: 1)
       expect(mail.body).to have_selector(".content p", text: "Here is a review.")
       expect(mail.body).to have_selector(".content .byline", text: "Harry")
       expect(mail.body).to have_selector(".content.response p", text: "Here is a response.")
@@ -1243,6 +1243,30 @@ describe CustomerMailer do
       mail = CustomerMailer.grouped_receipt(purchases.map(&:id))
       expect(mail.to).to eq([purchases.last.email])
       expect(mail.subject).to eq("Receipts for Purchases")
+    end
+
+    it "eager loads charges and orders to avoid N+1 queries" do
+      purchases_with_charges = Array.new(3) do
+        purchase = create(:purchase, link: product, seller:)
+        charge = create(:charge, seller:)
+        charge.purchases << purchase
+        charge.order.purchases << purchase
+        purchase
+      end
+
+      queries = []
+      callback = lambda { |_name, _start, _finish, _id, payload|
+        queries << payload[:sql] if payload[:sql] && !payload[:name]&.match?(/SCHEMA|TRANSACTION/)
+      }
+
+      ActiveSupport::Notifications.subscribed(callback, "sql.active_record") do
+        CustomerMailer.grouped_receipt(purchases_with_charges.map(&:id)).message
+      end
+
+      charge_queries = queries.select { |sql| sql.match?(/FROM `charges`/i) }
+      order_queries = queries.select { |sql| sql.match?(/FROM `orders`/i) }
+      expect(charge_queries.size).to be <= 2
+      expect(order_queries.size).to be <= 2
     end
   end
 

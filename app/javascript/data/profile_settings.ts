@@ -1,12 +1,5 @@
-import { FromSchema } from "json-schema-to-ts";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
-import FeaturedProductSectionSchema from "$app/json_schemas/seller_profile_featured_product_section";
-import PostsSectionSchema from "$app/json_schemas/seller_profile_posts_section";
-import ProductsSectionSchema from "$app/json_schemas/seller_profile_products_section";
-import RichTextSectionSchema from "$app/json_schemas/seller_profile_rich_text_section";
-import SubscribeSectionSchema from "$app/json_schemas/seller_profile_subscribe_section";
-import WishlistsSectionSchema from "$app/json_schemas/seller_profile_wishlists_section";
 import { ProfileSettings, Tab } from "$app/parsers/profile";
 import { request, ResponseError } from "$app/utils/request";
 
@@ -18,57 +11,92 @@ export type Section = {
   hide_header: boolean;
 };
 
-export type ProductsSection = Section & { type: "SellerProfileProductsSection"; shown_products: string[] } & Omit<
-    FromSchema<typeof ProductsSectionSchema>,
-    "shown_products"
-  >;
+export type ProfileSortKey = "page_layout" | "newest" | "highest_rated" | "most_reviewed" | "price_asc" | "price_desc";
 
-export type PostsSection = Section & { type: "SellerProfilePostsSection"; shown_posts: string[] } & Omit<
-    FromSchema<typeof PostsSectionSchema>,
-    "shown_posts"
-  >;
+export type ProductsSection = Section & {
+  type: "SellerProfileProductsSection";
+  shown_products: string[];
+  default_product_sort: ProfileSortKey;
+  show_filters: boolean;
+  add_new_products: boolean;
+};
 
-export type RichTextSection = Section & { type: "SellerProfileRichTextSection" } & FromSchema<
-    typeof RichTextSectionSchema
-  >;
+export type PostsSection = Section & {
+  type: "SellerProfilePostsSection";
+  shown_posts: string[];
+};
 
-export type SubscribeSection = Section & { type: "SellerProfileSubscribeSection" } & FromSchema<
-    typeof SubscribeSectionSchema
-  >;
+export type RichTextSection = Section & {
+  type: "SellerProfileRichTextSection";
+  text: Record<string, unknown>;
+};
+
+export type SubscribeSection = Section & {
+  type: "SellerProfileSubscribeSection";
+  button_label: string;
+};
 
 export type FeaturedProductSection = Section & {
   type: "SellerProfileFeaturedProductSection";
   featured_product_id?: string;
-} & Omit<FromSchema<typeof FeaturedProductSectionSchema>, "featured_product_id">;
+};
 
 export type WishlistsSection = Section & {
   type: "SellerProfileWishlistsSection";
   shown_wishlists: string[];
-} & Omit<FromSchema<typeof WishlistsSectionSchema>, "shown_wishlists">;
+};
 
-export const updateProfileSettings = async (profileSettings: Partial<ProfileSettings> & { tabs?: Tab[] }) => {
-  const { background_color, highlight_color, font, profile_picture_blob_id, tabs, ...user } = profileSettings;
+export type ProfileSection =
+  | ProductsSection
+  | PostsSection
+  | RichTextSection
+  | SubscribeSection
+  | FeaturedProductSection
+  | WishlistsSection;
+
+export const updateProfileSettings = async (
+  profileSettings: Partial<ProfileSettings> & {
+    tabs?: Tab[];
+    sections?: ProfileSection[];
+    profileVersion?: string | null;
+  },
+) => {
+  const { profile_picture_blob_id, tabs, sections, profileVersion, ...user } = profileSettings;
   const response = await request({
     method: "PUT",
-    url: Routes.settings_profile_path(),
+    url: Routes.profile_path(),
     accept: "json",
     data: {
       user,
-      seller_profile: { background_color, highlight_color, font },
       profile_picture_blob_id,
-      tabs,
+      // Omit pages/sections entirely when the caller didn't pass them, so a settings-only save
+      // doesn't replace (and prune) the server's section list. When they are sent, profile_version
+      // lets the server reject the write if the layout changed elsewhere since this editor loaded.
+      ...(tabs !== undefined ? { tabs } : {}),
+      ...(sections !== undefined ? { sections } : {}),
+      ...(profileVersion !== undefined ? { profile_version: profileVersion } : {}),
     },
   });
-  const json = cast<{ success: false; error_message: string } | { success: true }>(await response.json());
+  const json = typia.assert<{ success: false; error_message: string } | { success: true }>(await response.json());
   if (!json.success) throw new ResponseError(json.error_message);
 };
 
 export const getProduct = async (id: string) => {
   const response = await request({
     method: "GET",
-    url: Routes.settings_profile_product_path(id),
+    url: Routes.profile_product_path(id),
     accept: "json",
   });
   if (!response.ok) throw new ResponseError();
-  return cast<ProductProps>(await response.json());
+  return typia.assert<ProductProps>(await response.json());
+};
+
+export const unlinkTwitter = async () => {
+  const response = await request({
+    method: "POST",
+    url: Routes.unlink_twitter_settings_connections_path(),
+    accept: "json",
+  });
+  const json = typia.assert<{ success: false; error_message: string } | { success: true }>(await response.json());
+  if (!json.success) throw new ResponseError(json.error_message);
 };

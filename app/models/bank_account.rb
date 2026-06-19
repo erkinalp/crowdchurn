@@ -58,6 +58,18 @@ class BankAccount < ApplicationRecord
     Currency::USD
   end
 
+  def stripe_external_account_country
+    country
+  end
+
+  def stripe_external_account_currency
+    currency
+  end
+
+  def stripe_external_account_routing_number
+    routing_number
+  end
+
   def to_hash
     hash = {
       bank_number:,
@@ -85,7 +97,7 @@ class BankAccount < ApplicationRecord
 
       external_account.available_payout_methods.include?("instant")
     rescue Stripe::StripeError => e
-      ErrorNotifier.notify(e)
+      ErrorNotifier.notify(e) unless e.message.to_s.include?("has been deleted and can no longer be used")
       false
     end
   end

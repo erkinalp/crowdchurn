@@ -56,7 +56,7 @@ class SaveInstallmentService
         installment.link = product_or_variant_type? ? product : nil
         installment.seller = seller
       end
-      if (installment.published? || installment.add_and_validate_filters(installment_attrs, seller)) && installment.save
+      if (installment.published? || installment.add_and_validate_filters(installment_attrs, seller)) && save_with_unique_slug!
         SaveFilesService.perform(installment, product_files_params)
         update_profile_posts_sections!
       else
@@ -64,15 +64,25 @@ class SaveInstallmentService
       end
     end
 
+    def save_with_unique_slug!
+      installment.save
+    rescue ActiveRecord::RecordNotUnique => e
+      raise unless e.message.include?("index_installments_on_slug")
+      installment.slug = "#{installment.slug}-#{SecureRandom.hex(4)}"
+      installment.save
+    end
+
     def update_profile_posts_sections!
-      seller.seller_profile_posts_sections.each do |section|
-        shown_posts = Set.new(section.shown_posts)
-        if section.external_id.in?(installment_params[:shown_in_profile_sections])
-          shown_posts.add(installment.id)
-        else
-          shown_posts.delete(installment.id)
+      seller.with_profile_sections_lock do
+        seller.seller_profile_posts_sections.reload.each do |section|
+          shown_posts = Set.new(section.shown_posts)
+          if section.external_id.in?(installment_params[:shown_in_profile_sections])
+            shown_posts.add(installment.id)
+          else
+            shown_posts.delete(installment.id)
+          end
+          section.update!(shown_posts: shown_posts.to_a)
         end
-        section.update!(shown_posts: shown_posts.to_a)
       end
     end
 
@@ -96,7 +106,13 @@ class SaveInstallmentService
     def publish_installment
       return if error.present?
 
-      installment.publish!
+      begin
+        installment.publish!
+      rescue ActiveRecord::RecordInvalid => e
+        @error = e.record&.errors&.full_messages&.first || e.message
+        return
+      end
+
       installment.installment_rule&.mark_deleted!
       if installment.can_be_blasted?
         blast_id = PostEmailBlast.create!(post: installment, requested_at: Time.current).id

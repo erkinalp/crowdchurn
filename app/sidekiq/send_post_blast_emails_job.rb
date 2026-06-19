@@ -18,10 +18,16 @@ class SendPostBlastEmailsJob
     Makara::Context.release_all
     @members = AudienceMember.filter(seller_id: @post.seller_id, params: @filters, with_ids: true).select(:id, :email, :purchase_id, :follower_id, :affiliate_id).to_a
 
-    # We will check each batch of emails to see if they were already messaged,
-    # but we can already remove all of the ones we know have already been emailed, ahead of time (faster).
-    # This check is only useful if the post has been published twice, or if this job is being retried.
-    remove_already_emailed_members
+    if @blast.to_non_openers?
+      keep_emails = @post.unopened_recipient_emails.to_set
+      @members.select! { _1.email.present? && keep_emails.include?(_1.email.downcase) }
+      remove_members_already_sent_in_this_blast
+    else
+      # We will check each batch of emails to see if they were already messaged,
+      # but we can already remove all of the ones we know have already been emailed, ahead of time (faster).
+      # This check is only useful if the post has been published twice, or if this job is being retried.
+      remove_already_emailed_members
+    end
 
     return mark_blast_as_completed if @members.empty?
 
@@ -32,11 +38,14 @@ class SendPostBlastEmailsJob
 
       begin
         PostEmailApi.process(post: @post, recipients:, cache:, blast: @blast)
+        mark_members_sent_in_this_blast(members) if @blast.to_non_openers?
       rescue => e
         # Delete the sent_post_emails records if there's an error with PostEmailApi.process
         # We cannot use `transaction` here because it exceeds the lock timeout.
-        emails = members.map(&:email)
-        SentPostEmail.where(post: @post, email: emails).delete_all
+        unless @blast.to_non_openers?
+          emails = members.map(&:email)
+          SentPostEmail.where(post: @post, email: emails).delete_all
+        end
         raise e
       end
     end
@@ -58,6 +67,27 @@ class SendPostBlastEmailsJob
       return if already_sent_emails.empty?
 
       @members.delete_if { _1.email.in?(already_sent_emails) }
+    end
+
+    BLAST_DEDUPE_TTL = 7.days
+
+    def remove_members_already_sent_in_this_blast
+      already_sent = $redis.smembers(RedisKey.blast_sent_emails(@blast.id))
+      return if already_sent.empty?
+
+      already_sent_set = already_sent.to_set
+      @members.delete_if { already_sent_set.include?(_1.email) }
+    end
+
+    def mark_members_sent_in_this_blast(members)
+      emails = members.map(&:email)
+      return if emails.empty?
+
+      key = RedisKey.blast_sent_emails(@blast.id)
+      $redis.pipelined do |pipe|
+        pipe.sadd(key, emails)
+        pipe.expire(key, BLAST_DEDUPE_TTL.to_i)
+      end
     end
 
     def enrich_with_gathered_records(members_with_specifics)
@@ -141,6 +171,8 @@ class SendPostBlastEmailsJob
     # "Unlikely situation" because we've already filtered the sent emails beforehand with `remove_already_emailed_members`,
     # this behavior only helps if an email is sent by something else in parallel, between the start and the end of this job.
     def store_recipients_as_sent(members)
+      return members if @blast.to_non_openers?
+
       emails = Set.new(SentPostEmail.insert_all_emails(post: @post, emails: members.map(&:email)))
       return members if members.size == emails.size
 

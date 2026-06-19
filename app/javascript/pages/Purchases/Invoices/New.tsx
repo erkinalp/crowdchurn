@@ -1,6 +1,6 @@
 import { useForm, usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { Button } from "$app/components/Button";
 import { PoweredByFooter } from "$app/components/PoweredByFooter";
@@ -32,6 +32,7 @@ type NewInvoicePageProps = {
       country_code: string;
     };
     email: string;
+    business_name: string;
     vat_id: string;
     additional_notes: string;
     export_format: string;
@@ -40,6 +41,8 @@ type NewInvoicePageProps = {
     heading: string;
     display_vat_id: boolean;
     vat_id_label: string;
+    business_id_country_codes: string[];
+    business_id_labels: Record<string, string>;
     supplier_info: {
       heading: string;
       attributes: { label: string | null; value: string }[];
@@ -59,13 +62,15 @@ type NewInvoicePageProps = {
 };
 
 const PurchaseNewInvoicePage = () => {
-  const { form_data, form_metadata, invoice_file_url } = cast<NewInvoicePageProps>(usePage().props);
+  const { form_data, form_metadata, invoice_file_url } = typia.assert<NewInvoicePageProps>(usePage().props);
   const { supplier_info, seller_info, order_info, countries } = form_metadata;
 
   const form = useForm({ ...form_data, export_format: form_data.export_format || "pdf" });
 
+
   const validateFields = () =>
     Object.entries(form.data.address_fields).reduce((isValid, [key, value]) => {
+      if (key === "state" && !showStateField) return isValid;
       if (!value.trim()) {
         form.setError(`address_fields.${key}`, "Setting error message for highlighting the field in UI");
         return false;
@@ -78,13 +83,17 @@ const PurchaseNewInvoicePage = () => {
 
     form.transform((data) => ({
       ...data,
-      vat_id: form_metadata.display_vat_id ? data.vat_id : null,
+      address_fields: {
+        ...data.address_fields,
+        state: showStateField ? data.address_fields.state : "",
+      },
+      vat_id: showBusinessIdField ? data.vat_id : null,
     }));
 
     form.post(Routes.purchase_invoice_path(form.data.purchase_id), {
       only: ["flash", "invoice_file_url"],
       onSuccess: (page) => {
-        const { invoice_file_url } = cast<{ invoice_file_url: string }>(page.props);
+        const { invoice_file_url } = typia.assert<{ invoice_file_url: string }>(page.props);
         if (invoice_file_url) window.open(invoice_file_url, "_blank");
       },
     });
@@ -94,7 +103,7 @@ const PurchaseNewInvoicePage = () => {
     <>
       <div>
         <Card asChild>
-          <main className="mx-auto my-4 h-min max-w-md [&>*]:flex-col [&>*]:items-stretch">
+          <main className="mx-auto my-4 max-w-md [&>*]:flex-col [&>*]:items-stretch">
             <CardContent asChild>
               <header className="text-center">
                 <h4 className="grow font-bold">{form_metadata.heading}</h4>
@@ -105,16 +114,24 @@ const PurchaseNewInvoicePage = () => {
                 <Label htmlFor="full_name">Full name</Label>
                 <Input
                   id="full_name"
-                  placeholder="Full name"
                   type="text"
                   value={form.data.address_fields.full_name}
                   onChange={(e) => form.setData("address_fields.full_name", e.target.value)}
                 />
               </Fieldset>
-              {form_metadata.display_vat_id ? (
+              <Fieldset className="flex-1">
+                <Label htmlFor="business_name">Business name (optional)</Label>
+                <Input
+                  id="business_name"
+                  type="text"
+                  value={form.data.business_name}
+                  onChange={(e) => form.setData("business_name", e.target.value)}
+                />
+              </Fieldset>
+              {showBusinessIdField ? (
                 <Fieldset className="flex-1">
                   <FieldsetTitle>
-                    <Label htmlFor="chargeable_vat_id">{form_metadata.vat_id_label}</Label>
+                    <Label htmlFor="chargeable_vat_id">{businessIdLabel}</Label>
                   </FieldsetTitle>
                   <Input
                     id="chargeable_vat_id"
@@ -129,38 +146,42 @@ const PurchaseNewInvoicePage = () => {
                 <Input
                   id="street_address"
                   type="text"
-                  placeholder="Street address"
                   value={form.data.address_fields.street_address}
                   onChange={(e) => form.setData("address_fields.street_address", e.target.value)}
                 />
               </Fieldset>
-              <div style={{ display: "grid", gap: "var(--spacer-2)", gridTemplateColumns: "2fr 1fr 1fr" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gap: "var(--spacer-2)",
+                  gridTemplateColumns: showStateField ? "2fr 1fr 1fr" : "1fr 1fr",
+                }}
+              >
                 <Fieldset state={form.errors["address_fields.city"] ? "danger" : undefined}>
                   <Label htmlFor="city">City</Label>
                   <Input
                     id="city"
                     type="text"
-                    placeholder="City"
                     value={form.data.address_fields.city}
                     onChange={(e) => form.setData("address_fields.city", e.target.value)}
                   />
                 </Fieldset>
-                <Fieldset state={form.errors["address_fields.state"] ? "danger" : undefined}>
-                  <Label htmlFor="state">State</Label>
-                  <Input
-                    id="state"
-                    type="text"
-                    placeholder="State"
-                    value={form.data.address_fields.state}
-                    onChange={(e) => form.setData("address_fields.state", e.target.value)}
-                  />
-                </Fieldset>
+                {showStateField ? (
+                  <Fieldset state={form.errors["address_fields.state"] ? "danger" : undefined}>
+                    <Label htmlFor="state">State</Label>
+                    <Input
+                      id="state"
+                      type="text"
+                      value={form.data.address_fields.state}
+                      onChange={(e) => form.setData("address_fields.state", e.target.value)}
+                    />
+                  </Fieldset>
+                ) : null}
                 <Fieldset state={form.errors["address_fields.zip_code"] ? "danger" : undefined}>
                   <Label htmlFor="zip_code">ZIP code</Label>
                   <Input
                     id="zip_code"
                     type="text"
-                    placeholder="ZIP code"
                     value={form.data.address_fields.zip_code}
                     onChange={(e) => form.setData("address_fields.zip_code", e.target.value)}
                   />
@@ -188,7 +209,6 @@ const PurchaseNewInvoicePage = () => {
                 <Textarea
                   id="additional_notes"
                   name="additional_notes"
-                  placeholder="Enter anything else you'd like to appear on your invoice (Optional)"
                   value={form.data.additional_notes}
                   onChange={(e) => form.setData("additional_notes", e.target.value)}
                 />
@@ -239,6 +259,7 @@ const PurchaseNewInvoicePage = () => {
                 >
                   {form.data.address_fields.full_name || "Edgar Gumstein"}
                 </div>
+                {form.data.business_name.length ? <div>{form.data.business_name}</div> : null}
                 <div
                   style={{
                     opacity: form.data.address_fields.street_address.length ? undefined : "var(--disabled-opacity)",
@@ -250,13 +271,21 @@ const PurchaseNewInvoicePage = () => {
                   <span
                     style={{ opacity: form.data.address_fields.city.length ? undefined : "var(--disabled-opacity)" }}
                   >
-                    {`${form.data.address_fields.city || "San Francisco"},`}
-                  </span>{" "}
-                  <span
-                    style={{ opacity: form.data.address_fields.state.length ? undefined : "var(--disabled-opacity)" }}
-                  >
-                    {form.data.address_fields.state || "CA"}
-                  </span>{" "}
+                    {form.data.address_fields.city || "San Francisco"}
+                  </span>
+                  {", "}
+                  {showStateField ? (
+                    <>
+                      <span
+                        style={{
+                          opacity: form.data.address_fields.state.length ? undefined : "var(--disabled-opacity)",
+                        }}
+                      >
+                        {form.data.address_fields.state || "CA"}
+                      </span>
+                      {", "}
+                    </>
+                  ) : null}
                   <span
                     style={{
                       opacity: form.data.address_fields.zip_code.length ? undefined : "var(--disabled-opacity)",

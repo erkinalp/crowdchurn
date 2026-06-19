@@ -1,6 +1,6 @@
 import { usePage, router } from "@inertiajs/react";
 import React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { formatPriceCentsWithCurrencySymbol } from "$app/utils/currency";
 
@@ -19,6 +19,7 @@ type ScheduledPayoutUser = {
 type ScheduledPayout = {
   external_id: string;
   action: "refund" | "payout" | "hold";
+  processor: "PAYPAL" | "STRIPE" | null;
   status: "pending" | "executed" | "cancelled" | "flagged" | "held";
   delay_days: number;
   scheduled_at: string;
@@ -79,7 +80,7 @@ const describeAction = (sp: ScheduledPayout): string => {
 };
 
 const AdminScheduledPayoutsIndex = () => {
-  const { scheduled_payouts, pagination, current_status_filter } = cast<PageProps>(usePage().props);
+  const { scheduled_payouts, pagination, current_status_filter } = typia.assert<PageProps>(usePage().props);
 
   const onChangePage = (page: number) => {
     router.reload({ data: { page: page.toString(), status: current_status_filter ?? undefined } });

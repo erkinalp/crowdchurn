@@ -2,15 +2,14 @@ import { Link, usePage } from "@inertiajs/react";
 import cx from "classnames";
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { formatPostDate } from "$app/utils/date";
-import { gumroad_blog_post_path } from "$app/utils/routes";
 
 import { BlogLayout } from "$app/components/GumroadBlog/Layout";
 import { Tabs, Tab } from "$app/components/ui/Tabs";
 
-import placeholderFeatureImage from "../../../../assets/images/blog/post-placeholder.jpg";
+import placeholderFeatureImage from "$assets/images/blog/post-placeholder.jpg";
 
 type TagProps = {
   name: string;
@@ -94,7 +93,7 @@ const PostCard = ({
   return (
     <article className="h-full">
       <Link
-        href={gumroad_blog_post_path(post.slug)}
+        href={Routes.gumroad_blog_post_path(post.slug)}
         className={cx(
           "override grid h-full overflow-hidden rounded-lg border border-black bg-white text-black no-underline transition-all duration-200 ease-in-out hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[3px_3px_#000]",
           { "grid-rows-[auto_1fr]": !!featureImageUrl },
@@ -143,7 +142,7 @@ const PostCard = ({
 const CompactPostItem = ({ post }: { post: Post }) => (
   <li className="border-gray-300 py-4 first:pt-0">
     <Link
-      href={gumroad_blog_post_path(post.slug)}
+      href={Routes.gumroad_blog_post_path(post.slug)}
       className="group flex items-end justify-between text-black no-underline hover:text-pink-600"
     >
       <div className="grid grid-cols-1 gap-1">
@@ -237,7 +236,7 @@ const TagSelector = ({
 };
 
 const IndexPage = () => {
-  const { posts } = cast<IndexPageProps>(usePage().props);
+  const { posts } = typia.assert<IndexPageProps>(usePage().props);
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
   const featured_post = posts[0];

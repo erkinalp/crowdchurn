@@ -105,17 +105,15 @@ const Period = ({ payoutPeriodData }: { payoutPeriodData: PayoutPeriodData }) =>
         {"type" in payoutPeriodData && payoutPeriodData.type === "instant" ? <Pill size="small">Instant</Pill> : null}
         <span style={{ marginLeft: "auto" }}>{payoutPeriodData.displayable_payout_period_range}</span>
         {payoutPeriodData.status === "completed" && payoutPeriodData.payment_external_id ? (
-          <WithTooltip position="top" tip="Export" className="shrink-0">
-            <Button
-              size="icon"
-              color="primary"
-              disabled={isCSVDownloadInProgress}
-              onClick={handleRequestPayoutCSV}
-              aria-label="Export"
-            >
-              <ArrowInDownSquareHalf className="size-5" />
-            </Button>
-          </WithTooltip>
+          <Button
+            color="primary"
+            className="shrink-0"
+            disabled={isCSVDownloadInProgress}
+            onClick={handleRequestPayoutCSV}
+          >
+            <ArrowInDownSquareHalf aria-hidden="true" className="size-5" />
+            Export
+          </Button>
         ) : null}
       </div>
       <Card style={{ marginTop: "var(--spacer-4)" }}>
@@ -569,7 +567,7 @@ export default function PayoutsIndex() {
                 )
               ) : (
                 <>
-                  Your balance is on hold. Please <a href={Routes.support_index_path()}>contact support</a> for details.
+                  Your balance is on hold. Please <a href="mailto:support@gumroad.com">contact support</a> for details.
                 </>
               )}
             </p>
@@ -604,7 +602,7 @@ export default function PayoutsIndex() {
                 {instant_payout.payable_balances.some(
                   (balance) => balance.amount_cents > MAXIMUM_INSTANT_PAYOUT_AMOUNT_CENTS,
                 ) ? (
-                  <a href={Routes.support_index_path()}>Contact us for an instant payout</a>
+                  <a href="mailto:support@gumroad.com">Contact us for an instant payout</a>
                 ) : (
                   <Button
                     size="sm"

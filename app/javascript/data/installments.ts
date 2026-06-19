@@ -1,4 +1,4 @@
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { CurrencyCode } from "$app/utils/currency";
 import { request, ResponseError } from "$app/utils/request";
@@ -51,6 +51,7 @@ export type PublishedInstallment = SavedInstallment & {
   open_rate: number | null;
   view_count: number | null;
   published_at: string;
+  non_opener_resends: { requested_at: string; delivery_count: number; completed: boolean }[];
 };
 
 export type ScheduledInstallment = SavedInstallment & {
@@ -103,7 +104,7 @@ export async function getAudienceCount(externalId: string) {
   });
 
   if (!response.ok) throw new ResponseError();
-  return cast<{ count: number }>(await response.json());
+  return typia.assert<{ count: number }>(await response.json());
 }
 
 type RecipientCountRequestPayload = {
@@ -131,12 +132,37 @@ export function getRecipientCount(requestPayload: RecipientCountRequestPayload) 
       if (!res.ok) throw new ResponseError();
       return res.json();
     })
-    .then((json) => cast<{ recipient_count: number; audience_count: number }>(json));
+    .then((json) => typia.assert<{ recipient_count: number; audience_count: number }>(json));
 
   return {
     response,
     cancel: () => abort.abort(),
   };
+}
+
+export async function getNonOpenerCount(externalId: string) {
+  const response = await request({
+    method: "GET",
+    accept: "json",
+    url: Routes.internal_installment_non_opener_resend_path(externalId),
+  });
+
+  if (!response.ok) throw new ResponseError();
+  return typia.assert<{ count: number; recently_resent: boolean; audience_filtered_out: boolean }>(
+    await response.json(),
+  );
+}
+
+export async function resendToNonOpeners(externalId: string) {
+  const response = await request({
+    method: "POST",
+    accept: "json",
+    url: Routes.internal_installment_non_opener_resend_path(externalId),
+  });
+
+  const json: unknown = await response.json();
+  if (!response.ok) throw new ResponseError(typia.assert<{ error: string }>(json).error);
+  return typia.assert<{ count: number }>(json);
 }
 
 export async function previewInstallment(externalId: string) {
@@ -146,5 +172,5 @@ export async function previewInstallment(externalId: string) {
     url: Routes.internal_installment_preview_email_path(externalId),
   });
 
-  if (!response.ok) throw new ResponseError(cast<{ message: string }>(await response.json()).message);
+  if (!response.ok) throw new ResponseError(typia.assert<{ message: string }>(await response.json()).message);
 }

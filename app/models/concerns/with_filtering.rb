@@ -73,9 +73,11 @@ module WithFiltering
     self.bought_products = (!audience_type? && params[:bought_products].present?) ? Array.wrap(params[:bought_products]) : []
     self.not_bought_products = params[:not_bought_products].present? ? Array.wrap(params[:not_bought_products]) : []
     # created "on and after" this timestamp:
-    self.created_after = params[:created_after].present? ? Date.parse(params[:created_after]).in_time_zone(user.timezone) : nil
+    created_after_date = safe_parse_filter_date(params[:created_after])
+    self.created_after = created_after_date ? created_after_date.in_time_zone(user.timezone) : nil
     # created "on and before" this timestamp:
-    self.created_before = params[:created_before].present? ? Date.parse(params[:created_before]).in_time_zone(user.timezone).end_of_day : nil
+    created_before_date = safe_parse_filter_date(params[:created_before])
+    self.created_before = created_before_date ? created_before_date.in_time_zone(user.timezone).end_of_day : nil
     self.bought_from = seller_or_product_or_variant_type? ? params[:bought_from].presence : nil
     self.bought_variants = (!audience_type? && params[:bought_variants].present?) ? Array.wrap(params[:bought_variants]) : []
     self.not_bought_variants = params[:not_bought_variants].present? ? Array.wrap(params[:not_bought_variants]) : []
@@ -108,7 +110,7 @@ module WithFiltering
     true
   end
 
-  def purchase_passes_filters(purchase)
+  def purchase_passes_filters(purchase, permalink_to_link_id: nil, seller_sales: nil, seller_post_filter_cache: nil)
     params = purchase.slice(:email, :country, :ip_country)
     params[:min_created_at] = purchase.created_at
     params[:max_created_at] = purchase.created_at
@@ -117,10 +119,10 @@ module WithFiltering
     params[:product_permalinks] = [purchase.link.unique_permalink]
     params[:variant_external_ids] = purchase.variant_attributes.map(&:external_id)
 
-    seller_post_passes_filters(**params.symbolize_keys)
+    seller_post_passes_filters(**params.symbolize_keys, permalink_to_link_id:, seller_sales:, seller_post_filter_cache:)
   end
 
-  def seller_post_passes_filters(email: nil, min_created_at: nil, max_created_at: nil, min_price_cents: nil, max_price_cents: nil, country: nil, ip_country: nil, product_permalinks: [], variant_external_ids: [])
+  def seller_post_passes_filters(email: nil, min_created_at: nil, max_created_at: nil, min_price_cents: nil, max_price_cents: nil, country: nil, ip_country: nil, product_permalinks: [], variant_external_ids: [], permalink_to_link_id: nil, seller_sales: nil, seller_post_filter_cache: nil)
     return false if created_after.present? && (min_created_at.nil? || (min_created_at.present? && min_created_at < created_after))
     return false if created_before.present? && (max_created_at.nil? || (max_created_at.present? && max_created_at > created_before))
     excludes_product = bought_products.present? && (product_permalinks.empty? || (bought_products & product_permalinks).empty?)
@@ -137,13 +139,38 @@ module WithFiltering
     return false if paid_less_than_cents.present? && (max_price_cents.nil? || (max_price_cents.present? && max_price_cents > paid_less_than_cents))
     return false if bought_from.present? && !(country == bought_from || (country.nil? && ip_country == bought_from))
 
-    exclude_product_ids = not_bought_products.present? ? Link.find_by(unique_permalink: not_bought_products)&.id : []
-    return false if (exclude_product_ids.present? || not_bought_variants.present?) &&
-      seller.sales
-            .not_is_archived_original_subscription_purchase
-            .not_subscription_or_original_purchase
-            .by_external_variant_ids_or_products(not_bought_variants, exclude_product_ids)
-            .exists?(email:)
+    exclude_product_ids = if not_bought_products.present?
+      if permalink_to_link_id
+        not_bought_products.filter_map { |p| permalink_to_link_id[p] }
+      else
+        # `find_by` would only resolve ONE id when `not_bought_products`
+        # contains multiple permalinks (Rails appends `LIMIT 1`). Use
+        # `where(...).pluck(:id)` so the fallback matches the cache path,
+        # which uses `filter_map` across all permalinks.
+        Link.where(unique_permalink: not_bought_products).pluck(:id)
+      end
+    else
+      []
+    end
+
+    if exclude_product_ids.present? || not_bought_variants.present?
+      # Memoize per (variants, products, email) signature so multiple posts
+      # sharing the same exclusion criteria do not re-issue the SAME
+      # `seller_sales.where(...).exists?(email:)` SQL once per post.
+      cache_key = [Array(not_bought_variants).sort, exclude_product_ids.sort, email]
+      cache = seller_post_filter_cache
+      if cache && cache.key?(cache_key)
+        return false if cache[cache_key]
+      else
+        matched = (seller_sales || seller.sales)
+                    .not_is_archived_original_subscription_purchase
+                    .not_subscription_or_original_purchase
+                    .by_external_variant_ids_or_products(not_bought_variants, exclude_product_ids)
+                    .exists?(email:)
+        cache[cache_key] = matched if cache
+        return false if matched
+      end
+    end
 
     true
   end
@@ -172,5 +199,17 @@ module WithFiltering
 
   def convert_to_date(date)
     date.is_a?(String) ? Date.parse(date) : date
+  end
+
+  # Parses a user-supplied date filter and rejects values outside MySQL's
+  # DATETIME range (years 1000-9999). Browser <input type="date"> fields can
+  # submit 6-digit years that Date.parse accepts but MySQL refuses.
+  def safe_parse_filter_date(value)
+    return nil if value.blank?
+    date = Date.parse(value.to_s)
+    return nil if date.year < 1000 || date.year > 9999
+    date
+  rescue Date::Error, TypeError
+    nil
   end
 end

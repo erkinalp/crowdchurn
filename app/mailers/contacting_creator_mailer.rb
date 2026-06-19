@@ -33,12 +33,14 @@ class ContactingCreatorMailer < ApplicationMailer
       @variants_count = @purchase.variant_names&.count || 0
       @custom_fields = @purchase.custom_fields
       @offer_code = @purchase.offer_code
+      @display_offer_code = @purchase.original_offer_code(include_deleted: true)
     else
       @product = Link.find(link_id)
       @variants = variants
       @variants_count = variants&.count || 0
       @custom_fields = custom_fields
       @offer_code = offer_code_id.present? ? OfferCode.find(offer_code_id) : nil
+      @display_offer_code = @offer_code
     end
 
     if @product.is_tiered_membership? && @variants_and_quantity == "(Untitled)"
@@ -145,6 +147,12 @@ class ContactingCreatorMailer < ApplicationMailer
     @subject = "We were unable to verify your bank account."
   end
 
+  def invalid_account_holder_name(user_id)
+    @seller = User.find(user_id)
+    @country_code = @seller.alive_user_compliance_info&.legal_entity_country_code
+    @subject = "Your bank account holder name was rejected."
+  end
+
   def cannot_pay(payment_id)
     @payment = Payment.find(payment_id)
     @seller = @payment.user
@@ -180,9 +188,10 @@ class ContactingCreatorMailer < ApplicationMailer
       end
   end
 
-  def credit_notification(user_id, amount_cents)
+  def credit_notification(user_id, amount_cents, reason = nil)
     @seller = User.find_by(id: user_id)
     @amount = Money.new(amount_cents * get_rate(@seller.currency_type).to_f, @seller.currency_type.to_sym).format(no_cents_if_whole: true, symbol: true)
+    @reason = reason
     @subject = "You've received Gumroad credit!"
   end
 
@@ -342,14 +351,14 @@ class ContactingCreatorMailer < ApplicationMailer
   def stripe_document_verification_failed(user_id, error_message)
     @seller = User.find(user_id)
     return do_not_send unless @seller.account_active?
-    @subject = "[Action Required] Document Verification Failed"
+    @subject = "[Action Required] Stripe needs an updated document"
     @error_message = error_message
   end
 
   def stripe_identity_verification_failed(user_id, error_message)
     @seller = User.find(user_id)
     return do_not_send unless @seller.account_active?
-    @subject = "[Action Required] Identity Verification Failed"
+    @subject = "[Action Required] Stripe needs updated identity information"
     @error_message = error_message
   end
 

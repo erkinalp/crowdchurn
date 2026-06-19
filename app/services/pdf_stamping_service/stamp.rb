@@ -5,6 +5,9 @@ module PdfStampingService::Stamp
 
   extend self
 
+  QPDF_ENCRYPTED_EXIT_CODE = 0
+  QPDF_SUCCESS_EXIT_CODES = [0, 3].freeze
+
   def can_stamp_file?(product_file:)
     stamped_pdf_path = perform!(product_file:, watermark_text: "noop@gumroad.com")
     true # We don't actually do anything with the file, we just wanted to check that we could create it.
@@ -17,7 +20,8 @@ module PdfStampingService::Stamp
 
   def perform!(product_file:, watermark_text:)
     product_file.download_original do |original_pdf|
-      original_pdf_path = original_pdf.path
+      decrypted_pdf_path = decrypt_pdf(original_pdf.path)
+      original_pdf_path = decrypted_pdf_path || original_pdf.path
       original_pdf_path_shellescaped = Shellwords.shellescape(original_pdf_path)
 
       watermark_pdf_path, page_count = create_watermark_pdf!(original_pdf_path:, watermark_text:)
@@ -37,6 +41,7 @@ module PdfStampingService::Stamp
       stamped_pdf_path
     ensure
       File.unlink(watermark_pdf_path) if File.exist?(watermark_pdf_path.to_s)
+      File.unlink(decrypted_pdf_path) if decrypted_pdf_path && File.exist?(decrypted_pdf_path)
     end
   end
 
@@ -83,10 +88,10 @@ module PdfStampingService::Stamp
       # TODO(s3ththompson): Remove subset: false once https://github.com/prawnpdf/prawn/issues/1361 is fixed
       pdf.font_families.update(
         "ABC Favorit" => {
-          normal: { file: Rails.root.join("app", "assets", "fonts", "ABCFavorit", "ttf", "ABCFavorit-Regular.ttf"), subset: false },
-          italic: { file: Rails.root.join("app", "assets", "fonts", "ABCFavorit", "ttf", "ABCFavorit-RegularItalic.ttf"), subset: false },
-          bold: { file: Rails.root.join("app", "assets", "fonts", "ABCFavorit", "ttf", "ABCFavorit-Bold.ttf"), subset: false },
-          bold_italic: { file: Rails.root.join("app", "assets", "fonts", "ABCFavorit", "ttf", "ABCFavorit-BoldItalic.ttf"), subset: false }
+          normal: { file: Rails.root.join("public", "fonts", "ABCFavorit", "ttf", "ABCFavorit-Regular.ttf"), subset: false },
+          italic: { file: Rails.root.join("public", "fonts", "ABCFavorit", "ttf", "ABCFavorit-RegularItalic.ttf"), subset: false },
+          bold: { file: Rails.root.join("public", "fonts", "ABCFavorit", "ttf", "ABCFavorit-Bold.ttf"), subset: false },
+          bold_italic: { file: Rails.root.join("public", "fonts", "ABCFavorit", "ttf", "ABCFavorit-BoldItalic.ttf"), subset: false }
         }
       )
 
@@ -98,7 +103,7 @@ module PdfStampingService::Stamp
       pdf.font("ABC Favorit", style: :normal)
       pdf.text_box(watermark_text, at: [watermark_x, watermark_y - 14], width: 300, align: :right, size: 11, fallback_fonts: %w[Helvetica])
 
-      pdf.image("#{Rails.root}/app/assets/images/pdf_stamp.png", at: [watermark_x + 305, watermark_y], width: 24)
+      pdf.image("#{Rails.root}/public/images/pdf_stamp.png", at: [watermark_x + 305, watermark_y], width: 24)
 
       pdf.render_file(watermark_pdf_path)
       [watermark_pdf_path, reader.page_count]
@@ -143,5 +148,21 @@ module PdfStampingService::Stamp
       else
         stderr.split("\n").first
       end
+    end
+
+    def decrypt_pdf(original_pdf_path)
+      return unless pdf_encrypted?(original_pdf_path)
+
+      decrypted_pdf_path = "#{Dir.tmpdir}/decrypted_#{SecureRandom.hex}.pdf"
+      _stdout, _stderr, status = Open3.capture3("qpdf", "--decrypt", "--password=", original_pdf_path, decrypted_pdf_path)
+      return decrypted_pdf_path if QPDF_SUCCESS_EXIT_CODES.include?(status.exitstatus)
+
+      File.unlink(decrypted_pdf_path) if File.exist?(decrypted_pdf_path)
+      nil
+    end
+
+    def pdf_encrypted?(original_pdf_path)
+      _stdout, _stderr, status = Open3.capture3("qpdf", "--is-encrypted", original_pdf_path)
+      status.exitstatus == QPDF_ENCRYPTED_EXIT_CODE
     end
 end

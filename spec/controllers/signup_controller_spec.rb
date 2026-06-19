@@ -29,11 +29,22 @@ describe SignupController, type: :controller, inertia: true do
         expect(response.headers["X-Robots-Tag"]).to eq "noindex"
       end
 
+      context "when disable_signup_recaptcha feature flag is active" do
+        before { Feature.activate(:disable_signup_recaptcha) }
+        after { Feature.deactivate(:disable_signup_recaptcha) }
+
+        it "does not pass reCAPTCHA site key" do
+          get :new
+
+          expect(inertia.props[:recaptcha_site_key]).to be_nil
+        end
+      end
+
       def signup_props
         referrer = User.find_by_username(params[:referrer]) if params[:referrer].present?
         number_of_creators, total_made = $redis.mget(RedisKey.number_of_creators, RedisKey.total_made)
         login_props.merge(
-          recaptcha_site_key: GlobalConfig.get("RECAPTCHA_SIGNUP_SITE_KEY"),
+          recaptcha_site_key: Feature.active?(:disable_signup_recaptcha) ? nil : GlobalConfig.get("RECAPTCHA_SIGNUP_SITE_KEY"),
           referrer: referrer ? {
             id: referrer.external_id,
             name: referrer.name_or_username,
@@ -154,6 +165,21 @@ describe SignupController, type: :controller, inertia: true do
       expect(response.parsed_body["redirect_location"]).to eq(dashboard_path)
     end
 
+    context "when disable_signup_recaptcha feature flag is active" do
+      before { Feature.activate(:disable_signup_recaptcha) }
+      after { Feature.deactivate(:disable_signup_recaptcha) }
+
+      it "skips reCAPTCHA validation and creates the user" do
+        expect(controller).not_to receive(:valid_recaptcha_response?)
+
+        user = build(:user, password: "password")
+        post "create", params: { user: { email: user.email, password: "password" } }
+
+        expect(response).to redirect_to(dashboard_path)
+        expect(controller.user_signed_in?).to eq true
+      end
+    end
+
     it "sets two factor authenticated" do
       expect(controller).to receive(:remember_two_factor_auth).and_call_original
 
@@ -245,6 +271,19 @@ describe SignupController, type: :controller, inertia: true do
 
     it "returns json error if user payload is not given" do
       post "create", format: :json
+      expect(response.parsed_body["success"]).to be(false)
+      expect(response.parsed_body["error_message"]).to eq "Please provide a valid email address."
+    end
+
+    it "rejects malformed user param sent as a string" do
+      post "create", params: { user: "foo" }
+      expect(response).to redirect_to(signup_path)
+      expect(flash[:warning]).to eq "Please provide a valid email address."
+      expect(User.count).to eq 0
+    end
+
+    it "returns json error for malformed user param sent as a string" do
+      post "create", params: { user: "foo" }, format: :json
       expect(response.parsed_body["success"]).to be(false)
       expect(response.parsed_body["error_message"]).to eq "Please provide a valid email address."
     end

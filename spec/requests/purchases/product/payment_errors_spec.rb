@@ -108,26 +108,26 @@ describe("Purchase from a product page", type: :system, js: true) do
 
     click_on "Pay"
     within_fieldset "Card information" do
-      within_frame { expect_focused find_field("Card number") }
+      within_credit_card_frame { expect_focused find_field("Card number") }
     end
 
     fill_in_credit_card(expiry: nil, cvc: nil)
     click_on "Pay"
     within_fieldset "Card information" do
-      within_frame { expect_focused find_field("MM / YY") }
+      within_credit_card_frame { expect_focused find_field("MM / YY") }
     end
 
     fill_in_credit_card(cvc: nil)
     click_on "Pay"
     within_fieldset "Card information" do
-      within_frame { expect_focused find_field("CVC") }
+      within_credit_card_frame { expect_focused find_field("CVC") }
     end
 
     fill_in_credit_card
     click_on "Pay"
-    expect_focused find_field("Your email address")
+    expect_focused find_field("Email address")
 
-    fill_in "Your email address", with: "gumroad@example.com"
+    fill_in "Email address", with: "gumroad@example.com"
     click_on "Pay"
     expect_focused find_field("Full name")
 

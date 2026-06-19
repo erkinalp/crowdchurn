@@ -70,6 +70,64 @@ describe Api::V2::SubscribersController do
         end
       end
 
+      context "N+1 query prevention" do
+        it "does not issue per-row queries for link / user / purchases / original_purchase / last_payment_option" do
+          # Create multiple active subscriptions so an N+1 regression would be
+          # clearly visible (one repeated query per subscription). Each
+          # subscription gets a PaymentOption with its own Price so that the
+          # `last_payment_option -> price` preload path is actually exercised
+          # — without these, the prices regex would never match anything and
+          # the assertion would be vacuous.
+          5.times do
+            sub = create(:subscription, link: @product, user: create(:user))
+            create(:membership_purchase, link: @product, subscription: sub)
+            create(:payment_option, subscription: sub)
+          end
+
+          # Pre-warm to flush one-time setup queries (schema, app config, etc.)
+          get @action, params: @params
+          expect(response).to be_successful
+
+          queries = []
+          subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+            next if payload[:name] == "SCHEMA"
+            next if payload[:cached]
+            sql = payload[:sql]
+            next unless sql.start_with?("SELECT")
+            queries << sql
+          end
+
+          begin
+            get @action, params: @params
+            expect(response).to be_successful
+          ensure
+            ActiveSupport::Notifications.unsubscribe(subscriber)
+          end
+
+          # If the controller drops any of the new includes (:user,
+          # :original_purchase, :purchases, last_payment_option: [:price]),
+          # these patterns fire once per subscription.
+          #
+          # Note: `links` and `users` are intentionally NOT in this list.
+          # The controller scopes `Subscription.where(link_id: @product.id)`,
+          # so every subscription shares the same link — a per-row links
+          # query is structurally impossible here. Similarly, the API
+          # authenticates against a single `current_resource_owner` user
+          # which is looked up once per request regardless of subscriber
+          # count; a naive `users` regex matches that lookup and the
+          # preload but neither is an N+1.
+          per_row_patterns = [
+            [/FROM `purchases`.*WHERE `purchases`\.`id` = \d+ LIMIT/, "original_purchase (per row)"],
+            [/FROM `prices`.*WHERE `prices`\.`id` = \d+ LIMIT/, "last_payment_option price (per row)"],
+          ]
+          per_row_patterns.each do |pattern, label|
+            hits = queries.grep(pattern)
+            expect(hits).to be_empty,
+                            "Expected no per-row queries matching #{label}, got #{hits.size}:\n#{hits.join("\n")}"
+          end
+        end
+      end
+
       context "with pagination" do
         before do
           stub_const("#{described_class}::RESULTS_PER_PAGE", 1)

@@ -1,8 +1,15 @@
-import { cast, is } from "ts-safe-cast";
+import typia from "typia";
 
 import { SearchRequest } from "$app/data/search";
 
-const categoryImages = require.context("$assets/images/discover/");
+const rawCategoryImages = import.meta.glob<string>("$assets/images/discover/*", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const categoryImages = Object.fromEntries(
+  Object.entries(rawCategoryImages).map(([key, value]) => [`./${key.split("/").pop()}`, value]),
+);
 
 export type Taxonomy = { key: string; slug: string; label: string; parent_key: string | null };
 
@@ -16,7 +23,7 @@ export function getRootTaxonomyCss(slug: RootTaxonomySlug) {
 }
 
 export function getRootTaxonomyImage(slug: RootTaxonomySlug) {
-  return cast<string>(categoryImages(`./${rootTaxonomies[slug].image}.svg`));
+  return categoryImages[`./${rootTaxonomies[slug].image}.svg`];
 }
 
 const rootTaxonomies = {
@@ -43,7 +50,7 @@ export type RootTaxonomySlug = keyof typeof rootTaxonomies;
 
 export const getRootTaxonomy = (taxonomyPath: string | undefined) => {
   const root = taxonomyPath?.split("/")[0];
-  return is<RootTaxonomySlug>(root) ? root : null;
+  return typia.is<RootTaxonomySlug>(root) ? root : null;
 };
 
 export const discoverTitleGenerator = (params: SearchRequest, taxonomies: Taxonomy[]) => {

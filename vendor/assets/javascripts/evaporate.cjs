@@ -36,7 +36,7 @@ var Evaporate = function(config){
   }
 
 
-  var PENDING = 0, EVAPORATING = 2, COMPLETE = 3, PAUSED = 4, CANCELED = 5, ERROR = 10, ABORTED = 20, ETAG_OF_0_LENGTH_BLOB = '"d41d8cd98f00b204e9800998ecf8427e"';
+  var PENDING = 0, EVAPORATING = 2, COMPLETE = 3, CANCELED = 5, ERROR = 10, ABORTED = 20, ETAG_OF_0_LENGTH_BLOB = '"d41d8cd98f00b204e9800998ecf8427e"';
 
   var _ = this;
   var files = [];
@@ -578,12 +578,12 @@ var Evaporate = function(config){
       var dateString = new Date().toUTCString();
 
       if (con.fetchCurrentServerTimeUrl) {
-        dateString = $.ajax({
-          type: "GET",
-          url: con.fetchCurrentServerTimeUrl,
-          async: false,
-          cache: false
-        }).responseText;
+        var timeXhr = new XMLHttpRequest();
+        timeXhr.open("GET", con.fetchCurrentServerTimeUrl, false);
+        timeXhr.send();
+        if (timeXhr.status === 200) {
+          dateString = timeXhr.responseText;
+        }
       }
 
       requester.dateString = dateString;
@@ -754,4 +754,4 @@ var Evaporate = function(config){
   }
 };
 
-module.exports = Evaporate;
+export default Evaporate;

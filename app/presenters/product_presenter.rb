@@ -8,6 +8,11 @@ class ProductPresenter
 
   extend PreorderHelper
 
+  SALES_COUNT_CACHE_KEY_REFIX = "product-presenter:sales-count-cache"
+  SALES_COUNT_CACHE_METRICS_KEY = "#{SALES_COUNT_CACHE_KEY_REFIX}-metrics"
+  LATEST_SALE_ID_NOT_PROVIDED = Object.new.freeze
+  private_constant :LATEST_SALE_ID_NOT_PROVIDED
+
   attr_reader :product, :editing_page_id, :pundit_user, :request, :ai_generated
 
   delegate :user, :skus,
@@ -51,6 +56,15 @@ class ProductPresenter
     ProductPresenter::Card.new(product:).for_email
   end
 
+  def self.cached_sales_count(product, latest_sale_id: LATEST_SALE_ID_NOT_PROVIDED)
+    return unless product.should_show_sales_count?
+
+    latest_sale_id = product.sales.order(id: :desc).pick(:id) if latest_sale_id.equal?(LATEST_SALE_ID_NOT_PROVIDED)
+    cache_key_digest = Digest::SHA256.hexdigest("#{product.cache_key}-#{product.price_cents}-#{latest_sale_id}")
+    cache_key = "#{SALES_COUNT_CACHE_KEY_REFIX}_#{cache_key_digest}"
+    Rails.cache.fetch(cache_key, expires_in: 1.minute) { product.successful_sales_count }
+  end
+
   def product_props(**kwargs)
     ProductPresenter::ProductProps.new(product:).props(request:, pundit_user:, **kwargs)
   end
@@ -90,7 +104,7 @@ class ProductPresenter
     user.alive_product_files_preferred_for_product(product)
         .limit($redis.get(RedisKey.product_presenter_existing_product_files_limit))
         .order(id: :desc)
-        .includes(:alive_subtitle_files).map { _1.as_json(existing_product_file: true) }
+        .includes(:alive_subtitle_files, thumbnail_attachment: :blob).map { _1.as_json(existing_product_file: true) }
   end
 
   def edit_props
@@ -110,6 +124,7 @@ class ProductPresenter
         **ProductPresenter::InstallmentPlanProps.new(product:).props,
         custom_button_text_option: product.custom_button_text_option.presence,
         custom_summary: product.custom_summary,
+        custom_html: product.custom_html,
         custom_view_content_button_text: product.custom_view_content_button_text,
         custom_view_content_button_text_max_length: Product::Validations::MAX_VIEW_CONTENT_BUTTON_TEXT_LENGTH,
         custom_receipt_text: product.custom_receipt_text,
@@ -139,7 +154,7 @@ class ProductPresenter
         is_published: !product.draft && product.alive?,
         require_shipping: product.require_shipping?,
         integrations: Integration::ALL_NAMES.index_with { |name| @product.find_integration_by_name(name).as_json },
-        variants: product.alive_variants.in_order.map do |variant|
+        variants: product.alive_variants.in_order.includes(:variant_category, :alive_rich_contents).map do |variant|
           props = {
             id: variant.external_id,
             name: variant.name || "",
@@ -220,7 +235,7 @@ class ProductPresenter
           id: default_offer_code.external_id,
           code: default_offer_code.code,
           name: default_offer_code.name.presence || "",
-          discount: default_offer_code.discount,
+          discount: default_offer_code.configured_discount_for_display,
         } : nil,
         public_files: product.alive_public_files.attached.map { PublicFilePresenter.new(public_file: _1).props },
         audio_previews_enabled: Feature.active?(:audio_previews, product.user),
@@ -293,6 +308,7 @@ class ProductPresenter
           decimals: info["decimals"],
         }
       end,
+
       dropbox_api_key: DROPBOX_PICKER_API_KEY,
       ai_generated:,
       fund_cart_id: product.native_type == Link::NATIVE_TYPE_FUND_CART ? product.fund_cart&.external_id : nil,

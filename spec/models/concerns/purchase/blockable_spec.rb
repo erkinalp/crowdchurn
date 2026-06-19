@@ -14,7 +14,7 @@ describe Purchase::Blockable do
 
     context "when the purchase's browser is blocked" do
       before do
-        BlockedObject.block!(BLOCKED_OBJECT_TYPES[:browser_guid], purchase.browser_guid, nil)
+        PlatformBlock.add!(object_type: PlatformBlock::TYPES[:browser_guid], object_value: purchase.browser_guid)
       end
 
       it "returns true" do
@@ -24,7 +24,7 @@ describe Purchase::Blockable do
 
     context "when the purchase's email is blocked" do
       before do
-        BlockedObject.block!(BLOCKED_OBJECT_TYPES[:email], purchase.email, nil)
+        PlatformBlock.add!(object_type: PlatformBlock::TYPES[:email], object_value: purchase.email)
       end
 
       it "returns true" do
@@ -36,7 +36,7 @@ describe Purchase::Blockable do
       let(:purchase) { create(:purchase, link: product, email: "gumbot@gumroad.com", purchaser: buyer, charge_processor_id: PaypalChargeProcessor.charge_processor_id) }
 
       before do
-        BlockedObject.block!(BLOCKED_OBJECT_TYPES[:email], purchase.paypal_email, nil)
+        PlatformBlock.add!(object_type: PlatformBlock::TYPES[:email], object_value: purchase.paypal_email)
       end
 
       it "returns true" do
@@ -46,7 +46,7 @@ describe Purchase::Blockable do
 
     context "when the buyer's email address is blocked" do
       before do
-        BlockedObject.block!(BLOCKED_OBJECT_TYPES[:email], buyer.email, nil)
+        PlatformBlock.add!(object_type: PlatformBlock::TYPES[:email], object_value: buyer.email)
       end
 
       it "returns true" do
@@ -56,7 +56,7 @@ describe Purchase::Blockable do
 
     context "when the purchase's ip address is blocked" do
       before do
-        BlockedObject.block!(BLOCKED_OBJECT_TYPES[:ip_address], purchase.ip_address, nil, expires_in: 1.hour)
+        PlatformBlock.add!(object_type: PlatformBlock::TYPES[:ip_address], object_value: purchase.ip_address, expires_in: 1.hour)
       end
 
       it "returns true" do
@@ -66,7 +66,7 @@ describe Purchase::Blockable do
 
     context "when the purchase's payment method is blocked" do
       before do
-        BlockedObject.block!(BLOCKED_OBJECT_TYPES[:charge_processor_fingerprint], purchase.stripe_fingerprint, nil)
+        PlatformBlock.add!(object_type: PlatformBlock::TYPES[:charge_processor_fingerprint], object_value: purchase.stripe_fingerprint)
       end
 
       it "returns true" do
@@ -111,7 +111,7 @@ describe Purchase::Blockable do
 
     context "when purchase's ip address is blocked" do
       before do
-        BlockedObject.block!(BLOCKED_OBJECT_TYPES[:ip_address], purchase.ip_address, nil, expires_in: 1.hour)
+        PlatformBlock.add!(object_type: PlatformBlock::TYPES[:ip_address], object_value: purchase.ip_address, expires_in: 1.hour)
       end
 
       it "returns true for blocked check" do
@@ -127,7 +127,7 @@ describe Purchase::Blockable do
         purchase.block_buyer!
 
         [buyer.email, purchase.email, purchase.browser_guid, purchase.ip_address, purchase.stripe_fingerprint].each do |blocked_value|
-          expect(BlockedObject.find_active_object(blocked_value).blocked?).to eq(true)
+          expect(PlatformBlock.active.find_by(object_value: blocked_value)).to be_present
         end
       end
     end
@@ -140,7 +140,7 @@ describe Purchase::Blockable do
         purchase.block_buyer!
 
         [buyer.email, purchase.email, purchase.browser_guid, purchase.ip_address, purchase.card_visual].each do |blocked_value|
-          expect(BlockedObject.find_active_object(blocked_value).blocked?).to eq(true)
+          expect(PlatformBlock.active.find_by(object_value: blocked_value)).to be_present
         end
       end
     end
@@ -152,10 +152,9 @@ describe Purchase::Blockable do
         purchase.block_buyer!(blocking_user_id: admin_user.id)
 
         [buyer.email, purchase.email, purchase.browser_guid, purchase.ip_address, purchase.stripe_fingerprint].each do |blocked_value|
-          BlockedObject.find_active_object(blocked_value).tap do |blocked_object|
-            expect(blocked_object.blocked?).to eq(true)
-            expect(blocked_object.blocked_by).to eq(admin_user.id)
-          end
+          blocked_object = PlatformBlock.active.find_by(object_value: blocked_value)
+          expect(blocked_object).to be_present
+          expect(blocked_object.blocked_by).to eq(admin_user.id)
         end
       end
 
@@ -222,7 +221,7 @@ describe Purchase::Blockable do
   describe "#unblock_buyer!" do
     context "when buyer is not blocked" do
       it "does not call #unblock! on any blocked objects" do
-        expect_any_instance_of(BlockedObject).to_not receive(:unblock!)
+        expect_any_instance_of(PlatformBlock).to_not receive(:unblock!)
         purchase.unblock_buyer!
       end
     end
@@ -234,7 +233,7 @@ describe Purchase::Blockable do
 
         purchase.unblock_buyer!
         [buyer.email, purchase.email, purchase.browser_guid, purchase.ip_address, purchase.stripe_fingerprint].each do |blocked_value|
-          expect(BlockedObject.find_by(object_value: blocked_value).blocked?).to eq(false)
+          expect(PlatformBlock.active.find_by(object_value: blocked_value)).to be_nil
         end
       end
     end
@@ -249,7 +248,7 @@ describe Purchase::Blockable do
 
         expect do
           purchase.unblock_buyer!
-        end.to change { BlockedObject.find_by(object_value: recent_purchase.stripe_fingerprint).blocked? }.from(true).to(false)
+        end.to change { PlatformBlock.active.find_by(object_value: recent_purchase.stripe_fingerprint) }.from(be_present).to(be_nil)
       end
     end
 
@@ -263,7 +262,7 @@ describe Purchase::Blockable do
 
         purchase.unblock_buyer!
         [buyer.email, purchase.email, purchase.browser_guid, purchase.ip_address, purchase.card_visual].each do |blocked_value|
-          expect(BlockedObject.find_by(object_value: blocked_value).blocked?).to eq(false)
+          expect(PlatformBlock.active.find_by(object_value: blocked_value)).to be_nil
         end
       end
     end
@@ -292,8 +291,8 @@ describe Purchase::Blockable do
       it "blocks buyer's email, browser_guid, ip_address and stripe_fingerprint" do
         expect do
           purchase.mark_failed
-        end.to change { BlockedObject.count }.from(0).to(5)
-        expect(BlockedObject.pluck(:object_type, :object_value)).to match_array(expected_blocked_objects)
+        end.to change { PlatformBlock.count }.from(0).to(5)
+        expect(PlatformBlock.pluck(:object_type, :object_value)).to match_array(expected_blocked_objects)
       end
     end
 
@@ -303,7 +302,7 @@ describe Purchase::Blockable do
       it "doesn't block buyer" do
         expect do
           purchase.mark_failed
-        end.to_not change { BlockedObject.count }
+        end.to_not change { PlatformBlock.count }
       end
     end
 
@@ -333,8 +332,8 @@ describe Purchase::Blockable do
           it "blocks the buyer" do
             expect do
               @purchase.mark_failed!
-            end.to change { BlockedObject.count }.from(0).to(4)
-            expect(BlockedObject.pluck(:object_type, :object_value)).to match_array(@expected_blocked_objects)
+            end.to change { PlatformBlock.count }.from(0).to(4)
+            expect(PlatformBlock.pluck(:object_type, :object_value)).to match_array(@expected_blocked_objects)
           end
         end
 
@@ -350,7 +349,7 @@ describe Purchase::Blockable do
           it "doesn't block buyer" do
             expect do
               @purchase.mark_failed!
-            end.to_not change { BlockedObject.count }
+            end.to_not change { PlatformBlock.count }
           end
         end
       end
@@ -370,33 +369,30 @@ describe Purchase::Blockable do
               travel_to(Time.current) do
                 expect do
                   @purchase.mark_failed!
-                end.to change { BlockedObject.count }.from(0).to(1)
+                end.to change { PlatformBlock.count }.from(0).to(1)
 
-                expect(BlockedObject.pluck(:object_type, :object_value)).to eq [["ip_address", @purchase.ip_address]]
-                expect(BlockedObject.ip_address.find_active_object(@purchase.ip_address).expires_at.to_i).to eq 7.days.from_now.to_i
+                expect(PlatformBlock.pluck(:object_type, :object_value)).to eq [["ip_address", @purchase.ip_address]]
+                expect(PlatformBlock.ip_address.active.find_by(object_value: @purchase.ip_address).expires_at.to_i).to eq 7.days.from_now.to_i
               end
             end
           end
 
           context "when the ip_address is already blocked" do
-            before do
-              @expires_in = BlockedObject::IP_ADDRESS_BLOCKING_DURATION_IN_MONTHS.months
-
-              BlockedObject.block!(
-                BLOCKED_OBJECT_TYPES[:ip_address],
-                @purchase.ip_address,
-                nil,
-                expires_in: @expires_in
-              )
-            end
-
             it "doesn't overwrite the previous ip_address block" do
-              travel_to(Time.current) do
+              freeze_time do
+                expires_in = PlatformBlock::IP_ADDRESS_BLOCKING_DURATION_IN_MONTHS.months
+
+                PlatformBlock.add!(
+                  object_type: PlatformBlock::TYPES[:ip_address],
+                  object_value: @purchase.ip_address,
+                  expires_in:,
+                )
+
                 expect do
                   @purchase.mark_failed!
-                end.not_to change { BlockedObject.count }
+                end.not_to change { PlatformBlock.count }
 
-                expect(BlockedObject.ip_address.find_active_object(@purchase.ip_address).expires_at.to_i).to eq @expires_in.from_now.to_i
+                expect(PlatformBlock.ip_address.active.find_by(object_value: @purchase.ip_address).expires_at.to_i).to eq expires_in.from_now.to_i
               end
             end
           end
@@ -413,7 +409,7 @@ describe Purchase::Blockable do
           it "doesn't block buyer" do
             expect do
               @purchase.mark_failed!
-            end.to_not change { BlockedObject.count }
+            end.to_not change { PlatformBlock.count }
           end
         end
       end
@@ -441,10 +437,10 @@ describe Purchase::Blockable do
             travel_to(Time.current) do
               expect do
                 @purchase.mark_failed!
-              end.to change { BlockedObject.count }.from(0).to(1)
+              end.to change { PlatformBlock.count }.from(0).to(1)
 
-              expect(BlockedObject.pluck(:object_type, :object_value)).to eq [["product", @product.id.to_s]]
-              expect(BlockedObject.product.find_active_object(@product.id).expires_at.to_i).to eq 1.hour.from_now.to_i
+              expect(PlatformBlock.pluck(:object_type, :object_value)).to eq [["product", @product.id.to_s]]
+              expect(PlatformBlock.product.active.find_by(object_value: @product.id).expires_at.to_i).to eq 1.hour.from_now.to_i
             end
           end
         end
@@ -458,7 +454,7 @@ describe Purchase::Blockable do
             travel_to(Time.current) do
               expect do
                 @purchase.mark_failed!
-              end.not_to change { BlockedObject.count }
+              end.not_to change { PlatformBlock.count }
             end
           end
         end
@@ -473,7 +469,7 @@ describe Purchase::Blockable do
               expect do
                 @purchase.error_code = PurchaseErrorCode::PERCEIVED_PRICE_CENTS_NOT_MATCHING
                 @purchase.mark_failed!
-              end.not_to change { BlockedObject.count }
+              end.not_to change { PlatformBlock.count }
             end
           end
         end
@@ -489,7 +485,7 @@ describe Purchase::Blockable do
           travel_to(Time.current) do
             expect do
               @purchase.mark_failed!
-            end.not_to change { BlockedObject.count }
+            end.not_to change { PlatformBlock.count }
           end
         end
       end
@@ -512,10 +508,10 @@ describe Purchase::Blockable do
             travel_to(Time.current) do
               expect do
                 @purchase.mark_failed!
-              end.to change { BlockedObject.count }.from(0).to(1)
+              end.to change { PlatformBlock.count }.from(0).to(1)
 
-              expect(BlockedObject.pluck(:object_type, :object_value)).to eq [["product", @product.id.to_s]]
-              expect(BlockedObject.product.find_active_object(@product.id).expires_at.to_i).to eq 1.hour.from_now.to_i
+              expect(PlatformBlock.pluck(:object_type, :object_value)).to eq [["product", @product.id.to_s]]
+              expect(PlatformBlock.product.active.find_by(object_value: @product.id).expires_at.to_i).to eq 1.hour.from_now.to_i
             end
           end
         end
@@ -533,7 +529,7 @@ describe Purchase::Blockable do
             travel_to(Time.current) do
               expect do
                 @purchase.mark_failed!
-              end.not_to change { BlockedObject.count }
+              end.not_to change { PlatformBlock.count }
             end
           end
         end
@@ -550,7 +546,7 @@ describe Purchase::Blockable do
             travel_to(Time.current) do
               expect do
                 @purchase.mark_failed!
-              end.not_to change { BlockedObject.count }
+              end.not_to change { PlatformBlock.count }
             end
           end
         end
@@ -567,7 +563,7 @@ describe Purchase::Blockable do
             freeze_time do
               expect do
                 @purchase.mark_failed!
-              end.not_to change { BlockedObject.count }
+              end.not_to change { PlatformBlock.count }
             end
           end
         end
@@ -773,10 +769,10 @@ describe Purchase::Blockable do
             expect do
               purchase = create(:purchase, link: @product, ip_address: "127.0.0.1", purchase_state: "in_progress")
               purchase.mark_successful!
-            end.to change { BlockedObject.count }.from(0).to(1)
+            end.to change { PlatformBlock.count }.from(0).to(1)
 
-            expect(BlockedObject.pluck(:object_type, :object_value)).to eq [["ip_address", "127.0.0.1"]]
-            expect(BlockedObject.ip_address.find_active_object("127.0.0.1").expires_at.to_i).to eq 24.hours.from_now.to_i
+            expect(PlatformBlock.pluck(:object_type, :object_value)).to eq [["ip_address", "127.0.0.1"]]
+            expect(PlatformBlock.ip_address.active.find_by(object_value: "127.0.0.1").expires_at.to_i).to eq 24.hours.from_now.to_i
           end
         end
       end
@@ -787,7 +783,7 @@ describe Purchase::Blockable do
             expect do
               purchase = create(:purchase, link: @product, ip_address: "127.0.0.1", purchase_state: "in_progress")
               purchase.mark_successful!
-            end.not_to change { BlockedObject.count }
+            end.not_to change { PlatformBlock.count }
           end
         end
       end
@@ -798,7 +794,7 @@ describe Purchase::Blockable do
         expect do
           purchase = create(:purchase, ip_address: "127.0.0.1", purchase_state: "in_progress")
           purchase.mark_successful!
-        end.not_to change { BlockedObject.count }
+        end.not_to change { PlatformBlock.count }
       end
     end
 
@@ -807,7 +803,7 @@ describe Purchase::Blockable do
         expect do
           purchase = create(:purchase, link: @product, ip_address: "127.0.0.2", purchase_state: "in_progress")
           purchase.mark_successful!
-        end.not_to change { BlockedObject.count }
+        end.not_to change { PlatformBlock.count }
       end
     end
 
@@ -816,7 +812,7 @@ describe Purchase::Blockable do
         expect do
           purchase = create(:purchase, price_cents: 100, link: @product, ip_address: "127.0.0.1", purchase_state: "in_progress")
           purchase.mark_successful!
-        end.not_to change { BlockedObject.count }
+        end.not_to change { PlatformBlock.count }
       end
     end
   end
@@ -858,6 +854,39 @@ describe Purchase::Blockable do
         end
       end
     end
+
+    context "when the buyer is already suspended for fraud" do
+      before do
+        @buyer.flag_for_fraud!(author_name: "admin")
+        @buyer.suspend_for_fraud!(author_name: "admin")
+      end
+
+      it "does not attempt an invalid state transition" do
+        expect { @purchase.mark_failed! }.not_to raise_error
+        expect(@buyer.reload.suspended_for_fraud?).to be(true)
+      end
+    end
+
+    context "when the buyer is already suspended for tos violation" do
+      before do
+        @buyer.update_column(:user_risk_state, "suspended_for_tos_violation")
+      end
+
+      it "does not attempt an invalid state transition" do
+        expect { @purchase.mark_failed! }.not_to raise_error
+        expect(@buyer.reload.suspended_for_tos_violation?).to be(true)
+      end
+    end
+
+    context "when the buyer is already flagged for fraud" do
+      before do
+        @buyer.flag_for_fraud!(author_name: "admin")
+      end
+
+      it "suspends the buyer without re-flagging" do
+        expect { @purchase.mark_failed! }.to change { @buyer.reload.suspended_for_fraud? }.from(false).to(true)
+      end
+    end
   end
 
   describe "#block_buyer_based_on_chargeback_count!" do
@@ -886,7 +915,7 @@ describe Purchase::Blockable do
       end
 
       it "does not block the buyer" do
-        expect { purchase.block_buyer_based_on_chargeback_count! }.not_to change { BlockedObject.count }
+        expect { purchase.block_buyer_based_on_chargeback_count! }.not_to change { PlatformBlock.count }
       end
     end
 
@@ -896,7 +925,7 @@ describe Purchase::Blockable do
       end
 
       it "blocks the buyer" do
-        expect { purchase.block_buyer_based_on_chargeback_count! }.to change { BlockedObject.count }
+        expect { purchase.block_buyer_based_on_chargeback_count! }.to change { PlatformBlock.count }
         expect(purchase.buyer_blocked?).to be true
       end
 
@@ -916,7 +945,7 @@ describe Purchase::Blockable do
       end
 
       it "does not re-block the buyer" do
-        expect { purchase.block_buyer_based_on_chargeback_count! }.not_to change { BlockedObject.count }
+        expect { purchase.block_buyer_based_on_chargeback_count! }.not_to change { PlatformBlock.count }
       end
     end
 
@@ -926,7 +955,7 @@ describe Purchase::Blockable do
       end
 
       it "blocks the buyer" do
-        expect { purchase.block_buyer_based_on_chargeback_count! }.to change { BlockedObject.count }
+        expect { purchase.block_buyer_based_on_chargeback_count! }.to change { PlatformBlock.count }
         expect(purchase.buyer_blocked?).to be true
       end
     end

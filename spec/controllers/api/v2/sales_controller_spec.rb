@@ -5,6 +5,14 @@ require "shared_examples/authorized_oauth_v1_api_method"
 
 describe Api::V2::SalesController do
   before do
+    MerchantAccount.gumroad(StripeChargeProcessor.charge_processor_id) ||
+      create(:merchant_account, user: nil, charge_processor_merchant_id: "acct_#{SecureRandom.hex(8)}")
+    MerchantAccount.gumroad(PaypalChargeProcessor.charge_processor_id) ||
+      create(:merchant_account_paypal, user: nil, charge_processor_merchant_id: "paypal_#{SecureRandom.hex(8)}")
+    MerchantAccount.gumroad(BraintreeChargeProcessor.charge_processor_id) ||
+      create(:merchant_account, user: nil, charge_processor_id: BraintreeChargeProcessor.charge_processor_id,
+                                charge_processor_merchant_id: "braintree_#{SecureRandom.hex(8)}")
+
     @seller = create(:user)
     @purchaser = create(:user)
     @app = create(:oauth_application, owner: create(:user))
@@ -45,6 +53,35 @@ describe Api::V2::SalesController do
           expect(response.parsed_body["success"]).to eq true
           expect(response.parsed_body["sales"]).to match_array sales_json
         end
+      end
+
+      it "includes web CSV parity fields in the response" do
+        add_web_csv_api_fields(@purchase)
+
+        get :index, params: @params
+
+        sale_json = response.parsed_body["sales"].find { _1["id"] == @purchase.external_id }
+        expect(sale_json).to include(
+          "utm_source" => "newsletter",
+          "utm_medium" => "email",
+          "utm_campaign" => "launch",
+          "utm_term" => "founders",
+          "utm_content" => "hero",
+          "tip_cents" => 350,
+          "tax_cents" => 123,
+          "shipping_cents" => 456,
+          "tax_label" => "Sales tax",
+          "tax_included_in_price" => true,
+          "payment_processor" => "stripe_connect",
+          "processor_transaction_id" => "ch_123",
+          "processor_fee_cents" => 78,
+          "processor_fee_currency" => "usd",
+          "access_revoked" => true,
+          "variants_price_cents" => 250,
+          "review" => "Worth it",
+          "sent_abandoned_cart_email" => true
+        )
+        expect(sale_json.keys).to include("preorder_authorization_time", "cancellation_date", "subscription_end_date")
       end
 
       it "returns a link to the next page if there are more than 10 sales" do
@@ -146,6 +183,33 @@ describe Api::V2::SalesController do
         expect(response.parsed_body).to eq({
           success: true,
           sales: [expected_sale.as_json(version: 2)]
+        }.as_json)
+      end
+
+      it "filters sales by customer name (case-insensitive, partial match) when name is specified" do
+        matching_purchase = create(:purchase, purchaser: @purchaser, link: @product, full_name: "Ada Lovelace")
+        create(:purchase, purchaser: @purchaser, link: @product, full_name: "Grace Hopper")
+
+        get :index, params: @params.merge(name: "ada")
+
+        expect(response.parsed_body).to eq({
+          success: true,
+          sales: [matching_purchase.as_json(version: 2)]
+        }.as_json)
+      end
+
+      it "filters sales by license key when license_key is specified" do
+        @product.update!(is_licensed: true)
+        matching_purchase = create(:purchase, purchaser: @purchaser, link: @product)
+        matching_purchase.create_license!
+        other_purchase = create(:purchase, purchaser: @purchaser, link: @product)
+        other_purchase.create_license!
+
+        get :index, params: @params.merge(license_key: matching_purchase.license.serial.downcase)
+
+        expect(response.parsed_body).to eq({
+          success: true,
+          sales: [matching_purchase.as_json(version: 2)]
         }.as_json)
       end
 
@@ -272,6 +336,33 @@ describe Api::V2::SalesController do
         }.as_json)
       end
 
+      it "includes invoice_url in the response" do
+        get :show, params: @params
+
+        expect(response.parsed_body["sale"]["invoice_url"]).to eq(
+          Rails.application.routes.url_helpers.new_purchase_invoice_url(
+            @purchase.external_id,
+            email: @purchase.email,
+            host: UrlService.domain_with_protocol
+          )
+        )
+      end
+
+      it "includes web CSV parity fields in the response" do
+        add_web_csv_api_fields(@purchase)
+
+        get :show, params: @params
+
+        expect(response.parsed_body["sale"]).to include(
+          "utm_source" => "newsletter",
+          "tip_cents" => 350,
+          "tax_cents" => 123,
+          "payment_processor" => "stripe_connect",
+          "processor_transaction_id" => "ch_123",
+          "sent_abandoned_cart_email" => true
+        )
+      end
+
       it "includes license_uses in the response for a purchase with a license key" do
         @product.update!(is_licensed: true)
         purchase_with_license = create(:purchase, :with_license, purchaser: @purchaser, link: @product)
@@ -306,6 +397,244 @@ describe Api::V2::SalesController do
     it "grants access with the account scope" do
       token = create("doorkeeper/access_token", application: @app, resource_owner_id: @seller.id, scopes: "account")
       get :show, params: { id: @purchase.external_id, access_token: token.token }
+      expect(response).to be_successful
+    end
+  end
+
+  describe "POST 'export'" do
+    before do
+      @params = {}
+      allow(Exports::PurchaseExportService).to receive(:export).and_return(false)
+    end
+
+    describe "when logged in with sales scope" do
+      before do
+        @token = create("doorkeeper/access_token", application: @app, resource_owner_id: @seller.id, scopes: "view_sales")
+        @params.merge!(format: :json, access_token: @token.token)
+      end
+
+      it "queues a sales export for the current seller" do
+        post :export, params: @params.merge(from: "2026-01-01", to: "2026-05-21", product_id: @product.external_id)
+
+        expect(response.parsed_body).to eq({
+          success: true,
+          status: "queued",
+          recipient_email: @seller.email
+        }.as_json)
+        expect(Exports::PurchaseExportService).to have_received(:export).with(
+          seller: @seller,
+          recipient: @seller,
+          filters: {
+            start_time: "2026-01-01",
+            end_time: "2026-05-21",
+            product_ids: [@product.external_id]
+          },
+          force_async: true
+        )
+      end
+
+      it "queues a sales export without optional filters" do
+        post :export, params: @params
+
+        expect(response.parsed_body).to eq({
+          success: true,
+          status: "queued",
+          recipient_email: @seller.email
+        }.as_json)
+        expect(Exports::PurchaseExportService).to have_received(:export).with(
+          seller: @seller,
+          recipient: @seller,
+          filters: {},
+          force_async: true
+        )
+      end
+
+      it "returns a 400 error if from date format is incorrect" do
+        post :export, params: @params.merge(from: "394293")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "Invalid date format provided in field 'from'. Dates must be in the format YYYY-MM-DD."
+        }.as_json)
+        expect(Exports::PurchaseExportService).not_to have_received(:export)
+      end
+
+      it "returns a 400 error when both dates are incorrectly formatted" do
+        post :export, params: @params.merge(from: "394293", to: "invalid-date")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "Invalid date format provided in field 'from'. Dates must be in the format YYYY-MM-DD."
+        }.as_json)
+        expect(Exports::PurchaseExportService).not_to have_received(:export)
+      end
+
+      it "returns a 400 error if to date format is incorrect" do
+        post :export, params: @params.merge(to: "invalid-date")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "Invalid date format provided in field 'to'. Dates must be in the format YYYY-MM-DD."
+        }.as_json)
+        expect(Exports::PurchaseExportService).not_to have_received(:export)
+      end
+
+      it "returns a 400 error if product ID is invalid" do
+        post :export, params: @params.merge(product_id: "invalid base64")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "Invalid product ID."
+        }.as_json)
+        expect(Exports::PurchaseExportService).not_to have_received(:export)
+      end
+    end
+
+    describe "when logged in with public scope" do
+      before do
+        @token = create("doorkeeper/access_token", application: @app, resource_owner_id: @seller.id, scopes: "view_public")
+        @params.merge!(format: :json, access_token: @token.token)
+      end
+
+      it "the response is 403 forbidden for incorrect scope" do
+        post :export, params: @params
+        expect(response.code).to eq "403"
+      end
+    end
+
+    it "grants access with the account scope" do
+      token = create("doorkeeper/access_token", application: @app, resource_owner_id: @seller.id, scopes: "account")
+      post :export, params: { access_token: token.token, format: :json }
+      expect(response).to be_successful
+    end
+  end
+
+  describe "GET 'summary'" do
+    before do
+      @params = {}
+      @summary = {
+        gross_cents: 0,
+        net_cents: 0,
+        units: 0,
+        refunded_cents: 0,
+        refunded_units: 0,
+        currency: "usd",
+        from: "2026-04-22",
+        to: "2026-05-21"
+      }
+      allow(Api::V2::SalesSummary).to receive(:new).and_return(@summary)
+    end
+
+    describe "when logged in with sales scope" do
+      before do
+        @token = create("doorkeeper/access_token", application: @app, resource_owner_id: @seller.id, scopes: "view_sales")
+        @params.merge!(format: :json, access_token: @token.token)
+      end
+
+      it "returns a sales summary for the requested date range and grouping" do
+        get :summary, params: @params.merge(from: "2026-01-01", to: "2026-05-21", group_by: "month")
+
+        expect(response.parsed_body).to eq({ success: true }.merge(@summary).as_json)
+        expect(Api::V2::SalesSummary).to have_received(:new).with(
+          seller: @seller,
+          from: Date.new(2026, 1, 1),
+          to: Date.new(2026, 5, 21),
+          group_by: "month"
+        )
+      end
+
+      it "defaults to the last 30 days in the seller's timezone" do
+        @seller.update!(timezone: "Tokyo")
+
+        travel_to(Time.utc(2026, 5, 21, 18)) do
+          get :summary, params: @params
+        end
+
+        expect(Api::V2::SalesSummary).to have_received(:new).with(
+          seller: @seller,
+          from: Date.new(2026, 4, 23),
+          to: Date.new(2026, 5, 22),
+          group_by: nil
+        )
+      end
+
+      it "defaults the end date to today in the seller's timezone when only from is provided" do
+        travel_to(Time.utc(2026, 5, 21, 12)) do
+          get :summary, params: @params.merge(from: "2026-05-01")
+        end
+
+        expect(Api::V2::SalesSummary).to have_received(:new).with(
+          seller: @seller,
+          from: Date.new(2026, 5, 1),
+          to: Date.new(2026, 5, 21),
+          group_by: nil
+        )
+      end
+
+      it "returns a 400 error if from date format is incorrect" do
+        get :summary, params: @params.merge(from: "394293")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "Invalid date format provided in field 'from'. Dates must be in the format YYYY-MM-DD."
+        }.as_json)
+        expect(Api::V2::SalesSummary).not_to have_received(:new)
+      end
+
+      it "returns a 400 error if from is after to" do
+        get :summary, params: @params.merge(from: "2026-05-22", to: "2026-05-21")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "'from' must be on or before 'to'."
+        }.as_json)
+        expect(Api::V2::SalesSummary).not_to have_received(:new)
+      end
+
+      it "returns a 400 error if date range is too wide" do
+        get :summary, params: @params.merge(from: "2025-01-01", to: "2026-05-21")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "Date range cannot exceed 366 days."
+        }.as_json)
+        expect(Api::V2::SalesSummary).not_to have_received(:new)
+      end
+
+      it "returns a 400 error if group_by is invalid" do
+        get :summary, params: @params.merge(group_by: "email")
+
+        expect(response.code).to eq "400"
+        expect(response.parsed_body).to eq({
+          status: 400,
+          error: "Invalid group_by. Valid values are: product, day, week, month."
+        }.as_json)
+        expect(Api::V2::SalesSummary).not_to have_received(:new)
+      end
+    end
+
+    describe "when logged in with public scope" do
+      before do
+        @token = create("doorkeeper/access_token", application: @app, resource_owner_id: @seller.id, scopes: "view_public")
+        @params.merge!(format: :json, access_token: @token.token)
+      end
+
+      it "the response is 403 forbidden for incorrect scope" do
+        get :summary, params: @params
+        expect(response.code).to eq "403"
+      end
+    end
+
+    it "grants access with the account scope" do
+      token = create("doorkeeper/access_token", application: @app, resource_owner_id: @seller.id, scopes: "account")
+      get :summary, params: { access_token: token.token, format: :json }
       expect(response).to be_successful
     end
   end
@@ -747,5 +1076,37 @@ describe Api::V2::SalesController do
         expect(response.code).to eq "403"
       end
     end
+  end
+
+  def add_web_csv_api_fields(purchase)
+    utm_link = create(:utm_link, seller: purchase.seller, utm_source: "newsletter", utm_medium: "email", utm_campaign: "launch", utm_term: "founders", utm_content: "hero")
+    create(:utm_link_driven_sale, utm_link:, purchase:)
+    create(:tip, purchase:, value_usd_cents: 350)
+    category = create(:variant_category, link: purchase.link, title: "Format")
+    variant = create(:variant, variant_category: category, name: "Premium", price_difference_cents: 250)
+    purchase.variant_attributes << variant
+    create(:product_review, purchase:, rating: 5, message: "Worth it")
+    subscription = create(:subscription, user: purchase.seller, link: purchase.link)
+    subscription.update!(user_requested_cancellation_at: Time.zone.parse("2026-01-02 03:04:05"), cancelled_at: Date.new(2026, 1, 10))
+    preorder = create(:preorder, seller: purchase.seller, preorder_link: create(:preorder_link, link: purchase.link), created_at: Time.zone.parse("2025-12-01 08:00:00"))
+    cart = create(:cart, order: create(:order, purchases: [purchase]))
+    workflow = create(:abandoned_cart_workflow, seller: purchase.seller)
+    create(:sent_abandoned_cart_email, cart:, installment: workflow.installments.sole)
+
+    purchase.update!(
+      was_purchase_taxable: true,
+      was_tax_excluded_from_price: false,
+      tax_cents: 123,
+      shipping_cents: 456,
+      is_access_revoked: true,
+      subscription:,
+      preorder:,
+      is_original_subscription_purchase: true,
+      is_preorder_authorization: false,
+      merchant_account: create(:merchant_account_stripe_connect, user: purchase.seller),
+      processor_fee_cents: 78,
+      processor_fee_cents_currency: "usd",
+      stripe_transaction_id: "ch_123"
+    )
   end
 end

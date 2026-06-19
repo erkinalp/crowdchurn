@@ -78,6 +78,21 @@ describe Checkout::DiscountsController do
       )
     end
 
+    context "when page exceeds available pages due to a race condition" do
+      it "returns the last available page instead of raising Pagy::OverflowError" do
+        call_count = 0
+        allow_any_instance_of(Checkout::DiscountsController).to receive(:pagy).and_wrap_original do |method, *args, **kwargs|
+          call_count += 1
+          kwargs[:page] = 999 if call_count == 1
+          method.call(*args, **kwargs)
+        end
+
+        get :paged, params: { page: 1 }
+        expect(response).to be_successful
+        expect(response.parsed_body["pagination"]["page"]).to eq(3)
+      end
+    end
+
     context "when `sort` is passed" do
       before do
         create(:purchase, link: create(:product, user: seller), offer_code: offer_codes.third)
@@ -258,6 +273,26 @@ describe Checkout::DiscountsController do
       end
     end
 
+    context "when an integer parameter exceeds the 4-byte limit" do
+      it "returns an error instead of raising" do
+        expect do
+          post :create, params: {
+            name: "Black Friday",
+            code: "bfy2k",
+            max_purchase_count: 2,
+            amount_cents: 20_000_000_000,
+            currency_type: "usd",
+            universal: true,
+            selected_product_ids: [],
+          }, as: :json
+        end.not_to change { seller.offer_codes.count }
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body["success"]).to eq(false)
+        expect(response.parsed_body["error_message"]).to eq("The value entered is too large. Please enter a smaller number.")
+      end
+    end
+
     context "when the offer code's code is taken" do
       before do
         create(:offer_code, code: "code", user: seller)
@@ -277,6 +312,67 @@ describe Checkout::DiscountsController do
 
         expect(response.parsed_body["success"]).to eq(false)
         expect(response.parsed_body["error_message"]).to eq("Discount code must be unique.")
+      end
+    end
+
+    context "when limited to existing customers" do
+      let(:owned_product) { create(:product, user: seller) }
+      let(:subject_product) { create(:product, user: seller, price_cents: 2_00) }
+
+      it "creates an offer code with ownership products and tiers" do
+        expect do
+          post :create, params: {
+            name: "Renewal discount",
+            code: "renew",
+            amount_percentage: 0,
+            currency_type: nil,
+            universal: false,
+            selected_product_ids: [subject_product.external_id],
+            existing_customers_only: true,
+            ownership_product_ids: [owned_product.external_id],
+            ownership_duration_tiers: [
+              { months: 0, amount_percentage: 0 },
+              { months: 12, amount_percentage: 50 },
+            ],
+          }, as: :json
+        end.to change { seller.offer_codes.count }.by(1)
+
+        expect(response.parsed_body["success"]).to eq(true)
+        offer_code = seller.offer_codes.last
+        expect(offer_code.existing_customers_only?).to eq(true)
+        expect(offer_code.ownership_products).to eq([owned_product])
+        expect(offer_code.normalized_ownership_duration_tiers).to eq([
+                                                                       { "months" => 0, "amount_percentage" => 0 },
+                                                                       { "months" => 12, "amount_percentage" => 50 },
+                                                                     ])
+      end
+
+      it "creates a tiered offer code without an existing-customers flag" do
+        expect do
+          post :create, params: {
+            name: "Tenure tiered",
+            code: "tenure",
+            amount_percentage: 0,
+            currency_type: nil,
+            universal: false,
+            selected_product_ids: [subject_product.external_id],
+            existing_customers_only: false,
+            ownership_product_ids: [],
+            ownership_duration_tiers: [
+              { months: 0, amount_percentage: 0 },
+              { months: 12, amount_percentage: 50 },
+            ],
+          }, as: :json
+        end.to change { seller.offer_codes.count }.by(1)
+
+        expect(response.parsed_body["success"]).to eq(true)
+        offer_code = seller.offer_codes.last
+        expect(offer_code.existing_customers_only?).to eq(false)
+        expect(offer_code.ownership_products).to be_empty
+        expect(offer_code.normalized_ownership_duration_tiers).to eq([
+                                                                       { "months" => 0, "amount_percentage" => 0 },
+                                                                       { "months" => 12, "amount_percentage" => 50 },
+                                                                     ])
       end
     end
   end
@@ -327,6 +423,45 @@ describe Checkout::DiscountsController do
       expect(offer_code.minimum_quantity).to eq(nil)
       expect(offer_code.duration_in_billing_cycles).to eq(nil)
       expect(offer_code.minimum_amount_cents).to eq(nil)
+    end
+
+    it "clears ownership duration tiers when tiering is disabled" do
+      owned_product = create(:product, user: seller)
+      subject_product = create(:product, user: seller, price_cents: 2_00)
+      offer_code.update!(
+        products: [subject_product],
+        ownership_products: [owned_product],
+        existing_customers_only: true,
+        amount_cents: nil,
+        amount_percentage: 0,
+        duration_in_billing_cycles: nil,
+        ownership_duration_tiers: [
+          { "months" => 0, "amount_percentage" => 0 },
+          { "months" => 12, "amount_percentage" => 50 },
+        ]
+      )
+
+      put :update, params: {
+        id: offer_code.external_id,
+        name: "Discount 2",
+        max_purchase_count: 2,
+        amount_percentage: 25,
+        currency_type: nil,
+        universal: false,
+        selected_product_ids: [subject_product.external_id],
+        existing_customers_only: false,
+        ownership_product_ids: [],
+        ownership_duration_tiers: nil,
+      }, as: :json
+
+      expect(response).to be_successful
+      expect(response.parsed_body["success"]).to eq(true)
+
+      offer_code.reload
+      expect(offer_code.existing_customers_only?).to eq(false)
+      expect(offer_code.ownership_products).to eq([])
+      expect(offer_code.ownership_duration_tiers).to eq(nil)
+      expect(offer_code.amount_percentage).to eq(25)
     end
 
     context "when the offer code has several products" do

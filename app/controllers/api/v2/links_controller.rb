@@ -12,18 +12,23 @@ class Api::V2::LinksController < Api::V2::BaseController
   ]).freeze
 
   RESULTS_PER_PAGE = 10
+  MISSING_BUY_AFFORDANCE_WARNING = "The custom landing page does not include a buy element, so buyers may not be able to purchase this product. " \
+                                   'Add an element with data-gumroad-action="buy" or post a gumroad:checkout message.'
 
   SHOW_PRODUCT_ASSOCIATIONS = (BASE_PRODUCT_ASSOCIATIONS + [
+    :page,
     :ordered_alive_product_files,
+    :seller_profile_sections,
     :alive_rich_contents,
     { variant_categories_alive: [{ alive_variants: :alive_rich_contents }] },
   ]).freeze
 
-  before_action(only: [:show, :index]) { doorkeeper_authorize!(*Doorkeeper.configuration.public_scopes.concat([:view_public])) }
-  before_action(only: [:create, :update, :disable, :enable, :destroy]) { doorkeeper_authorize! :edit_products }
-  before_action :check_types_of_file_objects, only: [:update, :create]
-  before_action :set_link_id_to_id, only: [:show, :update, :disable, :enable, :destroy]
-  before_action :fetch_product, only: [:show, :update, :disable, :enable, :destroy]
+  before_action(only: [:show, :index]) { doorkeeper_authorize!(*Doorkeeper.configuration.public_api_read_scopes.concat([:view_public])) }
+  before_action(only: [:create, :update, :disable, :enable, :destroy, :preview_custom_html]) { doorkeeper_authorize! :edit_products }
+  before_action :reject_unsupported_upload_fields, only: [:update, :create]
+  before_action :resolve_category_param, only: [:update, :create]
+  before_action :set_link_id_to_id, only: [:show, :update, :disable, :enable, :destroy, :preview_custom_html]
+  before_action :fetch_product, only: [:show, :update, :disable, :enable, :destroy, :preview_custom_html]
 
   def index
     products = current_resource_owner.products.visible.includes(
@@ -46,7 +51,8 @@ class Api::V2::LinksController < Api::V2::BaseController
     as_json_options = {
       api_scopes: doorkeeper_token.scopes,
       slim: true,
-      preloaded_ppp_factors: PurchasingPowerParityService.new.get_all_countries_factors(current_resource_owner)
+      preloaded_ppp_factors: PurchasingPowerParityService.new.get_all_countries_factors(current_resource_owner),
+      preloaded_categories_by_taxonomy_id: Discover::TaxonomyPresenter.new.categories_by_id_for_api
     }
 
     products_as_json = paginated_products.as_json(as_json_options)
@@ -119,15 +125,6 @@ class Api::V2::LinksController < Api::V2::BaseController
       return render_response(false, message: error) if error
     end
 
-    if params[:taxonomy_id].present?
-      if params[:taxonomy_id].respond_to?(:key?) || params[:taxonomy_id].is_a?(Array)
-        return render_response(false, message: "taxonomy_id must be a scalar value.")
-      end
-      if !Taxonomy.exists?(params[:taxonomy_id])
-        return render_response(false, message: "Invalid taxonomy_id.")
-      end
-    end
-
     is_recurring_billing = native_type == Link::NATIVE_TYPE_MEMBERSHIP
     is_bundle = native_type == Link::NATIVE_TYPE_BUNDLE
 
@@ -150,6 +147,8 @@ class Api::V2::LinksController < Api::V2::BaseController
     if params[:custom_summary].present?
       @product.json_data["custom_summary"] = params[:custom_summary]
     end
+
+    @product.created_via_cli = true if request_from_cli?
 
     ActiveRecord::Base.transaction do
       @product.save!
@@ -208,6 +207,22 @@ class Api::V2::LinksController < Api::V2::BaseController
       return render_response(false, message: "Price cannot be updated for tiered membership products. Use the variant endpoints to manage tier pricing.")
     end
 
+    if params.key?(:price_currency_type) && !CURRENCY_CHOICES.key?(params[:price_currency_type])
+      return render_response(false, message: "'#{params[:price_currency_type]}' is not a supported currency.")
+    end
+
+    if params.key?(:custom_html) && !Feature.active?(:custom_html_pages, current_resource_owner)
+      return render_response(false, message: "You do not have access to custom HTML pages.")
+    end
+
+    if params.key?(:custom_html) && !params[:custom_html].nil? && !params[:custom_html].is_a?(String)
+      return render_response(false, message: "custom_html must be a string.")
+    end
+
+    if (length_error = custom_html_length_error)
+      return render_response(false, message: length_error)
+    end
+
     if params.key?(:tags)
       if !params[:tags].is_a?(Array) || params[:tags].any? { |t| !t.respond_to?(:to_str) }
         return render_response(false, message: "tags must be an array of strings.")
@@ -242,14 +257,26 @@ class Api::V2::LinksController < Api::V2::BaseController
       if !params[:files].is_a?(Array) || params[:files].any? { |f| !f.respond_to?(:key?) }
         return render_response(false, message: "files must be an array of file objects.")
       end
-      existing_files_by_id = @product.alive_product_files.index_by(&:external_id)
+      if params[:files].any? { |f| f.key?(:modified) }
+        return render_response(false, message: "'modified' is not an accepted parameter on files[]; it is an internal save-path flag.")
+      end
+      existing_files_by_id = @product.product_files.alive.index_by(&:external_id)
       new_files = []
       params[:files].each do |f|
         existing = f[:id].present? ? existing_files_by_id[f[:id]] : nil
         if existing
-          if f[:url].present? && f[:url] != existing.url
+          if f[:url].blank?
+            if (f.keys.map(&:to_s) - %w[id]).empty?
+              f[:url] = existing.url
+              f[:modified] = "false"
+            else
+              return render_response(false, message: "Include the canonical url returned by POST /v2/files/complete when updating fields on an existing file; an entry with only id keeps the file unchanged.")
+            end
+          elsif f[:url] != existing.url
             return render_response(false, message: "File URLs must reference your own uploaded files. Use the presigned upload endpoint to upload files first.")
           end
+        elsif f[:url].blank?
+          return render_response(false, message: "Each files entry must reference an existing file by id or include a url for a new file uploaded via POST /v2/files/complete.")
         else
           new_files << f
         end
@@ -275,8 +302,18 @@ class Api::V2::LinksController < Api::V2::BaseController
       return render_response(false, message: "rich_content must be an array of content page objects.")
     end
 
+    previous_custom_html = nil
+    sanitization_report = nil
     begin
       ActiveRecord::Base.transaction do
+        # Lock the product row so concurrent custom_html PUTs serialize their
+        # build_page calls — otherwise they race against the pages unique index.
+        # Must precede assign_attributes — lock! raises on a dirty record. lock!
+        # reloads the row, which also swaps in a fresh (empty) association cache,
+        # so the previous_custom_html read below reflects a concurrent writer's
+        # committed page rather than one cached before the lock.
+        @product.lock! if params.key?(:custom_html)
+
         attrs = {}
         attrs[:name] = params[:name] if params.key?(:name)
         attrs[:custom_permalink] = params[:custom_permalink] if params.key?(:custom_permalink)
@@ -308,9 +345,28 @@ class Api::V2::LinksController < Api::V2::BaseController
           @product.json_data["custom_summary"] = params[:custom_summary]
         end
 
+        if params.key?(:custom_html)
+          previous_custom_html = @product.custom_html
+          if params[:custom_html].blank?
+            @product.custom_html = nil
+            sanitization_report = Ai::PageSanitizer.empty_report
+          else
+            result = Ai::PageSanitizer.sanitize_with_report(params[:custom_html])
+            @product.custom_html = result.html.presence
+            sanitization_report = result.report
+          end
+        end
+
         flag_changed = @product.has_same_rich_content_for_all_variants? != rich_content_flag_was
 
         unless @normalized_files.nil?
+          referenced_existing_ids = @normalized_files.filter_map { |f| f[:id] if f[:id].present? }
+          if referenced_existing_ids.any?
+            locked_alive_ids = @product.product_files.alive.lock.map(&:external_id)
+            missing_ids = referenced_existing_ids - locked_alive_ids
+            raise Link::LinkInvalid, "File(s) #{missing_ids.join(', ')} no longer exist; they may have been deleted by a concurrent request. Retry with the current file list." if missing_ids.any?
+          end
+
           validate_file_embed_conflicts!(skip_variant_embeds: flag_changed && @product.has_same_rich_content_for_all_variants? && !@normalized_rich_content.nil?)
 
           rich_content_params = build_rich_content_params
@@ -365,14 +421,19 @@ class Api::V2::LinksController < Api::V2::BaseController
       else
         return render_response(false, message: object.errors.full_messages.to_sentence)
       end
+    rescue ActiveModel::RangeError
+      return render_response(false, message: "One or more numeric values are out of range.")
     end
 
-    offer_code_warning = check_offer_code_validity
-    if offer_code_warning
-      success_with_object(:product, @product, warning: offer_code_warning)
-    else
-      success_with_product(@product)
+    additional_info = params.key?(:custom_html) ? { previous_custom_html: previous_custom_html, sanitization_report: sanitization_report } : {}
+    warnings = [check_offer_code_validity]
+    if params[:custom_html].present?
+      # Profiles share the sanitizer, so buy-affordance warnings stay in the product API.
+      warnings << custom_html_buy_affordance_warning(@product.custom_html)
     end
+    warning = warnings.compact.join(" ").presence
+    additional_info[:warning] = warning if warning
+    success_with_object(:product, @product, additional_info)
   end
 
   def disable
@@ -400,6 +461,38 @@ class Api::V2::LinksController < Api::V2::BaseController
     success_with_product if @product.delete!
   end
 
+  # Dry-run sanitize: returns what `custom_html` would look like after the
+  # sanitizer runs, without writing. Lets agents iterate on prompts without
+  # rewriting the live page every attempt. Mirrors `update`'s blank-to-nil
+  # normalization so the dry-run and the real PUT agree on edge cases like
+  # input that sanitizes entirely to an empty string.
+  def preview_custom_html
+    return render_response(false, message: "You do not have access to custom HTML pages.") unless Feature.active?(:custom_html_pages, current_resource_owner)
+    return render_response(false, message: "custom_html is required.") unless params.key?(:custom_html)
+
+    custom_html = params[:custom_html]
+    return render_response(false, message: "custom_html must be a string.") unless custom_html.nil? || custom_html.is_a?(String)
+
+    if (length_error = custom_html_length_error)
+      return render_response(false, message: length_error)
+    end
+
+    result = Ai::PageSanitizer.sanitize_with_report(custom_html)
+    sanitized = result.html.presence
+    candidate_page = Page.new(pageable: @product, custom_html: sanitized)
+    candidate_page.validate
+    errors = candidate_page.errors.where(:custom_html)
+
+    if errors.any?
+      render_response(false, message: errors.map(&:full_message).to_sentence, sanitization_report: result.report)
+    else
+      additional_info = { custom_html: sanitized, sanitization_report: result.report }
+      warning = custom_html_buy_affordance_warning(sanitized)
+      additional_info[:warning] = warning if warning
+      render_response(true, additional_info)
+    end
+  end
+
   private
     def success_with_product(product = nil)
       success_with_object(:product, product)
@@ -409,11 +502,71 @@ class Api::V2::LinksController < Api::V2::BaseController
       error_with_object(:product, product)
     end
 
-    def check_types_of_file_objects
-      return if params[:file].class != String && params[:preview].class != String
+    def custom_html_buy_affordance_warning(html)
+      return unless Pages::BuyAffordance.missing?(html)
 
-      render_response(false, message: "You entered the name of the file to be uploaded incorrectly. Please refer to " \
-                                      "https://gumroad.com/api#methods for the correct syntax.")
+      MISSING_BUY_AFFORDANCE_WARNING
+    end
+
+    # Reject oversized HTML before the sanitizer parses it. Page validates the
+    # same 500 KB cap, but only after Nokogiri has parsed the whole payload — a
+    # cheap length check first bounds CPU on the rate-limited agent path.
+    def custom_html_length_error
+      value = params[:custom_html]
+      return unless value.is_a?(String) && value.length > Page::MAX_CUSTOM_HTML_LENGTH
+
+      "custom_html is too long (maximum is #{Page::MAX_CUSTOM_HTML_LENGTH} characters)."
+    end
+
+    UNSUPPORTED_UPLOAD_FIELDS = %i[file preview thumbnail].freeze
+
+    def reject_unsupported_upload_fields
+      rejected_field = UNSUPPORTED_UPLOAD_FIELDS.find { |key| legacy_upload_present?(params[key]) }
+      return unless rejected_field
+
+      render_response(false, message: unsupported_upload_field_message(rejected_field))
+    end
+
+    def legacy_upload_present?(value)
+      return false if value.blank?
+
+      case value
+      when ActionController::Parameters, Hash
+        value.each_value.any? { |v| legacy_upload_present?(v) }
+      when Array
+        value.any? { |v| legacy_upload_present?(v) }
+      else
+        true
+      end
+    end
+
+    def unsupported_upload_field_message(field)
+      verb_path = action_name == "create" ? "POST /v2/products" : "PUT /v2/products/:id"
+      "'#{field}' is not an accepted parameter on #{verb_path}. #{upload_field_guidance(field)}"
+    end
+
+    def upload_field_guidance(field)
+      case field
+      when :file
+        presign_flow = "Upload files with the presign flow (POST /v2/files/presign, upload parts to the returned S3 URLs, then POST /v2/files/complete), then attach them by including the returned URLs in files[][url]."
+        if action_name == "create"
+          presign_flow
+        else
+          "#{presign_flow} Note: files is a full replacement — to keep an existing file, include an entry with its id; files missing from the array are removed."
+        end
+      when :preview
+        if action_name == "create"
+          "Covers can only be added after the product is created. Create the product first, then POST to /v2/products/:id/covers with a url or signed_blob_id."
+        else
+          "Use POST /v2/products/:id/covers with a url or signed_blob_id to add a cover."
+        end
+      when :thumbnail
+        if action_name == "create"
+          "Thumbnails can only be set after the product is created. Create the product first, then POST to /v2/products/:id/thumbnail with a signed_blob_id."
+        else
+          "Use POST /v2/products/:id/thumbnail with a signed_blob_id to set the thumbnail."
+        end
+      end
     end
 
     def validate_file_urls(files)
@@ -425,6 +578,41 @@ class Api::V2::LinksController < Api::V2::BaseController
         return "File URLs must reference your own uploaded files. Use the presigned upload endpoint to upload files first."
       end
       nil
+    end
+
+    def resolve_category_param
+      if params.key?(:category)
+        if params[:category].respond_to?(:key?) || params[:category].is_a?(Array)
+          return render_response(false, message: "category must be a scalar value.")
+        end
+
+        if params[:category].present?
+          if params[:taxonomy_id].present?
+            return render_response(false, message: "Specify either category or taxonomy_id, not both.")
+          end
+
+          category = Discover::TaxonomyPresenter.new.category_for_path(params[:category].to_s)
+          return render_response(false, message: "Invalid category.") if category.blank?
+
+          params[:taxonomy_id] = category[:id]
+          return validate_taxonomy_id_param(invalid_message: "Invalid category.")
+        end
+      end
+
+      validate_taxonomy_id_param
+    end
+
+    def validate_taxonomy_id_param(invalid_message: "Invalid taxonomy_id.")
+      return if params[:taxonomy_id].blank?
+
+      if params[:taxonomy_id].respond_to?(:key?) || params[:taxonomy_id].is_a?(Array)
+        return render_response(false, message: "taxonomy_id must be a scalar value.")
+      end
+      if !Taxonomy.exists?(params[:taxonomy_id])
+        render_response(false, message: invalid_message)
+      end
+    rescue ActiveModel::RangeError
+      render_response(false, message: "One or more numeric values are out of range.")
     end
 
     def set_link_id_to_id
@@ -604,29 +792,23 @@ class Api::V2::LinksController < Api::V2::BaseController
       product_pages = @product.alive_rich_contents.sort_by(&:position)
       return if product_pages.empty?
 
-      if @product.alive_variants.empty?
+      variants = @product.alive_variants
+      if variants.empty?
         raise Link::LinkInvalid, "Cannot switch to per-variant content: the product has no variants to migrate content to."
       end
 
-      @product.alive_variants.each do |variant|
+      destination_variant = variants.first
+      variants.each do |variant|
         variant.alive_rich_contents.each(&:mark_deleted!)
         variant.product_files = []
-
-        created = product_pages.each_with_index.map do |rc, index|
-          cloned_description = strip_upsell_ids(rc.description)
-          cloned_description = SaveContentUpsellsService.new(
-            seller: @product.user,
-            content: cloned_description,
-            old_content: []
-          ).from_rich_content
-          variant.alive_rich_contents.create!(title: rc.title, description: cloned_description, position: index)
-        end
-
-        file_ids = created.flat_map { _1.embedded_product_file_ids_in_order }.uniq
-        variant.product_files = file_ids.any? ? @product.product_files.alive.where(id: file_ids) : []
       end
 
-      retire_upsells_from_rich_contents!(product_pages)
+      created = product_pages.each_with_index.map do |rc, index|
+        destination_variant.alive_rich_contents.create!(title: rc.title, description: rc.description, position: index)
+      end
+      file_ids = created.flat_map { _1.embedded_product_file_ids_in_order }.uniq
+      destination_variant.product_files = file_ids.any? ? @product.product_files.alive.where(id: file_ids) : []
+
       product_pages.each(&:mark_deleted!)
     end
 

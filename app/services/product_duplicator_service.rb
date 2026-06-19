@@ -35,6 +35,7 @@ class ProductDuplicatorService
       duplicated_product.is_collab = false
       mark_duplicate_product_as_draft
       duplicated_product.is_duplicating = false
+      enforce_one_coffee_per_user!
       duplicated_product.save!(validate: false) # Skip validations since the duplicated product may have invalid state (e.g. missing required fields) that will be fixed by subsequent duplication steps
 
       duplicate_prices
@@ -88,6 +89,15 @@ class ProductDuplicatorService
     def mark_duplicate_product_as_draft
       duplicated_product.draft = true
       duplicated_product.purchase_disabled_at = Time.current
+    end
+
+    def enforce_one_coffee_per_user!
+      return unless duplicated_product.native_type == Link::NATIVE_TYPE_COFFEE
+      return if duplicated_product.archived? || duplicated_product.deleted_at.present?
+      return unless product.user.links.visible_and_not_archived.where(native_type: Link::NATIVE_TYPE_COFFEE).exists?
+
+      duplicated_product.errors.add(:base, "You can only have one coffee product.")
+      raise ActiveRecord::RecordInvalid.new(duplicated_product)
     end
 
     def duplicate_prices
@@ -312,22 +322,27 @@ class ProductDuplicatorService
       original_entity.alive_rich_contents.find_each do |original_entity_rich_content|
         duplicate_entity_rich_content = original_entity_rich_content.dup
         duplicate_entity_rich_content.entity = duplicate_entity
-        update_file_embed_ids_in_rich_content(duplicate_entity_rich_content.description)
+        duplicate_entity_rich_content.description = remap_file_embed_ids_in_rich_content(duplicate_entity_rich_content.description)
         duplicate_entity_rich_content.save!
       end
     end
 
-    def update_file_embed_ids_in_rich_content(content)
-      content.each do |node|
-        update_file_embed_ids_in_rich_content(node["content"]) if node["type"] == RichContent::FILE_EMBED_GROUP_NODE_TYPE
+    def remap_file_embed_ids_in_rich_content(content)
+      Array(content).filter_map do |node|
+        if node["type"] == "fileEmbed"
+          old_external_id = node.dig("attrs", "id")
+          next node if old_external_id.blank?
 
-        next if node["type"] != "fileEmbed"
-        next if node.dig("attrs", "id").blank?
+          new_external_id = product_file_external_ids_mapping[old_external_id]
+          next nil if new_external_id.blank?
 
-        new_product_file_external_id = product_file_external_ids_mapping[node.dig("attrs", "id")]
-        next if new_product_file_external_id.blank?
-
-        node["attrs"]["id"] = new_product_file_external_id
+          node["attrs"]["id"] = new_external_id
+          node
+        elsif node["content"].is_a?(Array)
+          node.merge("content" => remap_file_embed_ids_in_rich_content(node["content"]))
+        else
+          node
+        end
       end
     end
 end

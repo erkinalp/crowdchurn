@@ -127,6 +127,7 @@ export type Product = {
   installment_plan: InstallmentPlan | null;
   custom_button_text_option: CustomButtonTextOption | null;
   custom_summary: string | null;
+  custom_html: string | null;
   custom_view_content_button_text: string | null;
   custom_view_content_button_text_max_length: number;
   custom_receipt_text: string | null;
@@ -230,6 +231,8 @@ export const ProductEditContext = React.createContext<{
   seller_refund_policy_enabled: boolean;
   seller_refund_policy: Pick<RefundPolicy, "title" | "fine_print">;
   cancellationDiscountsEnabled: boolean;
+  priceCheckerEnabled: boolean;
+  customHtmlPagesEnabled: boolean;
   contentUpdates: ContentUpdates;
   setContentUpdates: React.Dispatch<React.SetStateAction<ContentUpdates>>;
   filesById: Map<string, FileEntry>;

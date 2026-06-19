@@ -37,7 +37,8 @@ describe "RenderingExtension" do
             locale: "en-US",
             feature_flags: {
               require_email_typo_acknowledgment: false,
-              disable_stripe_signup: false
+              disable_stripe_signup: false,
+              career_pages: false
             }
           }
         )
@@ -114,9 +115,12 @@ describe "RenderingExtension" do
                   settings_payments_user: {
                     show: true,
                   },
+                  settings_main_user: {
+                    update_username: false,
+                  },
                   settings_profile: {
+                    manage_social_connections: false,
                     update: true,
-                    update_username: false
                   },
                   settings_third_party_analytics_user: {
                     update: true
@@ -146,7 +150,8 @@ describe "RenderingExtension" do
               locale: "en-US",
               feature_flags: {
                 require_email_typo_acknowledgment: false,
-                disable_stripe_signup: false
+                disable_stripe_signup: false,
+                career_pages: false
               }
             }
           )

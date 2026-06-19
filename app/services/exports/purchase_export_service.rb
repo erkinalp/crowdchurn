@@ -91,7 +91,7 @@ class Exports::PurchaseExportService
     tempfile
   end
 
-  def self.export(seller:, recipient:, filters: {})
+  def self.export(seller:, recipient:, filters: {}, force_async: false)
     product_ids = Link.by_external_ids(filters[:product_ids]).ids if filters[:product_ids].present?
     variant_ids = BaseVariant.by_external_ids(filters[:variant_ids]).ids if filters[:variant_ids].present?
     start_time = Date.parse(filters[:start_time]).in_time_zone("UTC").beginning_of_day if filters[:start_time].present?
@@ -109,7 +109,7 @@ class Exports::PurchaseExportService
     )
     count = EsClient.count(index: Purchase.index_name, body: { query: search_service.query })["count"]
 
-    if count <= SYNCHRONOUS_EXPORT_THRESHOLD
+    if count <= SYNCHRONOUS_EXPORT_THRESHOLD && !force_async
       records = Purchase.where(id: search_service.process.results.map(&:id))
       Exports::PurchaseExportService.new(records).perform
     else
@@ -143,7 +143,7 @@ class Exports::PurchaseExportService
         "Fees ($)" => purchase.fee_dollars,
         "Tip ($)" => (purchase.tip&.value_usd_cents || 0) / 100.0,
         "Net Total ($)" => purchase.net_total,
-        "Tax Included in Price?" => determine_exclusive_tax_report_field(purchase),
+        "Tax Included in Price?" => purchase.tax_included_in_price&.then { _1 ? 1 : 0 },
         "Street Address" => pseudo_transliterate(purchase.street_address),
         "City" => pseudo_transliterate(purchase.city),
         "Zip Code" => purchase.zip_code && purchase.zip_code.to_s.rjust(5, "0"),
@@ -190,7 +190,7 @@ class Exports::PurchaseExportService
         "Stripe Fee Currency" => (purchase.processor_fee_cents_currency if purchase.charged_using_stripe_connect_account?),
         "Purchasing Power Parity Discounted?" => purchase.is_purchasing_power_parity_discounted ? 1 : 0,
         "Upsold?" => purchase.upsell_purchase.present? ? 1 : 0,
-        "Sent Abandoned Cart Email?" => sent_abandoned_cart_email?(purchase) ? 1 : 0,
+        "Sent Abandoned Cart Email?" => purchase.sent_abandoned_cart_email? ? 1 : 0,
         "UTM Source" => utm_link&.utm_source,
         "UTM Medium" => utm_link&.utm_medium,
         "UTM Campaign" => utm_link&.utm_campaign,
@@ -203,26 +203,11 @@ class Exports::PurchaseExportService
       [data, custom_fields_data]
     end
 
-    # Internal: Get the CSV field for taxation type - inclusive(Y) / exclusive(N) / not applicable(N/A)
-    # Returns a value that logically answers - "Is Tax Included in Price ?"
-    #
-    # purchase - The purchase being serialized to CSV
-    def determine_exclusive_tax_report_field(purchase)
-      return unless purchase.was_purchase_taxable?
-
-      purchase.was_tax_excluded_from_price ? 0 : 1
-    end
-
     def pseudo_transliterate(string)
       return if string.nil?
       transliterated = ActiveSupport::Inflector.transliterate(string)
       return transliterated unless transliterated.include? "?"
 
       string
-    end
-
-    def sent_abandoned_cart_email?(purchase)
-      return if purchase.order&.cart.blank?
-      purchase.order.cart.sent_abandoned_cart_emails.any? { _1.installment.seller_id == purchase.link.user_id }
     end
 end

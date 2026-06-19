@@ -42,8 +42,16 @@ class Subscription::UpdaterService
     self.calculate_upgrade_cost_as_of = Time.current.end_of_day
     self.prorated_discount_price_cents = subscription.prorated_discount_price_cents(calculate_as_of: calculate_upgrade_cost_as_of)
 
-    if is_resubscribing && (subscription.cancelled_by_seller? || product.deleted?)
-      return { success: false, error_message: "This subscription cannot be restarted." }
+    if is_resubscribing && product.deleted?
+      return { success: false, error_message: "This product is no longer available, so this membership can't be restarted." }
+    end
+
+    if is_resubscribing && subscription.cancelled_by_seller? && use_existing_card?
+      return {
+        success: false,
+        error_message: "This membership was cancelled by the creator. To continue, please subscribe again from the product page.",
+        restart_at_checkout_url: product.long_url,
+      }
     end
 
     if is_resubscribing && subscription.is_installment_plan? && subscription.charges_completed?
@@ -110,6 +118,8 @@ class Subscription::UpdaterService
             perceived_price_cents: params[:price_range],
             offer_code: params[:offer_code],
             clear_discount: params[:clear_discount],
+            clear_deleted_discount: should_clear_original_discount?,
+            authenticated_offer_code_buyer: logged_in_user,
           )
           subscription.reload
         end
@@ -139,7 +149,13 @@ class Subscription::UpdaterService
           # made by `Subscription#update_current_plan!`
           restore_original_purchase!
           # If purchase is missing tier and user is not upgrading, associate default tier.
-          original_purchase.update!(variant_attributes: [product.default_tier]) if tiered_membership? && original_purchase.variant_attributes.empty?
+          if tiered_membership? && original_purchase.variant_attributes.empty?
+            default_tier = product.default_tier
+            original_purchase.update!(variant_attributes: [default_tier])
+            if original_purchase.counts_towards_inventory? && original_purchase.quantity.to_i > 0
+              BaseVariant.where(id: default_tier.id).update_all("sales_count_for_inventory_cache = sales_count_for_inventory_cache + #{original_purchase.quantity.to_i}")
+            end
+          end
         end
 
         # Restart subscription if necessary
@@ -199,8 +215,16 @@ class Subscription::UpdaterService
       end
     end
 
+    def should_clear_original_discount?
+      params[:offer_code].blank? && original_purchase.offer_code&.deleted?
+    end
+
     def new_price_cents
-      new_purchase.present? ? new_purchase.displayed_price_cents : subscription.current_subscription_price_cents
+      new_purchase.present? ? new_purchase.displayed_price_cents : current_subscription_price_cents
+    end
+
+    def current_subscription_price_cents
+      subscription.current_subscription_price_cents(authenticated_offer_code_buyer: logged_in_user)
     end
 
     def get_chargeable
@@ -279,7 +303,8 @@ class Subscription::UpdaterService
       self.upgrade_purchase = subscription.charge!(
         override_params: purchase_params,
         from_failed_charge_email: ActiveModel::Type::Boolean.new.cast(params[:declined]),
-        off_session: setup_intent_authenticated || !subscription.credit_card_to_charge&.requires_mandate?
+        off_session: setup_intent_authenticated || !subscription.credit_card_to_charge&.requires_mandate?,
+        authenticated_offer_code_buyer: logged_in_user,
       )
 
       subscription.unsubscribe_and_fail! if is_resubscribing && !(upgrade_purchase.successful? ||
@@ -418,7 +443,7 @@ class Subscription::UpdaterService
       return false if pwyw?
       tier_price = subscription.send(:tier_price)
       return false unless tier_price.present?
-      subscription.current_subscription_price_cents / original_purchase.quantity != tier_price.price_cents
+      current_subscription_price_cents / original_purchase.quantity != tier_price.price_cents
     end
 
     def same_pwyw_price?

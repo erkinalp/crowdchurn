@@ -1,8 +1,7 @@
 import { Cog } from "@boxicons/react";
 import { Link, router, usePage } from "@inertiajs/react";
-import taxesPlaceholder from "images/placeholders/taxes.png";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { classNames } from "$app/utils/classNames";
 
@@ -16,6 +15,8 @@ import { Placeholder, PlaceholderImage } from "$app/components/ui/Placeholder";
 import { Select } from "$app/components/ui/Select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$app/components/ui/Table";
 import { Tab, Tabs } from "$app/components/ui/Tabs";
+
+import taxesPlaceholder from "$assets/images/placeholders/taxes.png";
 
 type TaxDocument = {
   document: string;
@@ -89,7 +90,7 @@ const FAQ_ITEMS: {
 ];
 
 const TaxCenterIndex = () => {
-  const { documents, available_years, selected_year } = cast<{
+  const { documents, available_years, selected_year } = typia.assert<{
     documents: TaxDocument[];
     available_years: number[];
     selected_year: number | null;

@@ -31,6 +31,24 @@ describe DashboardController, type: :controller, inertia: true do
       end
     end
 
+    it "does not surface the passkey setup prompt while acting as another seller" do
+      session[:prompt_passkey_setup] = user_with_role_for_seller.id
+
+      get :index
+
+      expect(inertia.props[:prompt_passkey_setup]).to be(false)
+    end
+
+    it "does not surface the passkey setup prompt while impersonating" do
+      sign_in create(:admin_user)
+      controller.impersonate_user(seller)
+      session[:prompt_passkey_setup] = seller.id
+
+      get :index
+
+      expect(inertia.props[:prompt_passkey_setup]).to be(false)
+    end
+
     context "when seller has no activity" do
       it "renders the page" do
         get :index
@@ -153,9 +171,7 @@ describe DashboardController, type: :controller, inertia: true do
         create(:payment_completed, user: seller)
         create(:installment, seller:, send_emails: true)
 
-        small_bets_product = create(:product)
-        create(:purchase, purchaser: seller, link: small_bets_product)
-        stub_const("ENV", ENV.to_hash.merge("SMALL_BETS_PRODUCT_ID" => small_bets_product.id))
+        seller.update!(has_used_cli: true)
       end
 
       it "doesn't render `Getting started` text"  do

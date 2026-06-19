@@ -2,7 +2,7 @@ import { ArrowInDownSquareHalf } from "@boxicons/react";
 import { Deferred, router, usePage } from "@inertiajs/react";
 import { lightFormat } from "date-fns";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { type AudienceDataByDate } from "$app/data/audience";
 
@@ -18,7 +18,6 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "$app/com
 import { InputGroup } from "$app/components/ui/InputGroup";
 import { Placeholder, PlaceholderImage } from "$app/components/ui/Placeholder";
 import { useOnChange } from "$app/components/useOnChange";
-import { WithTooltip } from "$app/components/WithTooltip";
 
 import placeholder from "$assets/images/placeholders/audience.png";
 
@@ -28,7 +27,7 @@ interface AudiencePageProps {
 }
 
 function Audience() {
-  const { total_follower_count, audience_data } = cast<AudiencePageProps>(usePage().props);
+  const { total_follower_count, audience_data } = typia.assert<AudiencePageProps>(usePage().props);
   const dateRange = useAnalyticsDateRange();
   const startTime = lightFormat(dateRange.from, "yyyy-MM-dd");
   const endTime = lightFormat(dateRange.to, "yyyy-MM-dd");
@@ -48,13 +47,12 @@ function Audience() {
           <div className="flex w-full gap-2">
             <Popover>
               <PopoverAnchor>
-                <WithTooltip tip="Export" position="bottom">
-                  <PopoverTrigger aria-label="Export" asChild>
-                    <Button size="icon">
-                      <ArrowInDownSquareHalf aria-label="Download" className="size-5" />
-                    </Button>
-                  </PopoverTrigger>
-                </WithTooltip>
+                <PopoverTrigger asChild>
+                  <Button>
+                    <ArrowInDownSquareHalf aria-hidden="true" className="size-5" />
+                    Export
+                  </Button>
+                </PopoverTrigger>
               </PopoverAnchor>
               <PopoverContent sideOffset={4}>
                 <ExportSubscribersPopover />

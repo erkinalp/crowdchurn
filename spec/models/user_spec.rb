@@ -770,19 +770,22 @@ describe User, :vcr do
 
     context "when user can be deactivated" do
       it "deactivates the user" do
-        delete_at = Time.current
+        freeze_time do
+          delete_at = Time.current
 
-        travel_to(delete_at) do
           return_value = @user.reload.deactivate!
           expect(return_value).to be_truthy
-        end
 
-        expect(@user.reload.read_attribute(:username)).to be_nil
-        expect(@user.deleted_at.to_i).to eq(delete_at.to_i)
-        expect(@product.reload.deleted_at.to_i).to eq(delete_at.to_i)
-        expect(@installment.reload.deleted_at.to_i).to eq(delete_at.to_i)
-        expect(@user.user_compliance_infos.pluck(:deleted_at).map(&:to_i)).to eq([delete_at.to_i, delete_at.to_i])
-        expect(@bank_account.reload.deleted_at.to_i).to eq(delete_at.to_i)
+          expect(@user.reload.read_attribute(:username)).to be_nil
+          expect(@user.deleted_at.to_i).to eq(delete_at.to_i)
+          expect(@product.reload.deleted_at.to_i).to eq(delete_at.to_i)
+          expect(@installment.reload.deleted_at.to_i).to eq(delete_at.to_i)
+          expect(@user.user_compliance_infos.alive).to be_empty
+          @user.user_compliance_infos.pluck(:deleted_at).each do |ts|
+            expect(ts).to be_within(2.seconds).of(delete_at)
+          end
+          expect(@bank_account.reload.deleted_at.to_i).to eq(delete_at.to_i)
+        end
       end
 
       it "invalidates all the active sessions" do
@@ -1063,6 +1066,11 @@ describe User, :vcr do
         expect(@user).to be_invalid
       end
 
+      it "is invalid with the reserved \"profile\" username that collides with the /profile route" do
+        @user.username = "profile"
+        expect(@user).to be_invalid
+      end
+
       describe "validation condition" do
         before do
           @user2 = create(:user)
@@ -1298,7 +1306,7 @@ describe User, :vcr do
     describe "#resized_avatar_url" do
       context "when user doesn't have an avatar" do
         it "returns URL to default avatar" do
-          expect(@user.resized_avatar_url(size: 256)).to eq(ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"))
+          expect(@user.resized_avatar_url(size: 256)).to eq(ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"))
         end
       end
 
@@ -1318,7 +1326,27 @@ describe User, :vcr do
           allow(@user.avatar).to receive(:attached?).and_return(true)
           allow(@user.avatar).to receive(:variant).and_raise(ActiveStorage::FileNotFoundError)
 
-          expect(@user.resized_avatar_url(size: 256)).to eq(ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"))
+          expect(@user.resized_avatar_url(size: 256)).to eq(ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"))
+        end
+      end
+
+      context "when temp file is deleted during variant processing" do
+        it "returns URL to default avatar" do
+          allow(@user.avatar).to receive(:attached?).and_return(true)
+          allow(@user.avatar).to receive(:variant).and_raise(Errno::ENOENT, "/tmp/image_processing.png")
+
+          expect(@user.resized_avatar_url(size: 256)).to eq(ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"))
+        end
+      end
+
+      context "when avatar blob is deleted but attachment record still exists" do
+        it "returns URL to default avatar" do
+          allow(@user.avatar).to receive(:attached?).and_return(true)
+          allow(@user.avatar).to receive(:variant).and_raise(
+            ActiveRecord::InvalidForeignKey.new("Mysql2::Error: Cannot add or update a child row: a foreign key constraint fails")
+          )
+
+          expect(@user.resized_avatar_url(size: 256)).to eq(ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"))
         end
       end
     end
@@ -1331,7 +1359,7 @@ describe User, :vcr do
 
       context "when user doesn't have an avatar" do
         it "returns URL to default avatar" do
-          expect(@user.avatar_url).to eq(ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png"))
+          expect(@user.avatar_url).to eq(ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png"))
         end
       end
 
@@ -1398,7 +1426,7 @@ describe User, :vcr do
     describe "account_created_email_domain_is_not_blocked validation" do
       context "when the email domain is blocked" do
         before do
-          BlockedObject.block!(BLOCKED_OBJECT_TYPES[:email_domain], "example.com", nil)
+          PlatformBlock.add!(object_type: PlatformBlock::TYPES[:email_domain], object_value: "example.com")
         end
 
         it "fails the validation" do
@@ -1410,13 +1438,13 @@ describe User, :vcr do
         end
 
         after do
-          BlockedObject.find_active_object("example.com").unblock!
+          PlatformBlock.active.find_by(object_value: "example.com").unblock!
         end
       end
 
       context "when the email domain is not blocked" do
         it "validates the user successfully" do
-          expect(BlockedObject.find_active_object("example.com")).to be_nil
+          expect(PlatformBlock.active.find_by(object_value: "example.com")).to be_nil
           @user.account_created_ip = "example.com"
 
           expect(@user).to be_valid
@@ -1435,7 +1463,7 @@ describe User, :vcr do
     describe "account_created_ip" do
       context "when the IP is blocked" do
         before do
-          BlockedObject.block!(BLOCKED_OBJECT_TYPES[:ip_address], "127.0.0.1", nil, expires_in: 1.hour)
+          PlatformBlock.add!(object_type: PlatformBlock::TYPES[:ip_address], object_value: "127.0.0.1", expires_in: 1.hour)
         end
 
         it "fails the validation" do
@@ -1447,7 +1475,7 @@ describe User, :vcr do
         end
 
         after do
-          BlockedObject.find_active_object("127.0.0.1").unblock!
+          PlatformBlock.active.find_by(object_value: "127.0.0.1").unblock!
         end
       end
 
@@ -1814,32 +1842,6 @@ describe User, :vcr do
       end
     end
 
-    describe "logging suspension time to mongo", :sidekiq_inline do
-      let(:collection) { MONGO_DATABASE[MongoCollections::USER_SUSPENSION_TIME] }
-
-      shared_examples "logs suspension data to mongo" do |suspension_type|
-        it "logs suspension data to mongo when suspended for #{suspension_type}" do
-          freeze_time do
-            case suspension_type
-            when "fraud"
-              @user.flag_for_fraud!(author_id: @admin_user.id)
-              @user.suspend_for_fraud!(author_id: @admin_user.id)
-            when "tos_violation"
-              @user.flag_for_tos_violation!(author_id: @admin_user.id, product_id: @product_1.id)
-              @user.suspend_for_tos_violation!(author_id: @admin_user.id)
-            end
-
-            record = collection.find("user_id" => @user.id).first
-            expect(record).to be_present
-            expect(record["user_id"]).to eq(@user.id)
-            expect(record["suspended_at"]).to eq(Time.current.to_s)
-          end
-        end
-      end
-
-      include_examples "logs suspension data to mongo", "fraud"
-      include_examples "logs suspension data to mongo", "tos_violation"
-    end
     it "adds a comment when flagging for TOS violation" do
       expect do
         @user.flag_for_tos_violation!(author_id: @admin_user.id, product_id: @product_1.id)
@@ -1854,18 +1856,7 @@ describe User, :vcr do
       end.to_not change { @product_1.comments.reload.count }
     end
 
-    it "logs the timestamp to mongo on flagging" do
-      @user.update_attribute(:tos_violation_reason, "bad content")
-      @user.flag_for_tos_violation!(author_id: @admin_user.id, product_id: @product_1.id)
 
-      expect(SaveToMongoWorker).to have_enqueued_sidekiq_job(anything, anything)
-    end
-
-    it "logs the timestamp to mongo on suspension" do
-      @user.flag_for_fraud!(author_id: @admin_user.id)
-
-      expect(SaveToMongoWorker).to have_enqueued_sidekiq_job(anything, anything)
-    end
 
     describe "seller with multiple accounts" do
       before do
@@ -2785,6 +2776,38 @@ describe User, :vcr do
         expect(active_access_token_of_another_user.reload.revoked_at).to be_nil
       end
     end
+
+    it "denies approved device authorizations for the mobile application" do
+      device_authorization = create(
+        :oauth_device_authorization,
+        oauth_application:,
+        resource_owner: user,
+        status: OauthDeviceAuthorization::STATUS_APPROVED
+      )
+
+      user.invalidate_active_sessions!
+
+      expect(device_authorization.reload).to have_attributes(
+        status: OauthDeviceAuthorization::STATUS_DENIED,
+        denied_at: be_present,
+        access_token: nil
+      )
+    end
+  end
+
+  describe "#invalidate_browser_sessions!" do
+    let(:user) { create(:user) }
+    let(:oauth_application) { create(:oauth_application, uid: OauthApplication::MOBILE_API_OAUTH_APPLICATION_UID) }
+    let!(:active_access_token) { create("doorkeeper/access_token", application: oauth_application, resource_owner_id: user.id, scopes: "mobile_api") }
+
+    it "updates the timestamp without revoking mobile access tokens" do
+      travel_to(DateTime.current) do
+        expect do
+          user.invalidate_browser_sessions!
+        end.to change { user.reload.last_active_sessions_invalidated_at }.from(nil).to(DateTime.current)
+         .and not_change { active_access_token.reload.revoked_at }
+      end
+    end
   end
 
   describe "#init_default_notification_settings" do
@@ -3177,38 +3200,6 @@ describe User, :vcr do
     end
   end
 
-  describe "#trigger_iffy_ingest" do
-    let!(:user) { create(:user, name: "Original Name", bio: "Original Bio") }
-
-    before do
-      allow_any_instance_of(Iffy::Profile::IngestService).to receive(:perform).and_return(true)
-    end
-
-    it "does not trigger an iffy ingest job if neither name nor bio have changed" do
-      expect do
-        user.update!(email: "newemail@example.com")
-      end.not_to change { Iffy::Profile::IngestJob.jobs.size }
-    end
-
-    it "triggers an iffy ingest job if the name has changed" do
-      expect do
-        user.update!(name: "New Name")
-      end.to change { Iffy::Profile::IngestJob.jobs.size }.by(1)
-    end
-
-    it "triggers an iffy ingest job if the bio has changed" do
-      expect do
-        user.update!(bio: "New Bio")
-      end.to change { Iffy::Profile::IngestJob.jobs.size }.by(1)
-    end
-
-    it "triggers an iffy ingest job if the username has changed" do
-      expect do
-        user.update!(username: "username1")
-      end.to change { Iffy::Profile::IngestJob.jobs.size }.by(1)
-    end
-  end
-
   describe "#eligible_for_instant_payouts?" do
     let(:user) { create(:compliant_user) }
     let!(:compliance_info) { create(:user_compliance_info, user:) }
@@ -3375,19 +3366,61 @@ describe User, :vcr do
       expect(seller.payouts_paused_for_reason).to eq("Chargeback rate too high.")
     end
 
-    it "returns nil if payouts are not paused by admin" do
+    it "returns the content of the last payouts_paused comment when payouts are paused by stripe" do
       seller.comments.create!(
-        author_id: User.last.id,
-        content: "Chargeback rate too high.",
+        author_name: "Stripe payouts sync",
+        content: "Payouts automatically paused by Stripe (disabled reason: requirements.past_due).",
         comment_type: Comment::COMMENT_TYPE_PAYOUTS_PAUSED
       )
 
       seller.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_STRIPE)
       expect(seller.reload.payouts_paused_by_source).to eq(User::PAYOUT_PAUSE_SOURCE_STRIPE)
-      expect(seller.payouts_paused_for_reason).to be nil
+      expect(seller.payouts_paused_for_reason).to eq("Payouts automatically paused by Stripe (disabled reason: requirements.past_due).")
+    end
+
+    it "returns the system pause reason from the on_probation comment for a system pause" do
+      seller.comments.create!(
+        author_name: User::SYSTEM_PAYOUT_PAUSE_COMMENT_AUTHORS[:high_chargeback_rate],
+        content: "Payouts automatically paused due to chargeback rate (5%) exceeding 3% volume.",
+        comment_type: Comment::COMMENT_TYPE_ON_PROBATION
+      )
 
       seller.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_SYSTEM)
       expect(seller.reload.payouts_paused_by_source).to eq(User::PAYOUT_PAUSE_SOURCE_SYSTEM)
+      expect(seller.payouts_paused_for_reason).to eq("Payouts automatically paused due to chargeback rate (5%) exceeding 3% volume.")
+    end
+
+    it "returns nil for a system pause whose only on_probation comment is unrelated to payouts" do
+      seller.comments.create!(
+        author_name: "some_other_probation_reason",
+        content: "On probation for an unrelated reason.",
+        comment_type: Comment::COMMENT_TYPE_ON_PROBATION
+      )
+
+      seller.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_SYSTEM)
+      expect(seller.payouts_paused_for_reason).to be nil
+    end
+
+    it "returns nil when the current pause is by the system even if a stale Stripe pause comment remains" do
+      seller.comments.create!(
+        author_name: "Stripe payouts sync",
+        content: "Payouts automatically paused by Stripe (disabled reason: listed).",
+        comment_type: Comment::COMMENT_TYPE_PAYOUTS_PAUSED
+      )
+
+      seller.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_SYSTEM)
+      expect(seller.reload.payouts_paused_by_source).to eq(User::PAYOUT_PAUSE_SOURCE_SYSTEM)
+      expect(seller.payouts_paused_for_reason).to be nil
+    end
+
+    it "returns nil once payouts are no longer paused even if a stale pause comment remains" do
+      seller.comments.create!(
+        author_name: "Stripe payouts sync",
+        content: "Payouts automatically paused by Stripe (disabled reason: requirements.past_due).",
+        comment_type: Comment::COMMENT_TYPE_PAYOUTS_PAUSED
+      )
+
+      expect(seller.payouts_paused?).to be false
       expect(seller.payouts_paused_for_reason).to be nil
     end
   end

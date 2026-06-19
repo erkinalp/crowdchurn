@@ -4,7 +4,7 @@ class Purchase < ApplicationRecord
   has_paper_trail
 
   include Rails.application.routes.url_helpers
-  include ActionView::Helpers::DateHelper, CurrencyHelper, ProductsHelper, Mongoable, PurchaseErrorCode,
+  include ActionView::Helpers::DateHelper, CurrencyHelper, ProductsHelper, PurchaseErrorCode,
           ExternalId, JsonData, TimestampScopes, Accounting, Blockable, CardCountrySource, Targeting,
           Refundable, Reviews, PingNotification, Searchable, Risk,
           CreatorAnalyticsCallbacks, FlagShihTzu, AfterCommitEverywhere, CompletionHandler, Integrations,
@@ -242,8 +242,7 @@ class Purchase < ApplicationRecord
     after_transition any => :failed, :do => :ban_buyer_on_fraud_related_error_code!
     after_transition any => :failed, :do => :suspend_buyer_on_fraudulent_card_decline!
     after_transition any => :failed, :do => :send_failure_email
-    after_transition any => %i[failed successful not_charged], :do => :check_purchase_heuristics
-    after_transition any => %i[failed successful not_charged], :do => :score_product
+
     after_transition any => %i[preorder_authorization_successful successful not_charged preorder_concluded_unsuccessfully], :do => :queue_product_cache_invalidation
     after_transition any => %i[successful preorder_authorization_successful], :do => :touch_variants_if_limited_quantity, unless: lambda { |purchase|
       purchase.not_charged_and_not_free_trial?
@@ -341,9 +340,9 @@ class Purchase < ApplicationRecord
   # this ensures preorders that require shipping at a later date will pass this validation
   %w[full_name street_address country state zip_code city].each do |f|
     validates f.to_sym, presence: true, on: :create,
-                        if: -> { link.is_physical || (link.require_shipping? && !is_recurring_subscription_charge && !is_preorder_charge?) }
+                        if: -> { !is_applying_plan_change && (link.is_physical || (link.require_shipping? && !is_recurring_subscription_charge && !is_preorder_charge?)) }
     validates f.to_sym, presence: true, on: :update,
-                        if: -> { is_updated_original_subscription_purchase && (link.is_physical || link.require_shipping?) && !is_recurring_subscription_charge && !is_preorder_charge? }
+                        if: -> { !is_applying_plan_change && is_updated_original_subscription_purchase && (link.is_physical || link.require_shipping?) && !is_recurring_subscription_charge && !is_preorder_charge? }
   end
   validates :call, presence: true, if: -> { link.native_type == Link::NATIVE_TYPE_CALL }
   validates_inclusion_of :recommender_model_name, in: RecommendedProductsService::MODELS, allow_nil: true
@@ -369,7 +368,6 @@ class Purchase < ApplicationRecord
   before_create :toggle_off_can_contact_if_buyer_has_unsubscribed
 
   before_save :assign_default_rental_expired
-  before_save :to_mongo
   before_save :truncate_referrer
 
   after_commit :attach_credit_card_to_purchaser,
@@ -380,6 +378,168 @@ class Purchase < ApplicationRecord
   after_commit :enqueue_update_sales_related_products_infos_job, if: -> (purchase) {
     purchase.purchase_state_previously_changed? && purchase.purchase_state == "successful"
   }
+
+  after_create :mark_inventory_new_in_txn
+  before_save :snapshot_inventory_pre_save_state
+  after_commit :sync_inventory_counter_caches_on_create, on: :create
+  after_commit :sync_inventory_counter_cache_for_state_change, on: :update
+  after_commit :sync_inventory_counter_cache_for_destroy, on: :destroy
+  after_commit :auto_delete_single_use_offer_code, on: :create, if: -> { successful? && offer_code.present? }
+  after_rollback :reset_inventory_pre_save_snapshot
+  after_rollback :clear_inventory_pending_create_commit_id
+  before_destroy :capture_inventory_state_before_destroy
+
+  COUNTS_TOWARDS_INVENTORY_STATES = %w[preorder_authorization_successful in_progress successful not_charged].freeze
+
+  def counts_towards_inventory?
+    Purchase.counts_towards_inventory_for?(
+      purchase_state:,
+      flags:,
+      subscription_id:,
+      subscription_deactivated_at: subscription_id.present? ? subscription&.deactivated_at : nil,
+    )
+  end
+
+  def self.counts_towards_inventory_for?(purchase_state:, flags:, subscription_id:, subscription_deactivated_at:)
+    return false unless COUNTS_TOWARDS_INVENTORY_STATES.include?(purchase_state)
+
+    raw_flags = flags.to_i
+    additional_contribution_bit = flag_mapping["flags"][:is_additional_contribution]
+    original_sub_bit = flag_mapping["flags"][:is_original_subscription_purchase]
+    gift_receiver_bit = flag_mapping["flags"][:is_gift_receiver_purchase]
+    archived_original_bit = flag_mapping["flags"][:is_archived_original_subscription_purchase]
+
+    return false if raw_flags & additional_contribution_bit != 0
+    return false if raw_flags & archived_original_bit != 0
+
+    if subscription_id.present?
+      is_original = raw_flags & original_sub_bit != 0
+      is_gift_receiver = raw_flags & gift_receiver_bit != 0
+      return false unless is_original || is_gift_receiver
+      return false if subscription_deactivated_at.present?
+    end
+
+    true
+  end
+
+  def self.skip_inventory_counter_callbacks
+    Thread.current[:skip_purchase_inventory_callbacks] = true
+    yield
+  ensure
+    Thread.current[:skip_purchase_inventory_callbacks] = false
+  end
+
+  def self.skip_inventory_counter_callbacks?
+    Thread.current[:skip_purchase_inventory_callbacks] == true
+  end
+
+  def self.inventory_pending_create_commit_ids
+    Thread.current[:inventory_pending_create_commit_ids] ||= Set.new
+  end
+
+  def mark_inventory_new_in_txn
+    @inventory_new_in_txn = true
+    Purchase.inventory_pending_create_commit_ids << id
+  end
+
+  def sync_inventory_counter_caches_on_create
+    Purchase.inventory_pending_create_commit_ids.delete(id)
+    @inventory_new_in_txn = false
+    return if Purchase.skip_inventory_counter_callbacks?
+    return unless counts_towards_inventory?
+    delta = quantity.to_i
+    return if delta.zero?
+
+    variant_ids = variant_attribute_ids
+    if variant_ids.any?
+      BaseVariant.where(id: variant_ids).update_all("sales_count_for_inventory_cache = sales_count_for_inventory_cache + #{delta}")
+    end
+    if link_id.present?
+      Link.where(id: link_id).update_all("sales_count_for_inventory_cache = sales_count_for_inventory_cache + #{delta}")
+    end
+  end
+
+  def snapshot_inventory_pre_save_state
+    return if new_record?
+    return if @inventory_pre_save_snapshot
+
+    prev_subscription_id = subscription_id_in_database
+    @inventory_pre_save_snapshot = {
+      purchase_state: purchase_state_in_database,
+      flags: flags_in_database,
+      subscription_id: prev_subscription_id,
+      quantity: quantity_in_database,
+      subscription_deactivated_at: prev_subscription_id.present? ? Subscription.where(id: prev_subscription_id).pick(:deactivated_at) : nil,
+    }
+  end
+
+  def reset_inventory_pre_save_snapshot
+    @inventory_pre_save_snapshot = nil
+  end
+
+  def clear_inventory_pending_create_commit_id
+    Purchase.inventory_pending_create_commit_ids.delete(id) if id.present?
+    @inventory_new_in_txn = false
+  end
+
+  def sync_inventory_counter_cache_for_state_change
+    return if Purchase.skip_inventory_counter_callbacks?
+    snapshot = @inventory_pre_save_snapshot
+    return unless snapshot
+    return unless previous_changes.keys.intersect?(%w[purchase_state flags subscription_id quantity])
+
+    before_counted = Purchase.counts_towards_inventory_for?(
+      purchase_state: snapshot[:purchase_state],
+      flags: snapshot[:flags],
+      subscription_id: snapshot[:subscription_id],
+      subscription_deactivated_at: snapshot[:subscription_deactivated_at],
+    )
+    before_qty = before_counted ? snapshot[:quantity].to_i : 0
+
+    current_subscription_deactivated_at = subscription_id.present? ? Subscription.where(id: subscription_id).pick(:deactivated_at) : nil
+    after_counted = Purchase.counts_towards_inventory_for?(
+      purchase_state:,
+      flags:,
+      subscription_id:,
+      subscription_deactivated_at: current_subscription_deactivated_at,
+    )
+    after_qty = after_counted ? quantity.to_i : 0
+
+    delta = after_qty - before_qty
+    reset_inventory_pre_save_snapshot
+    return if delta.zero?
+
+    variant_ids = variant_attribute_ids
+    if variant_ids.any?
+      BaseVariant.where(id: variant_ids).update_all("sales_count_for_inventory_cache = sales_count_for_inventory_cache + #{delta}")
+    end
+    if link_id.present?
+      Link.where(id: link_id).update_all("sales_count_for_inventory_cache = sales_count_for_inventory_cache + #{delta}")
+    end
+  end
+
+  def capture_inventory_state_before_destroy
+    @inventory_was_counting_before_destroy = counts_towards_inventory?
+    @inventory_quantity_before_destroy = quantity.to_i
+    @inventory_link_id_before_destroy = link_id
+    @inventory_variant_ids_before_destroy = variant_attribute_ids.dup
+  end
+
+  def sync_inventory_counter_cache_for_destroy
+    Purchase.inventory_pending_create_commit_ids.delete(id) if id.present?
+    return if Purchase.skip_inventory_counter_callbacks?
+    return if @inventory_new_in_txn
+    return unless @inventory_was_counting_before_destroy
+    delta = -@inventory_quantity_before_destroy.to_i
+    return if delta.zero?
+    variant_ids = @inventory_variant_ids_before_destroy || []
+    if variant_ids.any?
+      BaseVariant.where(id: variant_ids).update_all("sales_count_for_inventory_cache = sales_count_for_inventory_cache + #{delta}")
+    end
+    if @inventory_link_id_before_destroy.present?
+      Link.where(id: @inventory_link_id_before_destroy).update_all("sales_count_for_inventory_cache = sales_count_for_inventory_cache + #{delta}")
+    end
+  end
 
   # Entities that store the product price, tax information and transaction price
 
@@ -440,7 +600,7 @@ class Purchase < ApplicationRecord
                 :save_shipping_address, :flow_of_funds, :prorated_discount_price_cents,
                 :original_variant_attributes, :original_price, :is_updated_original_subscription_purchase,
                 :is_applying_plan_change, :setup_intent, :charge_intent, :setup_future_charges, :skip_preparing_for_charge,
-                :installment_plan
+                :installment_plan, :authenticated_offer_code_buyer
 
   delegate :email, :name, to: :seller, prefix: "seller"
   delegate :name, to: :link, prefix: "link", allow_nil: true
@@ -560,7 +720,7 @@ class Purchase < ApplicationRecord
     .not_is_archived_original_subscription_purchase
     .not_rental_expired
     .order(id: :desc)
-    .includes(:preorder, :purchaser, :seller, :subscription, url_redirect: { purchase: { link: [:user, :thumbnail_alive, { display_asset_previews: [:file_attachment, :file_blob] }] } })
+    .includes(:preorder, :purchaser, :seller, :subscription, :link, url_redirect: { purchase: { link: [:user, :thumbnail_alive, { display_asset_previews: [:file_attachment, :file_blob] }] } })
   }
   scope :for_library, lambda {
     all_success_states
@@ -704,8 +864,10 @@ class Purchase < ApplicationRecord
       can_revoke_access: pundit_user ? Pundit.policy!(pundit_user, [:audience, self]).revoke_access? : nil,
       can_undo_revoke_access: pundit_user ? Pundit.policy!(pundit_user, [:audience, self]).undo_revoke_access? : nil,
       can_update: pundit_user ? Pundit.policy!(pundit_user, [:audience, self]).update? : nil,
+      invoice_url: (invoice_url if version == 2 && has_invoice?),
       upsell: upsell_purchase&.as_json,
-      paypal_refund_expired: paypal_refund_expired?
+      paypal_refund_expired: paypal_refund_expired?,
+      **(version == 2 ? web_csv_parity_fields : {})
     ).delete_if { |_, v| v.nil? }
 
     json[:card] = {
@@ -750,9 +912,10 @@ class Purchase < ApplicationRecord
     end
 
     if offer_code.present?
+      offer_code_for_display = original_offer_code(include_deleted: true)
       json[:offer_code] = {
         code: offer_code.code,
-        displayed_amount_off: offer_code.displayed_amount_off(link.price_currency_type, with_symbol: true)
+        displayed_amount_off: offer_code_for_display&.displayed_amount_off(link.price_currency_type, with_symbol: true)
       }
       # For backwards compatibility: offer code's `name` has been renamed to `code`
       json[:offer_code][:name] = offer_code.code if version <= 2
@@ -784,6 +947,18 @@ class Purchase < ApplicationRecord
     json[:quantity] = quantity
     json[:message] = messages.unread.last if options[:unread_message]
     json
+  end
+
+  def tax_included_in_price
+    return unless was_purchase_taxable?
+
+    !was_tax_excluded_from_price
+  end
+
+  def sent_abandoned_cart_email?
+    return false if order&.cart.blank?
+
+    order.cart.sent_abandoned_cart_emails.any? { _1.installment.seller_id == link.user_id }
   end
 
   def receipt_url
@@ -935,6 +1110,32 @@ class Purchase < ApplicationRecord
     self.class.purchase_info(url_redirect, link, self).merge!(variants_displayable: variants_list)
   end
 
+  # Fails line items in a cart that individually pass `validate_offer_code` but
+  # collectively exceed the same offer code's `max_purchase_count`. Single-line carts
+  # are skipped because `before_create :validate_offer_code` already handles them.
+  # Returns the array of purchases it marked failed so the caller can route error
+  # responses for them through `Order::ChargeService#ensure_all_purchases_processed`.
+  def self.validate_offer_code_usage_across_line_items(purchases)
+    rejected = []
+    purchases
+      .select { |p| p.offer_code_id && p.in_progress? && p.errors.empty? }
+      .group_by(&:offer_code_id)
+      .each do |_, code_purchases|
+        next if code_purchases.size < 2
+        offer_code = code_purchases.first.offer_code
+        next if offer_code&.max_purchase_count.nil?
+        next if code_purchases.sum(&:quantity) <= offer_code.quantity_left
+
+        code_purchases.each do |purchase|
+          purchase.error_code = PurchaseErrorCode::EXCEEDING_OFFER_CODE_QUANTITY
+          Purchase::MarkFailedService.new(purchase).perform
+          purchase.errors.add(:base, "Sorry, the discount code you are using is invalid for the quantity you have selected.")
+          rejected << purchase
+        end
+      end
+    rejected
+  end
+
   def self.purchase_response(url_redirect, link, purchase = nil)
     extra_purchase_notice = nil
     if link.is_in_preorder_state
@@ -975,6 +1176,7 @@ class Purchase < ApplicationRecord
     json = {
       created_at: purchase.created_at,
       should_show_receipt: !purchase.is_test_purchase? && purchase.successful_and_not_reversed?(include_gift: true),
+      was_paid: purchase.present? && purchase.paid?,
       show_view_content_button_on_product_page: purchase.show_view_content_button_on_product_page?,
       is_recurring_billing: link.is_recurring_billing,
       is_physical: link.is_physical,
@@ -1330,8 +1532,13 @@ class Purchase < ApplicationRecord
 
   def increment_affiliates_balance!
     return unless affiliate_credit_cents > 0
+    return if affiliate_credit.present?
 
-    create_affiliate_balances!
+    if (affiliate_balance_transaction = balance_transactions.where(user: affiliate.affiliate_user).where.not(balance_id: nil).last)
+      create_affiliate_credit!(affiliate_balance_transaction.balance)
+    else
+      create_affiliate_balances!
+    end
 
     return if using_operator_merchant_account_for_affiliate_user?
 
@@ -1373,10 +1580,14 @@ class Purchase < ApplicationRecord
       update_user_balance: update_user_balance_in_transaction_for_affiliate
     )
 
+    create_affiliate_credit!(affiliate_balance_transaction.balance)
+  end
+
+  def create_affiliate_credit!(affiliate_balance)
     self.affiliate_credit = AffiliateCredit.create!(
       purchase: self,
       affiliate:,
-      affiliate_balance: affiliate_balance_transaction.balance,
+      affiliate_balance:,
       affiliate_amount_cents: affiliate_credit_cents,
       affiliate_fee_cents: determine_affiliate_fee_cents.ceil,
     )
@@ -1388,6 +1599,12 @@ class Purchase < ApplicationRecord
     increment_affiliates_balance!
 
     return unless charged_using_server_owner_account?
+
+    if (seller_balance_transaction = balance_transactions.where(user: seller).where.not(balance_id: nil).last)
+      self.purchase_success_balance = seller_balance_transaction.balance
+      save! if purchase_success_balance_id != seller_balance_transaction.balance_id
+      return
+    end
 
     seller_issued_amount = BalanceTransaction::Amount.create_issued_amount_for_seller(
       flow_of_funds:,
@@ -1557,12 +1774,12 @@ class Purchase < ApplicationRecord
   end
 
   def amount_refundable_in_currency
-    amount_in_cents = usd_cents_to_currency(link.price_currency_type, amount_refundable_cents, rate_converted_to_usd)
+    amount_in_cents = usd_cents_to_currency(displayed_price_currency_type, amount_refundable_cents, rate_converted_to_usd)
     Money.new(amount_in_cents, displayed_price_currency_type).format(no_cents_if_whole: true, symbol: false)
   end
 
   def amount_refundable_cents_in_currency
-    usd_cents_to_currency(link.price_currency_type, amount_refundable_cents, rate_converted_to_usd)
+    usd_cents_to_currency(displayed_price_currency_type, amount_refundable_cents, rate_converted_to_usd)
   end
 
   def refunding_amount_cents(amount)
@@ -1715,9 +1932,18 @@ class Purchase < ApplicationRecord
 
   def set_price_and_rate
     if offer_code.present? && !has_cached_offer_code?
-      self.build_purchase_offer_code_discount(offer_code:, offer_code_amount: offer_code.amount, offer_code_is_percent: offer_code.is_percent?,
-                                              pre_discount_minimum_price_cents: minimum_paid_price_cents_per_unit_before_discount,
-                                              duration_in_months: link.is_recurring_billing? ? offer_code.duration_in_months : nil)
+      resolved_discount = resolved_offer_code_discount_for_buyer
+      if resolved_discount.present?
+        offer_code_is_percent = resolved_discount[:type] == "percent"
+        offer_code_amount = offer_code_is_percent ? resolved_discount[:percents] : resolved_discount[:cents]
+        self.build_purchase_offer_code_discount(offer_code:, offer_code_amount:, offer_code_is_percent:,
+                                                pre_discount_minimum_price_cents: minimum_paid_price_cents_per_unit_before_discount,
+                                                duration_in_months: link.is_recurring_billing? ? offer_code.duration_in_months : nil)
+      else
+        @offer_code_invalid_for_buyer = true
+        reject_existing_customer_offer_code
+        self.offer_code = nil
+      end
     end
 
     # Handle pricing based on product's pricing mode
@@ -2109,9 +2335,10 @@ class Purchase < ApplicationRecord
       end
 
       if offer_code.present?
+        offer_code_for_display = original_offer_code(include_deleted: true)
         json_data[:offer_code] = {
           code: offer_code.code,
-          displayed_amount_off: offer_code.displayed_amount_off(link.price_currency_type, with_symbol: true)
+          displayed_amount_off: offer_code_for_display&.displayed_amount_off(link.price_currency_type, with_symbol: true)
         }
       end
 
@@ -2129,6 +2356,8 @@ class Purchase < ApplicationRecord
   end
 
   def update_json_data_for_mobile
+    return @cached_product_updates_data if defined?(@cached_product_updates_data)
+
     return [] if subscription.present? && !subscription.alive? && link.block_access_after_membership_cancellation?
 
     all_purchases_of_product = link.sales.for_displaying_installments(email:)
@@ -2136,6 +2365,125 @@ class Purchase < ApplicationRecord
     posts = self.class.product_installments(purchase_ids: all_purchases_of_product.pluck(:id))
 
     posts.map { |post| post.installment_mobile_json_data(purchase: self) }.compact
+  end
+
+  def self.preload_product_updates_data!(purchases)
+    purchases_array = purchases.to_a
+    return if purchases_array.empty?
+
+    # Preload subscription -> original_purchase up front. We need it both for the
+    # blocked-subscription guard (subscription.alive?) and to key email_infos on
+    # original_purchase.id below (Installment#action_at_for_purchase uses
+    # original_purchase.id, so renewals would otherwise miss email_info rows).
+    ActiveRecord::Associations::Preloader.new(
+      records: purchases_array,
+      associations: { subscription: :original_purchase }
+    ).call
+
+    grouped = purchases_array.group_by { |p| [p.link_id, p.email] }
+
+    all_installments = []
+    purchase_to_posts = {}
+
+    grouped.each do |(link_id, email), group|
+      blocked = group.all? { |p| p.subscription.present? && !p.subscription.alive? && p.link.block_access_after_membership_cancellation? }
+      if blocked
+        group.each { |p| purchase_to_posts[p.id] = [] }
+        next
+      end
+
+      qualifying_ids = Purchase.where(link_id: link_id)
+                               .all_success_states_including_test
+                               .can_access_content
+                               .not_fully_refunded
+                               .not_chargedback_or_chargedback_reversed
+                               .not_is_gift_sender_purchase
+                               .where(email: email)
+                               .pluck(:id)
+
+      posts = product_installments(purchase_ids: qualifying_ids)
+      all_installments.concat(posts)
+
+      group.each { |p| purchase_to_posts[p.id] = posts }
+    end
+
+    uniq_installments = all_installments.uniq(&:id)
+    if uniq_installments.any?
+      # Preload `ordered_alive_product_files` (scoped `alive.in_order`) so we can
+      # set it as `cached_alive_product_files` on each post — that way the call to
+      # `alive_product_files` inside `installment_mobile_json_data` hits the cache
+      # instead of re-querying, and any downstream caller of `alive_product_files`
+      # on the same post in this request also benefits.
+      ActiveRecord::Associations::Preloader.new(
+        records: uniq_installments,
+        associations: [:seller, :link, :ordered_alive_product_files]
+      ).call
+
+      uniq_installments.each do |post|
+        post.cached_alive_product_files = post.ordered_alive_product_files.to_a
+      end
+    end
+
+    purchase_ids = purchases_array.map(&:id)
+    # filter_map skips purchases whose scoped has_one original_purchase is nil
+    # (e.g. archived). The blocked-subscription guard below catches those before
+    # the email_info lookup, so omitting nils from the WHERE clause is safe.
+    original_purchase_ids = purchases_array.filter_map { |p| p.original_purchase&.id }.uniq
+    installment_ids = uniq_installments.map(&:id)
+    if installment_ids.any?
+      # `.order(:id)` + reverse_each + assignment keeps the lowest-id record per
+      # [purchase_id, installment_id]. Matches the single-purchase path's
+      # `purchase_url_redirect(...).first` (ORDER BY id ASC LIMIT 1) semantics:
+      # when duplicate UrlRedirect rows exist for the same (purchase, installment),
+      # the lowest id wins.
+      existing_redirects = UrlRedirect.where(purchase_id: purchase_ids, installment_id: installment_ids)
+                                      .order(:id)
+                                      .reverse_each
+                                      .index_by { |ur| [ur.purchase_id, ur.installment_id] }
+
+      # Key email_infos on original_purchase.id to match action_at_for_purchase's
+      # behavior — otherwise renewal purchases get post.published_at instead of the
+      # actual sent_at/delivered_at timestamp. action_at_for_purchases uses `.last`
+      # ordering by id, so we mirror that by overwriting earlier ids with later ones.
+      email_infos = CreatorContactingCustomersEmailInfo
+                      .where(installment_id: installment_ids, purchase_id: original_purchase_ids)
+                      .order(:id)
+                      .index_by { |ei| [ei.installment_id, ei.purchase_id] }
+    else
+      existing_redirects = {}
+      email_infos = {}
+    end
+
+    purchases_array.each do |purchase|
+      if purchase.subscription.present? && !purchase.subscription.alive? && purchase.link.block_access_after_membership_cancellation?
+        purchase.instance_variable_set(:@cached_product_updates_data, [])
+        next
+      end
+
+      original_purchase_id = purchase.original_purchase&.id
+      posts = purchase_to_posts[purchase.id] || []
+
+      updates_data = posts.map do |post|
+        # Pre-create the UrlRedirect when missing so the side effect happens in the
+        # preload pass (a dedicated step), not inside installment_mobile_json_data's
+        # serialization. This keeps the create-if-missing semantics from
+        # purchase_url_redirect while isolating the DB write.
+        url_redirect = existing_redirects[[purchase.id, post.id]]
+        url_redirect ||= begin
+          created = UrlRedirect.create!(installment: post, purchase: purchase)
+          existing_redirects[[purchase.id, post.id]] = created
+          created
+        end
+
+        post.installment_mobile_json_data(
+          purchase: purchase,
+          preloaded_purchase_url_redirect: url_redirect,
+          preloaded_purchase_email_info: email_infos[[post.id, original_purchase_id]]
+        )
+      end.compact
+
+      purchase.instance_variable_set(:@cached_product_updates_data, updates_data)
+    end
   end
 
   # Public: Return all installments the customer should see on the content page for a given purchase.
@@ -2474,13 +2822,13 @@ class Purchase < ApplicationRecord
   end
 
   def original_offer_code(include_deleted: false)
-    return nil if offer_code&.deleted? && !include_deleted
+    return nil if offer_code&.deleted? && !include_deleted && !purchase_offer_code_discount&.offer_code&.tiered?
 
     if has_cached_offer_code?
-      code = purchase_offer_code_discount.offer_code.code
+      original_offer_code = purchase_offer_code_discount.offer_code
       purchase_offer_code_discount.offer_code_is_percent ?
-        OfferCode.new(amount_percentage: purchase_offer_code_discount.offer_code_amount, code:) :
-        OfferCode.new(amount_cents: purchase_offer_code_discount.offer_code_amount, code:)
+        OfferCode.new(amount_percentage: purchase_offer_code_discount.offer_code_amount, code: original_offer_code.code, name: original_offer_code.name) :
+        OfferCode.new(amount_cents: purchase_offer_code_discount.offer_code_amount, code: original_offer_code.code, name: original_offer_code.name)
     else
       offer_code
     end
@@ -2649,29 +2997,41 @@ class Purchase < ApplicationRecord
   end
 
   def build_flow_of_funds_from_combined_charge(combined_flow_of_funds)
-    total_issued_amount_cents = combined_flow_of_funds.issued_amount.cents
-    purchase_portion = total_transaction_cents * 1.0 / charge.amount_cents
-    purchase_gumroad_amount_portion = if charge.gumroad_amount_cents == 0
+    charge_purchases = charge.purchases.to_a.sort_by(&:id)
+    purchase_index = charge_purchases.index { |purchase| purchase.id == id }
+    raise ArgumentError, "Purchase #{id} is not part of charge #{charge&.id}" if purchase_index.nil?
+
+    # The "portion" ratios use total_transaction_cents (whole charge), the
+    # gumroad amount, and the seller (complement) amount respectively. Each
+    # amount is split across all purchases in the charge with the
+    # largest-remainder method so the per-purchase shares always reconcile to
+    # the combined charge amount; this purchase takes its own share by index.
+    transaction_weights = charge_purchases.map(&:total_transaction_cents)
+    gumroad_weights = charge_purchases.map(&:total_transaction_amount_for_gumroad_cents)
+    seller_weights = charge_purchases.map { |purchase| purchase.total_transaction_cents - purchase.total_transaction_amount_for_gumroad_cents }
+
+    share = lambda do |total_cents, weights, weight_total|
+      Charge.allocate_by_largest_remainder(total_cents, weights, weight_total)[purchase_index]
+    end
+
+    issued_amount_cents = share.call(combined_flow_of_funds.issued_amount.cents, transaction_weights, charge.amount_cents)
+    settled_amount_cents = share.call(combined_flow_of_funds.settled_amount.cents, transaction_weights, charge.amount_cents)
+    gumroad_amount_cents = if charge.gumroad_amount_cents == 0
       0
     else
-      total_transaction_amount_for_gumroad_cents * 1.0 / charge.gumroad_amount_cents
+      share.call(combined_flow_of_funds.gumroad_amount.cents, gumroad_weights, charge.gumroad_amount_cents)
     end
-    purchase_seller_portion = (total_transaction_cents - total_transaction_amount_for_gumroad_cents) * 1.0 /
-        (charge.amount_cents - charge.gumroad_amount_cents)
-
-    issued_amount_cents = (total_issued_amount_cents * purchase_portion).floor
-    settled_amount_cents = (combined_flow_of_funds.settled_amount.cents * purchase_portion).floor
-    gumroad_amount_cents = (combined_flow_of_funds.gumroad_amount.cents * purchase_gumroad_amount_portion).floor
 
     issued_amount = FlowOfFunds::Amount.new(currency: combined_flow_of_funds.issued_amount.currency, cents: issued_amount_cents)
     settled_amount = FlowOfFunds::Amount.new(currency: combined_flow_of_funds.settled_amount.currency, cents: settled_amount_cents)
     gumroad_amount = FlowOfFunds::Amount.new(currency: combined_flow_of_funds.gumroad_amount.currency, cents: gumroad_amount_cents)
 
     if combined_flow_of_funds.merchant_account_gross_amount.present?
-      merchant_account_gross_amount_cents = (combined_flow_of_funds.merchant_account_gross_amount.cents * purchase_seller_portion).floor
+      seller_weight_total = charge.amount_cents - charge.gumroad_amount_cents
+      merchant_account_gross_amount_cents = share.call(combined_flow_of_funds.merchant_account_gross_amount.cents, seller_weights, seller_weight_total)
       merchant_account_gross_amount = FlowOfFunds::Amount.new(currency: combined_flow_of_funds.merchant_account_gross_amount.currency,
                                                               cents: merchant_account_gross_amount_cents)
-      merchant_account_net_amount_cents = (combined_flow_of_funds.merchant_account_net_amount.cents * purchase_seller_portion).floor
+      merchant_account_net_amount_cents = share.call(combined_flow_of_funds.merchant_account_net_amount.cents, seller_weights, seller_weight_total)
       merchant_account_net_amount = FlowOfFunds::Amount.new(currency: combined_flow_of_funds.merchant_account_net_amount.currency,
                                                             cents: merchant_account_net_amount_cents)
     end
@@ -2778,6 +3138,66 @@ class Purchase < ApplicationRecord
       # Record the conversion (only if not already converted)
       assignment.record_conversion!(self)
     end
+
+    def web_csv_parity_fields
+      {
+        utm_source: utm_link&.utm_source,
+        utm_medium: utm_link&.utm_medium,
+        utm_campaign: utm_link&.utm_campaign,
+        utm_term: utm_link&.utm_term,
+        utm_content: utm_link&.utm_content,
+        tip_cents: tip&.value_usd_cents,
+        tax_cents: web_csv_tax_cents,
+        shipping_cents:,
+        tax_label: (tax_label(include_tax_rate: false) if has_tax_label?),
+        tax_included_in_price:,
+        payment_processor: web_csv_payment_processor,
+        processor_transaction_id: (stripe_transaction_id if web_csv_payment_processor.present?),
+        processor_fee_cents: (processor_fee_cents if web_csv_payment_processor.present?),
+        processor_fee_currency: (processor_fee_cents_currency if web_csv_payment_processor.present?),
+        access_revoked: is_access_revoked,
+        preorder_authorization_time: (preorder.created_at if is_preorder_charge?),
+        variants_price_cents: variant_extra_cost,
+        review: original_product_review&.message,
+        cancellation_date: subscription&.user_requested_cancellation_at,
+        subscription_end_date: subscription&.termination_date,
+        sent_abandoned_cart_email: sent_abandoned_cart_email?
+      }
+    end
+
+    def web_csv_tax_cents
+      gumroad_responsible_for_tax? ? gumroad_tax_cents : tax_cents
+    end
+
+    def web_csv_payment_processor
+      return "paypal" if paypal_order_id?
+
+      "stripe_connect" if charged_using_stripe_connect_account?
+    end
+
+    def resolved_offer_code_discount_for_buyer
+      if offer_code.existing_customers_only? || offer_code.tiered?
+        evaluated_discount = offer_code.evaluate_for_buyer(offer_code_buyer, product: link)
+        return nil if offer_code.existing_customers_only? && evaluated_discount.blank?
+        return nil if offer_code.tiered? && evaluated_discount.nil?
+        return evaluated_discount if offer_code.tiered? && evaluated_discount.present?
+      end
+
+      offer_code.is_percent? ?
+        { type: "percent", percents: offer_code.amount } :
+        { type: "fixed", cents: offer_code.amount }
+    end
+
+    def offer_code_buyer
+      instance_variable_defined?(:@authenticated_offer_code_buyer) ? authenticated_offer_code_buyer : purchaser
+    end
+
+    def auto_delete_single_use_offer_code
+      offer_code.auto_delete_if_single_use_exhausted!
+    rescue => e
+      Rails.logger.warn("Failed to auto-delete single-use offer code #{offer_code.id}: #{e.message}")
+    end
+
 
     def offer_amount_off(purchase_min_price)
       # For commissions, apply deposit purchase's offer code to its completion
@@ -2906,6 +3326,7 @@ class Purchase < ApplicationRecord
 
     def determine_affiliate_balance_cents
       return 0 if affiliate.nil?
+      return 0 if affiliate.affiliate_user_id == seller_id
 
       affiliate_cents = affiliate_cut * displayed_price_usd_cents
       affiliate_cents -= determine_affiliate_fee_cents
@@ -3255,6 +3676,7 @@ class Purchase < ApplicationRecord
       return false unless link.recommendable? || (not_is_original_subscription_purchase? && original_purchase&.was_discover_fee_charged?)
       was_product_recommended? && !RecommendationType.is_free_recommendation_type?(recommended_by)
     end
+    public :charge_discover_fee?
 
     # Calculates the fees we charge based on price_cents
     #
@@ -3326,7 +3748,8 @@ class Purchase < ApplicationRecord
 
       if is_recurring_subscription_charge || is_updated_original_subscription_purchase
         original_purchase = subscription.original_purchase
-        self.custom_fee_per_thousand = original_purchase.custom_fee_per_thousand if original_purchase&.custom_fee_per_thousand.present?
+        fee = original_purchase&.custom_fee_per_thousand.presence || seller.custom_fee_per_thousand
+        self.custom_fee_per_thousand = fee if fee.present?
       elsif is_preorder_charge?
         self.custom_fee_per_thousand = preorder.authorization_purchase.custom_fee_per_thousand if preorder.authorization_purchase.custom_fee_per_thousand.present?
       elsif seller.custom_fee_per_thousand.present?
@@ -3529,6 +3952,7 @@ class Purchase < ApplicationRecord
 
     def validate_offer_code
       return if errors.present?
+      return reject_existing_customer_offer_code if @offer_code_invalid_for_buyer
       # accept the offer code that was used when the buyer preordered/subscribed
       return if is_preorder_charge? || is_recurring_subscription_charge || is_gift_receiver_purchase || (is_installment_payment && !is_original_subscription_purchase)
       return if discount_code.blank?
@@ -3562,6 +3986,11 @@ class Purchase < ApplicationRecord
       end
 
       true
+    end
+
+    def reject_existing_customer_offer_code
+      self.error_code = PurchaseErrorCode::OFFER_CODE_INVALID
+      errors.add(:base, "Sorry, this discount code is only for existing customers.")
     end
 
     def validate_subscription
@@ -3627,9 +4056,10 @@ class Purchase < ApplicationRecord
       # Allow recurring billing and pre-order charges even after the product is sold out.
       return if does_not_count_towards_max_purchases
       return if link.max_purchase_count.nil?
-      return if (link.sales_count_for_inventory + quantity) <= link.max_purchase_count
+      sales_count = link.sales_count_for_inventory.to_i
+      return if (sales_count + quantity) <= link.max_purchase_count
 
-      if link.sales_count_for_inventory == link.max_purchase_count
+      if sales_count == link.max_purchase_count
         self.error_code = PurchaseErrorCode::PRODUCT_SOLD_OUT
         errors.add :base, "Sold out, please go back and pick another option."
       else
@@ -3694,7 +4124,7 @@ class Purchase < ApplicationRecord
     def product_is_not_blocked
       return if price_cents.zero?
       return if Feature.inactive?(:block_purchases_on_product)
-      return if BlockedObject.product.find_active_object(link_id).blank?
+      return if PlatformBlock.product.active.find_by(object_value: link_id).blank?
 
       self.error_code = PurchaseErrorCode::TEMPORARILY_BLOCKED_PRODUCT
       errors.add :base, "Your card was not charged."
@@ -3875,14 +4305,6 @@ class Purchase < ApplicationRecord
       PostToPingEndpointsWorker.perform_in(5.seconds, id, url_parameters, ResourceSubscription::REFUNDED_RESOURCE_NAME)
     end
 
-    def score_product
-      ScoreProductWorker.perform_in(5.seconds, link.id) if run_risk_checks?
-    end
-
-    def check_purchase_heuristics
-      CheckPurchaseHeuristicsWorker.perform_in(5.seconds, id) if run_risk_checks?
-    end
-
     def log_transition
       logger.info "Purchase: purchase ID #{id} transitioned to #{purchase_state}"
     end
@@ -4006,6 +4428,7 @@ class Purchase < ApplicationRecord
       price_cents > 0 && !not_charged? && charged_using_server_owner_account?
     end
 
+
     def all_workflows
       link.workflows.alive + seller.workflows.alive.seller_or_audience_type
     end
@@ -4089,6 +4512,7 @@ class Purchase < ApplicationRecord
         Iffy::Product::IngestJob.perform_async(link.id)
       end
     end
+
 
     def fetch_installment_plan
       installment_plan || subscription&.last_payment_option&.installment_plan

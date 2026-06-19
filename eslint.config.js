@@ -15,9 +15,8 @@ const baseConfig = {
     sourceType: "module",
     globals: {
       ...globals.browser,
-      ...globals.jquery,
+
       Routes: "readonly",
-      FB: "readonly",
       process: "readonly",
       SSR: "readonly",
     },
@@ -136,7 +135,7 @@ const tsxConfig = tseslint.config({
 });
 
 const nodeConfig = {
-  files: ["config/webpack/*", "eslint.config.js"],
+  files: ["eslint.config.js", "vite.config.ts", "vite.config.widget.ts"],
   languageOptions: {
     globals: {
       ...globals.node,

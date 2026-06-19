@@ -1,6 +1,6 @@
 import { router } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { assertResponseError, request } from "$app/utils/request";
 
@@ -24,7 +24,7 @@ export const CountrySelectionModal = ({ country: initialCountry, countries }: Pr
   const checkboxes = [
     "I have a valid, government-issued photo ID",
     "I have proof of residence within this country",
-    "If I am signing up as a business, it is registered in the country above",
+    "I am signing up as an individual, or my business is registered in the country above",
   ];
   const [checked, setChecked] = React.useState<number[]>([]);
   const [error, setError] = React.useState("");
@@ -39,7 +39,7 @@ export const CountrySelectionModal = ({ country: initialCountry, countries }: Pr
         data: { country },
       });
       if (response.ok) return window.location.reload();
-      const { error } = cast<{ error: string }>(await response.json());
+      const { error } = typia.assert<{ error: string }>(await response.json());
       setError(error);
     } catch (e) {
       assertResponseError(e);
@@ -96,7 +96,6 @@ export const CountrySelectionModal = ({ country: initialCountry, countries }: Pr
               </Label>
             ))}
           </Fieldset>
-          <h4>You may have to forfeit your balance if you want to change your country in the future.</h4>
         </div>
       </Modal>
     </div>

@@ -29,6 +29,7 @@ import { GoogleCalendarIntegrationEditor } from "$app/components/ProductEdit/Pro
 import { GrossPriceEditor } from "$app/components/ProductEdit/ProductTab/GrossPriceEditor";
 import { MaxPurchaseCountToggle } from "$app/components/ProductEdit/ProductTab/MaxPurchaseCountToggle";
 import { MultiCurrencyPriceEditor } from "$app/components/ProductEdit/ProductTab/MultiCurrencyPriceEditor";
+import { PriceCheckerCard } from "$app/components/ProductEdit/ProductTab/PriceChecker";
 import { PriceEditor } from "$app/components/ProductEdit/ProductTab/PriceEditor";
 import { PricingModeSelector } from "$app/components/ProductEdit/ProductTab/PricingModeSelector";
 import { ShippingDestinationsEditor } from "$app/components/ProductEdit/ProductTab/ShippingDestinationsEditor";
@@ -65,6 +66,7 @@ export const ProductTab = () => {
     googleCalendarEnabled,
     seller_refund_policy_enabled,
     cancellationDiscountsEnabled,
+    priceCheckerEnabled,
     aiGenerated,
   } = useProductEditContext();
   const [initialProduct] = React.useState(product);
@@ -345,10 +347,56 @@ export const ProductTab = () => {
                           marginTop: "var(--spacer-2)",
                           fontSize: "var(--font-size-small)",
                           color: "var(--color-text-secondary)",
+
                         }}
-                      >
-                        Commission products use a 50% deposit upfront, 50% upon completion payment split.
-                      </p>
+                        setSuggestedPriceCents={(suggestedPriceCents) =>
+                          updateProduct({ suggested_price_cents: suggestedPriceCents })
+                        }
+                        currencyCodeSelector={{
+                          options: currencyCodeList,
+                          onChange: (currencyCode) => {
+                            setCurrencyType(currencyCode);
+                          },
+                        }}
+                        setIsPWYW={(isPWYW) => updateProduct({ customizable_price: isPWYW })}
+                        currencyType={currencyType}
+                        eligibleForInstallmentPlans={product.eligible_for_installment_plans}
+                        allowInstallmentPlan={product.allow_installment_plan}
+                        numberOfInstallments={product.installment_plan?.number_of_installments ?? null}
+                        onAllowInstallmentPlanChange={(allowed) => updateProduct({ allow_installment_plan: allowed })}
+                        onNumberOfInstallmentsChange={(value) =>
+                          updateProduct({
+                            installment_plan: { ...product.installment_plan, number_of_installments: value },
+                          })
+                        }
+                        maxEffectivePriceCents={Math.max(
+                          product.price_cents,
+                          ...product.variants.map(
+                            (v) =>
+                              product.price_cents +
+                              ("price_difference_cents" in v ? (v.price_difference_cents ?? 0) : 0),
+                          ),
+                        )}
+                        hasPaidVariants={product.variants.some(
+                          (v) => "price_difference_cents" in v && (v.price_difference_cents ?? 0) > 0,
+                        )}
+                      />
+                      {product.native_type === "commission" ? (
+                        <p
+                          style={{
+                            marginTop: "var(--spacer-2)",
+                            fontSize: "var(--font-size-small)",
+                            color: "var(--color-text-secondary)",
+                          }}
+                        >
+                          Commission products use a 50% deposit upfront, 50% upon completion payment split.
+                        </p>
+                      ) : null}
+                    </div>
+                    {priceCheckerEnabled && !product.customizable_price && product.native_type !== "bundle" ? (
+                      <div className="xl:flex-1">
+                        <PriceCheckerCard />
+                      </div>
                     ) : null}
                   </section>
                   {product.native_type === "call" ? (

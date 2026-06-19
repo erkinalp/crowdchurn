@@ -9,9 +9,9 @@ class SettingsPresenter
 
   ALL_PAGES = %w(
     main
-    profile
     team
     payments
+    billing
     authorized_applications
     password
     third_party_analytics
@@ -30,7 +30,7 @@ class SettingsPresenter
       case page
       when "main", "payments", "password", "third_party_analytics", "advanced"
         Pundit.policy!(pundit_user, [:settings, page.to_sym, seller]).show?
-      when "profile"
+      when "billing"
         Pundit.policy!(pundit_user, [:settings, page.to_sym]).show?
       when "team"
         Pundit.policy!(pundit_user, [:settings, :team, seller]).show?
@@ -54,6 +54,7 @@ class SettingsPresenter
       currencies: currency_choices.map { |name, code| { name:, code: } },
       user: {
         email: seller.form_email,
+        username: seller.read_attribute(:username).to_s,
         support_email: seller.support_email,
         locale: seller.locale,
         timezone: seller.timezone,
@@ -126,9 +127,30 @@ class SettingsPresenter
     }
   end
 
-  def profile_props
+  def billing_props
+    billing_detail = seller.billing_detail
     {
-      settings_pages: pages
+      settings_pages: pages,
+      billing_detail: {
+        full_name: billing_detail&.full_name || seller.name.to_s,
+        business_name: billing_detail&.business_name || "",
+        business_id: billing_detail&.business_id || "",
+        street_address: billing_detail&.street_address || "",
+        city: billing_detail&.city || "",
+        state: billing_detail&.state || "",
+        zip_code: billing_detail&.zip_code || "",
+        country_code: billing_detail&.country_code || "",
+        additional_notes: billing_detail&.additional_notes || "",
+        auto_email_invoice_enabled: billing_detail.nil? || billing_detail.auto_email_invoice_enabled,
+      },
+      # `billing_props` populates the seller's invoice address dropdown, not their compliance
+      # country. A PR invoice address is legitimate (and may already exist on a BillingDetail
+      # record), so the dropdown keeps the full ISO country list. Only `payments_props` —
+      # which drives Stripe Connect onboarding and is gated by the issue #394 catch-22 —
+      # filters out US outlying areas.
+      countries: Compliance::Countries.for_select.to_h,
+      business_id_country_codes: BusinessIdLabels::COUNTRY_CODES,
+      business_id_labels: BusinessIdLabels::LABELS,
     }
   end
 
@@ -154,11 +176,27 @@ class SettingsPresenter
   end
 
   def password_props
+    passkeys_enabled = Feature.active?(:passkeys, seller)
+    passkeys = if passkeys_enabled
+      seller.webauthn_credentials.order(:created_at).map do |credential|
+        {
+          id: credential.external_id,
+          nickname: credential.nickname,
+          created_at: credential.created_at.iso8601,
+          last_used_at: credential.last_used_at&.iso8601,
+        }
+      end
+    else
+      []
+    end
+
     {
       require_old_password: seller.provider.blank?,
       settings_pages: pages,
       show_authenticator_app_settings: Feature.active?(:authenticator_2fa, seller),
       authenticator_app_enabled: seller.totp_enabled?,
+      show_passkeys_settings: passkeys_enabled,
+      passkeys:,
     }
   end
 
@@ -201,11 +239,10 @@ class SettingsPresenter
         payments_policy.set_country?,
       aus_backtax_details: aus_backtax_details(user_compliance_info),
       stripe_connect:,
-      countries: Compliance::Countries.for_select.to_h,
+      countries: Compliance::Countries.for_select_for_seller_compliance.to_h,
       ip_country_code: GeoIp.lookup(remote_ip)&.country_code,
       bank_account_details:,
       paypal_address: seller.payment_address,
-      show_verification_section: seller.user_compliance_info_requests.requested.present? && seller.stripe_account.present? && payments_policy.update?,
       paypal_connect:,
       fee_info: fee_info(user_compliance_info),
       user: user_details(user_compliance_info),
@@ -227,6 +264,9 @@ class SettingsPresenter
       payout_country_name: Compliance::Countries.for_select.to_h[seller.alive_user_compliance_info&.legal_entity_country_code],
       payout_frequency: seller.payout_frequency,
       payout_frequency_daily_supported: seller.instant_payouts_supported?,
+      buyer_local_currency_enabled: Feature.active?(:buyer_local_currency, seller),
+      disable_buyer_local_currency: seller.disable_buyer_local_currency?,
+      can_manage_beneficial_owners: payments_policy.update? && StripeBeneficialOwnersManager.eligible?(seller),
     }
   end
 
@@ -270,11 +310,23 @@ class SettingsPresenter
         "Your account has been suspended for a policy violation."
       end
 
+      id_document_fields = [
+        UserComplianceInfoFields::Individual::STRIPE_IDENTITY_DOCUMENT_ID,
+        UserComplianceInfoFields::Individual::PASSPORT,
+        UserComplianceInfoFields::Individual::VISA,
+        UserComplianceInfoFields::Individual::STRIPE_ENHANCED_IDENTITY_VERIFICATION,
+      ]
+      needs_id_upload = seller.user_compliance_info_requests.requested
+        .where(field_needed: id_document_fields).exists?
+
+      stripe_account = seller.stripe_account
+      stripe_rejected = stripe_account&.stripe_rejected? || false
+
       compliance_actions = []
-      if pending_compliance && seller.stripe_account.present? && payments_policy.update?
+      if pending_compliance && stripe_account.present? && !stripe_rejected && payments_policy.update?
         compliance_actions << { message: "Complete pending verification requirements via Stripe", href: remediation_settings_payments_path }
       end
-      if pending_compliance && seller.stripe_account.blank?
+      if pending_compliance && stripe_account.blank?
         user_compliance_info = seller.fetch_or_build_user_compliance_info
         missing_fields = []
         seller.user_compliance_info_requests.requested.each do |request|
@@ -294,14 +346,16 @@ class SettingsPresenter
         "Your account is under review and payouts are on hold until it's resolved."
       end
 
-      show_section = is_suspended || is_under_review || payouts_paused_not_by_user || payouts_paused_by_user || compliance_actions.any?
+      show_section = is_suspended || is_under_review || payouts_paused_not_by_user || payouts_paused_by_user || compliance_actions.any? || stripe_rejected
 
       {
         show_section:,
         is_suspended:,
         suspension_reason:,
         compliance_actions:,
+        needs_id_upload:,
         gumroad_status:,
+        stripe_rejected:,
       }
     end
 
@@ -334,7 +388,9 @@ class SettingsPresenter
                                              Compliance::Countries::PRY.alpha2,
                                              Compliance::Countries::PAK.alpha2],
         individual_tax_id_entered: user_compliance_info.individual_tax_id.present?,
+        individual_tax_id_last_four: user_compliance_info.individual_tax_id.present? ? user_compliance_info.individual_tax_id.decrypt(GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD")).to_s[-4..] : nil,
         business_tax_id_entered: user_compliance_info.business_tax_id.present?,
+        business_tax_id_last_four: user_compliance_info.business_tax_id.present? ? user_compliance_info.business_tax_id.decrypt(GlobalConfig.get("STRONGBOX_GENERAL_PASSWORD")).to_s[-4..] : nil,
         requires_credit_card: seller.requires_credit_card?,
         can_connect_stripe: seller.can_connect_stripe?,
         is_charged_paypal_payout_fee: seller.charge_paypal_payout_fee?,

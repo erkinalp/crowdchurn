@@ -44,7 +44,7 @@ describe("Product Edit Rich Text Editor", type: :system, js: true) do
   it "removes data URLs from description on content update or save" do
     description = "<p>Text1</p><p>Text2<figure><img class='img-data-uri' src='data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAASABIAAD'/></figure></p>"
     visit("/products/#{@product.unique_permalink}/edit")
-    page.execute_script("$(\"[aria-label='Description']\").html(\"#{description}\");")
+    page.execute_script("document.querySelector(\"[aria-label='Description']\").innerHTML = \"#{description}\";")
     sleep 1
     in_preview do
       expect(page).to have_content "Text1"
@@ -170,12 +170,11 @@ describe("Product Edit Rich Text Editor", type: :system, js: true) do
     click_on "Insert link"
     within_modal do
       fill_in "Enter URL", with: "https://example.com/link2"
-      send_keys :enter
+      click_on "Add link"
     end
 
     expect(rich_text_editor_input).to have_link("https://example.com/link1", href: "https://example.com/link1")
     expect(rich_text_editor_input).to have_link("https://example.com/link2", href: "https://example.com/link2")
-    sleep 1
     save_change
     expect(@product.reload.description).to have_link("https://example.com/link1", href: "https://example.com/link1")
     expect(@product.description).to have_link("https://example.com/link2", href: "https://example.com/link2")
@@ -317,6 +316,7 @@ describe("Product Edit Rich Text Editor", type: :system, js: true) do
     visit("/products/#{@product.unique_permalink}/edit")
 
     within("[aria-label='Description']") do
+      expect(page).to have_link("Gumroad")
       # Need to double click in order to ensure we have the editor input focused first
       find("a").double_click
     end
@@ -396,7 +396,7 @@ describe("Product Edit Rich Text Editor", type: :system, js: true) do
     sleep 1
     expect(rich_text_editor_input.find("iframe")[:src]).to include "1380521414818557955"
     save_change
-    expect(@product.reload.description).to include "iframe.ly/api/iframe?app=1&amp;url=#{CGI.escape("https://twitter.com/gumroad/status/1380521414818557955")}"
+    expect(@product.reload.description).to include "iframely.net/api/iframe?app=1&amp;url=#{CGI.escape("https://twitter.com/gumroad/status/1380521414818557955")}"
   end
 
   it "supports button embeds" do
@@ -533,7 +533,7 @@ describe("Product Edit Rich Text Editor", type: :system, js: true) do
       end
       sleep 0.5 # wait for the editor to update the content
       escaped_url = CGI.escape(tweet_url)
-      iframely_base = "https://cdn.iframe.ly/api/iframe"
+      iframely_base = "https://iframely.net/api/iframe"
 
       expect(rich_text_editor_input.find("iframe")[:src]).to include(iframely_base)
       expect(rich_text_editor_input.find("iframe")[:src]).to include("url=#{escaped_url}")
@@ -575,7 +575,7 @@ describe("Product Edit Rich Text Editor", type: :system, js: true) do
       end
       expect(page).to have_button("Save changes", disabled: true)
       wait_for_file_embed_to_finish_uploading(name: "test")
-      expect(page).to have_button("Save changes", disabled: false)
+      expect(page).to have_button("Save changes", disabled: false, wait: 45)
       within find_embed(name: "test") do
         expect(page).to have_text("MP3")
         expect(page).to have_button("Play")

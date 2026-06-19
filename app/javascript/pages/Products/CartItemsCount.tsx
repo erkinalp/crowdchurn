@@ -1,20 +1,23 @@
 import { usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 type Props = {
   cart_items_count: number;
 };
 
 const CartItemsCount = () => {
-  const { cart_items_count } = cast<Props>(usePage().props);
+  const { cart_items_count } = typia.assert<Props>(usePage().props);
 
   React.useEffect(() => {
     void document.hasStorageAccess().then((hasAccess) =>
-      window.parent.postMessage({
-        type: "cart-items-count",
-        cartItemsCount: hasAccess ? cart_items_count : "not-available",
-      }),
+      window.parent.postMessage(
+        {
+          type: "cart-items-count",
+          cartItemsCount: hasAccess ? cart_items_count : "not-available",
+        },
+        "*",
+      ),
     );
   }, [cart_items_count]);
 

@@ -10,6 +10,7 @@ require "capybara/rspec"
 require "rspec/rails"
 require "paper_trail/frameworks/rspec"
 require "pundit/rspec"
+require "faker"
 Dir.glob(Rails.root.join("spec", "support", "**", "*.rb")).each { |f| require f }
 
 JsonMatchers.schema_root = "spec/support/schemas"
@@ -39,7 +40,7 @@ unless BUILDING_ON_CI
   SuperDiff.configure { |config| config.actual_color = :green }
 end
 
-# NOTE Add only valid errors here. Do not errors we should handle and fix on specs themselves
+# NOTE Add only valid errors here. Do not add errors we should handle and fix on specs themselves
 JSErrorReporter.set_global_ignores [
   /Warning: %s: Support for defaultProps will be removed from function components in a future major release/,
   /(Component closed|Object|zoid destroyed all components)\n\t \(https:\/\/www.paypal.com\/sdk\/js/,
@@ -138,6 +139,7 @@ def browser_session_corrupted?(exception)
   return true if exception.is_a?(Selenium::WebDriver::Error::InvalidSessionIdError)
   return true if exception.is_a?(Errno::ECONNREFUSED)
   return true if exception.is_a?(NoMethodError) && exception.message.include?("unpack1")
+  return true if exception.is_a?(Capybara::ElementNotFound) && exception.message.include?("Upload still in progress")
 
   msg = exception.message
   msg = "#{msg} #{exception.cause.message}" if exception.cause
@@ -162,6 +164,29 @@ def reset_browser_session(example)
 
   Rails.logger.warn("[RSpec retry] Browser session corrupted: #{example.exception.class}: #{example.exception.message}. Restarting driver.")
   force_browser_restart!
+end
+
+FLAKY_SPECS_LOG_PATH = Rails.root.join("log", "flaky_specs.log").freeze
+
+def record_flaky_spec(example)
+  exception = example.exception
+  return unless exception
+
+  metadata = example.metadata
+  location = metadata[:location] || "#{metadata[:file_path]}:#{metadata[:line_number]}"
+  entry = {
+    timestamp: Time.now.utc.iso8601,
+    location: location,
+    description: example.full_description,
+    exception_class: exception.class.name,
+    exception_message: exception.message.to_s[0, 500],
+    attempt: metadata[:retry_attempts].to_i + 1,
+    build: ENV["GITHUB_RUN_ID"] || ENV["KNAPSACK_PRO_CI_NODE_BUILD_ID"],
+    shard: ENV["KNAPSACK_PRO_CI_NODE_INDEX"] || ENV["CI_NODE_INDEX"],
+  }
+  File.open(FLAKY_SPECS_LOG_PATH, "a") { |f| f.puts(entry.to_json) }
+rescue StandardError => e
+  Rails.logger.warn("[RSpec retry] Failed to record flaky spec: #{e.class}: #{e.message}")
 end
 
 # Harden teardown_fixtures so that a corrupted SAVEPOINT doesn't skip pool
@@ -204,6 +229,7 @@ RSpec.configure do |config|
   config.raise_errors_for_deprecations!
   config.use_transactional_fixtures = true
   config.filter_run_when_matching :focus
+  config.filter_run_excluding benchmark: true unless config.inclusion_filter.rules.key?(:benchmark)
   config.example_status_persistence_file_path = Rails.root.join("tmp", "rspec_status.txt").to_s
   config.include ActiveSupport::Testing::TimeHelpers
 
@@ -212,10 +238,15 @@ RSpec.configure do |config|
     config.verbose_retry = true
     # show exception that triggers a retry if verbose_retry is set to true
     config.display_try_failure_messages = true
-    config.default_retry_count = 3
+    config.default_retry_count = 1
+    config.around(:each, type: :system) do |example|
+      example.metadata[:retry] ||= 3
+      example.run
+    end
     config.retry_callback = proc do |example|
       reset_db_connection(example)
       reset_browser_session(example)
+      record_flaky_spec(example)
     end
   end
 
@@ -224,8 +255,20 @@ RSpec.configure do |config|
     WebMock.allow_net_connect!(net_http_connect_on_start: true)
     [
       Thread.new { prepare_mysql },
-      Thread.new { ElasticsearchSetup.prepare_test_environment }
+      Thread.new { ElasticsearchSetup.prepare_test_environment },
+      Thread.new do
+        routes_dir = Rails.root.join("app", "javascript", "utils")
+        routes_file = routes_dir.join("routes.js")
+        unless routes_file.exist?
+          JsRoutes.generate!(routes_file)
+          JsRoutes.definitions!(routes_dir.join("routes.d.ts"))
+        end
+      end
     ].each(&:join)
+
+    # Build Vite assets up front so :js system specs don't race autoBuild
+    # against Capybara.default_max_wait_time on the first admin request.
+    ViteRuby.commands.build if ViteRuby.instance.config.manifest_paths.empty?
   end
 
   # Stub SsrfFilter globally to allow localhost/minio in tests
@@ -361,10 +404,10 @@ RSpec.configure do |config|
     config.instance_variable_set(:@curr_file_path, example.metadata[:example_group][:file_path])
     Mongoid.purge!
     options = %w[caching js] # delegate all the before- and after- hooks for these values to metaprogramming "setup" and "teardown" methods, below
-    options.each { |opt| send(:"setup_#{ opt }", example.metadata[opt.to_sym]) }
+    options.each { |opt| send("setup_#{opt}".to_sym, example.metadata[opt.to_sym]) }
     stub_webmock
     example.run
-    options.each { |opt| send(:"teardown_#{ opt }", example.metadata[opt.to_sym]) }
+    options.each { |opt| send("teardown_#{opt}".to_sym, example.metadata[opt.to_sym]) }
     Rails.cache.clear
     travel_back
   ensure
@@ -550,8 +593,6 @@ def stub_pwned_password_check
 end
 
 def stub_webmock
-  WebMock.stub_request(:post, %r{iffy-live\.gumroad\.com/people/buyer_info})
-      .with(body: "{\"require_zip\": false}", headers: { status: %w[200 OK], content_type: "application/json" })
   stub_pwned_password_check
 end
 

@@ -1,15 +1,12 @@
 import * as React from "react";
 
-import { StripeConnectEmbeddedNotificationBanner } from "$app/components/PayoutPage/StripeConnectEmbeddedNotificationBanner";
 import { Alert } from "$app/components/ui/Alert";
-
-const HELP_URL = "https://help.gumroad.com";
 
 const SupportLink = () => (
   <>
     {" "}
     If you have questions,{" "}
-    <a href={HELP_URL} className="underline">
+    <a href={Routes.help_center_root_path()} className="underline">
       contact support
     </a>
     .
@@ -32,21 +29,19 @@ export type AccountStatus = {
   is_suspended: boolean;
   suspension_reason: string | null;
   compliance_actions: ComplianceAction[];
+  needs_id_upload: boolean;
   gumroad_status: string | null;
+  stripe_rejected: boolean;
 };
 
 export default function AccountStatusSection({
   accountStatus,
   payoutsPausedBy,
-  showVerificationSection,
 }: {
   accountStatus: AccountStatus;
   payoutsPausedBy: "stripe" | "admin" | "system" | "user" | null;
-  showVerificationSection: boolean;
 }) {
   if (!accountStatus.show_section) return null;
-
-  const showStripeVerificationBanner = !accountStatus.is_suspended && showVerificationSection;
 
   const payoutPausedReason =
     payoutsPausedBy === "stripe" ? (
@@ -72,20 +67,31 @@ export default function AccountStatusSection({
       )
     ) : null;
 
-  const showPayoutPausedAlert =
-    !accountStatus.is_suspended && payoutPausedReason && (!showVerificationSection || payoutsPausedBy !== "stripe");
+  const showPayoutPausedAlert = !accountStatus.is_suspended && payoutPausedReason;
 
   return (
     <section aria-labelledby="account-status-heading" className="flex flex-col gap-4 p-4 md:p-8">
       <h2 id="account-status-heading" className="sr-only">
         Account status
       </h2>
-      {showStripeVerificationBanner ? <StripeConnectEmbeddedNotificationBanner /> : null}
 
       {accountStatus.is_suspended && accountStatus.suspension_reason ? (
         <Alert role="status" variant="danger">
           {accountStatus.suspension_reason}
           <SupportLink />
+        </Alert>
+      ) : null}
+
+      {!accountStatus.is_suspended && accountStatus.stripe_rejected ? (
+        <Alert role="status" variant="danger">
+          <p>Stripe rejected your account, so you can no longer accept payments. Gumroad cannot reverse this.</p>
+          <p className="mt-2">
+            You can still withdraw any remaining balance from the{" "}
+            <a href={Routes.balance_path()} className="underline">
+              Payouts page
+            </a>
+            .
+          </p>
         </Alert>
       ) : null}
 
@@ -95,12 +101,23 @@ export default function AccountStatusSection({
         </Alert>
       ) : null}
 
-      {!accountStatus.is_suspended && !showVerificationSection && accountStatus.compliance_actions.length > 0 ? (
+      {!accountStatus.is_suspended && accountStatus.compliance_actions.length > 0 ? (
         <Alert role="status" variant="warning">
           <div className="flex flex-col gap-1">
             {accountStatus.compliance_actions.map((action, i) => (
               <ComplianceActionItem key={i} action={action} />
             ))}
+            {accountStatus.needs_id_upload ? (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-sm font-medium">Before you upload your ID</summary>
+                <ul className="mt-1 list-disc pl-5 text-sm">
+                  <li>Use a color photo or scan. You can take it with a phone, webcam, or scanner.</li>
+                  <li>For a driver's license or identity card, upload images of both the front and back of the ID.</li>
+                  <li>Use a JPEG or PNG file.</li>
+                  <li>Do not upload a PDF.</li>
+                </ul>
+              </details>
+            ) : null}
             {accountStatus.compliance_actions.some((a) => !a.href) ? (
               <p>
                 Please update your information below.

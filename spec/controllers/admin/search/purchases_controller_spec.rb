@@ -11,6 +11,7 @@ describe Admin::Search::PurchasesController, type: :controller, inertia: true do
 
   before do
     sign_in create(:admin_user)
+    allow(Radar::ChargeRiskLevelService).to receive(:fetch_bulk).and_return({})
   end
 
   describe "#index" do
@@ -96,13 +97,13 @@ describe Admin::Search::PurchasesController, type: :controller, inertia: true do
       end
 
       context "when query is not set" do
-        it "ignores product_title_query" do
+        it "returns no results without search criteria" do
           expect_any_instance_of(AdminSearchService).to receive(:search_purchases).with(query: "", product_title_query:).and_call_original
 
           get :index, params: { query: "", product_title_query: product_title_query }
 
           assert_response :success
-          expect(assigns(:purchases)).to include(purchase)
+          expect(assigns(:purchases)).to be_empty
         end
       end
     end
@@ -130,13 +131,13 @@ describe Admin::Search::PurchasesController, type: :controller, inertia: true do
       end
 
       context "when query is not set" do
-        it "ignores purchase_status" do
+        it "returns no results without search criteria" do
           expect_any_instance_of(AdminSearchService).to receive(:search_purchases).with(query: "", product_title_query: nil, purchase_status:).and_call_original
 
           get :index, params: { query: "", purchase_status: purchase_status }
 
           assert_response :success
-          expect(assigns(:purchases)).to include(successful_purchase)
+          expect(assigns(:purchases)).to be_empty
         end
       end
     end

@@ -12,6 +12,12 @@ namespace :admin do
   get "helper_actions/impersonate/:user_external_id", to: "helper_actions#impersonate", as: :impersonate_helper_action
   get "helper_actions/stripe_dashboard/:user_external_id", to: "helper_actions#stripe_dashboard", as: :stripe_dashboard_helper_action
 
+  resources :api_tokens, only: :index, param: :external_id do
+    member do
+      post :revoke
+    end
+  end
+
   get "action_call_dashboard", to: "action_call_dashboard#index"
 
   resources :users, only: [:show, :destroy], param: :external_id, defaults: { format: "html" } do
@@ -37,6 +43,7 @@ namespace :admin do
         end
       end
       resources :guids, only: [:index]
+      resource :watchlist, only: [:create, :update, :destroy]
     end
     member do
       post :add_credit
@@ -52,15 +59,14 @@ namespace :admin do
       post :invalidate_active_sessions
       post :disable_paypal_sales
       post :mark_compliant
-      post :mark_compliant_from_iffy
       post :suspend_for_fraud
-      post :suspend_for_fraud_from_iffy
-      post :flag_for_explicit_nsfw_tos_violation_from_iffy
+      post :schedule_payout
       post :suspend_for_tos_violation
       post :put_on_probation
       post :flag_for_fraud
       post :set_custom_fee
       post :toggle_adult_products
+      post :gdpr_erase
     end
   end
 
@@ -73,7 +79,6 @@ namespace :admin do
   resource :block_email_domains, only: [:show, :update]
   resource :unblock_email_domains, only: [:show, :update]
   resource :suspend_users, only: [:show, :update]
-  resource :refund_queue, only: [:show]
   resources :unreviewed_users, only: [:index]
 
   resources :affiliates, only: [:index, :show], param: :external_id, defaults: { format: "html" }
@@ -86,6 +91,7 @@ namespace :admin do
       post :publish
       delete :unpublish
       post :is_adult
+      post :set_content_moderation_disabled
       get "/file/:product_file_id/access", to: "links#access_product_file", as: :admin_access_product_file
       get :views_count
       get :sales_stats
@@ -127,6 +133,7 @@ namespace :admin do
       post :block_buyer
       post :unblock_buyer
       post :undelete
+      post :gdpr_erase_buyer
     end
   end
 

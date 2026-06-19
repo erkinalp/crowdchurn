@@ -1,4 +1,4 @@
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { Discount } from "$app/parsers/checkout";
 import { CurrencyCode } from "$app/utils/currency";
@@ -27,7 +27,7 @@ export const computeOfferDiscount = async (payload: ComputeDiscountRequestData):
       url: Routes.compute_discount_offer_codes_path(payload),
     });
     if (response.ok) {
-      return cast<OfferCodeResponseData>(await response.json());
+      return typia.assert<OfferCodeResponseData>(await response.json());
     }
   } catch {}
   return { error_code: "invalid_offer", error_message: "Something went wrong.", valid: false };
@@ -41,7 +41,8 @@ export type OfferCodeResponseData =
         | "invalid_offer"
         | "insufficient_times_of_use"
         | "inactive"
-        | "unmet_minimum_purchase_quantity";
+        | "unmet_minimum_purchase_quantity"
+        | "not_existing_customer";
       error_message: string;
     }
   | { valid: true; products_data: Record<string, Discount> };
@@ -66,7 +67,7 @@ export const searchProductOfferCodes = async (
 
   if (!response.ok) throw new ResponseError();
 
-  return cast<ProductOfferCodeSuggestion[]>(await response.json());
+  return typia.assert<ProductOfferCodeSuggestion[]>(await response.json());
 };
 
 type DiscountPayload = {
@@ -82,6 +83,9 @@ type DiscountPayload = {
   minimumQuantity: number | null;
   durationInBillingCycles: Duration | null;
   minimumAmount: number | null;
+  existingCustomersOnly: boolean;
+  ownershipProductIds: string[];
+  ownershipDurationTiers: { months: number; amount_percentage: number }[] | null;
 };
 
 export const getPagedDiscounts = (page: number, query: string | null, sort: Sort<SortKey> | null) => {
@@ -93,7 +97,7 @@ export const getPagedDiscounts = (page: number, query: string | null, sort: Sort
     abortSignal: abort.signal,
   })
     .then((res) => res.json())
-    .then((json) => cast<{ offer_codes: OfferCode[]; pagination: PaginationProps }>(json));
+    .then((json) => typia.assert<{ offer_codes: OfferCode[]; pagination: PaginationProps }>(json));
 
   return {
     response,
@@ -101,85 +105,47 @@ export const getPagedDiscounts = (page: number, query: string | null, sort: Sort
   };
 };
 
-export const createDiscount = async ({
-  name,
-  code,
-  discount,
-  selectedProductIds,
-  universal,
-  currencyCode,
-  maxQuantity,
-  validAt,
-  expiresAt,
-  minimumQuantity,
-  durationInBillingCycles,
-  minimumAmount,
-}: DiscountPayload) => {
+const buildDiscountPayload = (payload: DiscountPayload) => ({
+  name: payload.name,
+  code: payload.code,
+  amount_percentage: payload.discount.type === "percent" ? payload.discount.value : null,
+  amount_cents: payload.discount.type === "cents" ? payload.discount.value : null,
+  selected_product_ids: payload.universal ? null : payload.selectedProductIds,
+  universal: payload.universal,
+  max_purchase_count: payload.maxQuantity,
+  currency_type: payload.currencyCode,
+  valid_at: payload.validAt,
+  expires_at: payload.expiresAt,
+  minimum_quantity: payload.minimumQuantity,
+  duration_in_billing_cycles: payload.durationInBillingCycles,
+  minimum_amount_cents: payload.minimumAmount,
+  existing_customers_only: payload.existingCustomersOnly,
+  ownership_product_ids: payload.existingCustomersOnly ? payload.ownershipProductIds : [],
+  ownership_duration_tiers: payload.ownershipDurationTiers,
+});
+
+export const createDiscount = async (payload: DiscountPayload) => {
   const response = await request({
     method: "POST",
     accept: "json",
     url: Routes.checkout_discounts_path(),
-    data: {
-      name,
-      code,
-      amount_percentage: discount.type === "percent" ? discount.value : undefined,
-      amount_cents: discount.type === "cents" ? discount.value : undefined,
-      selected_product_ids: universal ? null : selectedProductIds,
-      universal,
-      max_purchase_count: maxQuantity,
-      currency_type: currencyCode,
-      valid_at: validAt,
-      expires_at: expiresAt,
-      minimum_quantity: minimumQuantity,
-      duration_in_billing_cycles: durationInBillingCycles,
-      minimum_amount_cents: minimumAmount,
-    },
+    data: buildDiscountPayload(payload),
   });
-  const responseData = cast<
+  const responseData = typia.assert<
     { success: true; offer_codes: OfferCode[]; pagination: PaginationProps } | { success: false; error_message: string }
   >(await response.json());
   if (!responseData.success) throw new ResponseError(responseData.error_message);
   return responseData;
 };
 
-export const updateDiscount = async (
-  id: string,
-  {
-    name,
-    code,
-    discount,
-    selectedProductIds,
-    universal,
-    currencyCode,
-    maxQuantity,
-    validAt,
-    expiresAt,
-    minimumQuantity,
-    durationInBillingCycles,
-    minimumAmount,
-  }: DiscountPayload,
-) => {
+export const updateDiscount = async (id: string, payload: DiscountPayload) => {
   const response = await request({
     method: "PUT",
     accept: "json",
     url: Routes.checkout_discount_path(id),
-    data: {
-      name,
-      code,
-      amount_percentage: discount.type === "percent" ? discount.value : undefined,
-      amount_cents: discount.type === "cents" ? discount.value : undefined,
-      selected_product_ids: universal ? null : selectedProductIds,
-      universal,
-      max_purchase_count: maxQuantity,
-      currency_type: currencyCode,
-      valid_at: validAt,
-      expires_at: expiresAt,
-      minimum_quantity: minimumQuantity,
-      duration_in_billing_cycles: durationInBillingCycles,
-      minimum_amount_cents: minimumAmount,
-    },
+    data: buildDiscountPayload(payload),
   });
-  const responseData = cast<
+  const responseData = typia.assert<
     { success: true; offer_codes: OfferCode[]; pagination: PaginationProps } | { success: false; error_message: string }
   >(await response.json());
   if (!responseData.success) throw new ResponseError(responseData.error_message);
@@ -192,7 +158,9 @@ export const deleteDiscount = async (id: string) => {
     accept: "json",
     url: Routes.checkout_discount_path(id),
   });
-  const responseData = cast<{ success: true } | { success: false; error_message: string }>(await response.json());
+  const responseData = typia.assert<{ success: true } | { success: false; error_message: string }>(
+    await response.json(),
+  );
   if (!responseData.success) throw new ResponseError(responseData.error_message);
 };
 
@@ -207,4 +175,4 @@ export const getStatistics = (id: string) =>
       if (!res.ok) throw new ResponseError();
       return res.json();
     })
-    .then((json) => cast<OfferCodeStatistics>(json));
+    .then((json) => typia.assert<OfferCodeStatistics>(json));

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { asyncVoid } from "$app/utils/promise";
 import { assertResponseError, request, ResponseError } from "$app/utils/request";
@@ -40,7 +40,7 @@ const NotificationEndpointSection = ({
         accept: "json",
         data: { url: pingEndpoint.trim() },
       });
-      const responseData = cast<{ success: true; message: string } | { success: false; error_message: string }>(
+      const responseData = typia.assert<{ success: true; message: string } | { success: false; error_message: string }>(
         await response.json(),
       );
       if (!responseData.success) throw new ResponseError(responseData.error_message);
@@ -68,13 +68,7 @@ const NotificationEndpointSection = ({
           <Label htmlFor={uid}>Ping endpoint</Label>
         </FieldsetTitle>
         <InputGroup>
-          <Input
-            placeholder="Ping endpoint"
-            type="url"
-            id={uid}
-            value={pingEndpoint}
-            onChange={(e) => setPingEndpoint(e.target.value)}
-          />
+          <Input type="url" id={uid} value={pingEndpoint} onChange={(e) => setPingEndpoint(e.target.value)} />
           <WithTooltip tip={isSendingPing ? null : "Send your most recent sale's JSON, with 'test' set to 'true'"}>
             <Pill asChild>
               <Button className="rounded-full! px-3! py-2!" onClick={sendTestPing} disabled={isSendingPing}>

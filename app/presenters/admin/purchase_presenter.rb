@@ -3,8 +3,9 @@
 class Admin::PurchasePresenter
   attr_reader :purchase
 
-  def initialize(purchase)
+  def initialize(purchase, stripe_risk_level: nil)
     @purchase = purchase
+    @stripe_risk_level = stripe_risk_level
   end
 
   def list_props
@@ -30,6 +31,12 @@ class Admin::PurchasePresenter
       chargeback_reversed: purchase.chargeback_reversed?,
       error_code: purchase.failed? ? purchase.formatted_error_code : nil,
       last_chargebacked_purchase: purchase.find_past_chargebacked_purchases.first&.external_id,
+      early_fraud_warning: effective_early_fraud_warning ? {
+        fraud_type: effective_early_fraud_warning.fraud_type,
+        charge_risk_level: effective_early_fraud_warning.charge_risk_level,
+      } : nil,
+      disputes: effective_disputes.map { |d| { state: d.state } },
+      stripe_risk_level: @stripe_risk_level,
     }
   end
 
@@ -68,7 +75,7 @@ class Admin::PurchasePresenter
                        quantity: purchase.quantity,
                        refunds: purchase.refunds.map do |refund|
                          {
-                           user: refund.user ? { external_id: refund.user.external_id, name: refund.user.name } : nil,
+                           user: refund.user ? { external_id: refund.user.external_id, name: refund.user.display_name } : nil,
                            status: refund.status.capitalize,
                            created_at: refund.created_at,
                          }
@@ -101,7 +108,10 @@ class Admin::PurchasePresenter
                        url_redirect: purchase.url_redirect ? url_redirect_props(purchase.url_redirect) : nil,
                        offer_code: purchase.offer_code ? {
                          code: purchase.offer_code.code,
-                         displayed_amount_off: purchase.offer_code.displayed_amount_off(purchase.link.price_currency_type, with_symbol: true),
+                         displayed_amount_off: purchase.original_offer_code(include_deleted: true)&.displayed_amount_off(
+                           purchase.link.price_currency_type,
+                           with_symbol: true
+                         ),
                        } : nil,
                        street_address: purchase.street_address,
                        full_name: purchase.full_name,
@@ -126,11 +136,22 @@ class Admin::PurchasePresenter
                        is_free_trial_purchase: purchase.is_free_trial_purchase?,
                        buyer_blocked: purchase.buyer_blocked?,
                        is_deleted_by_buyer: purchase.is_deleted_by_buyer?,
+                       is_guest_buyer: purchase.purchaser_id.nil?,
+                       is_buyer_email_anonymized: purchase.email.to_s.ends_with?("@#{GdprDataErasureService::ANONYMIZED_EMAIL_DOMAIN}"),
                        comments_count: purchase.comments.count,
                      })
   end
 
   private
+    def effective_early_fraud_warning
+      @effective_early_fraud_warning ||= purchase.early_fraud_warning ||
+        (purchase.charge&.id && EarlyFraudWarning.find_by(charge_id: purchase.charge.id))
+    end
+
+    def effective_disputes
+      @effective_disputes ||= purchase.disputes.presence || [purchase.charge&.dispute].compact
+    end
+
     def url_redirect_props(url_redirect)
       { download_page_url: url_redirect.download_page_url, uses: url_redirect.uses }
     end

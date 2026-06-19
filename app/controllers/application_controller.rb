@@ -14,7 +14,6 @@ class ApplicationController < ActionController::Base
   include TwoFactorAuthenticationValidator
   include Impersonate
   include CurrentSeller
-  include HelperWidget
   include UtmLinkTracking
   include RackMiniProfilerAuthorization
   include InertiaRendering
@@ -33,7 +32,7 @@ class ApplicationController < ActionController::Base
   before_action :redirect_to_custom_subdomain
 
   before_action :set_signup_referrer, if: -> { logged_in_user.nil? }
-  before_action :check_suspended, if: -> { logged_in_user.present? && logged_in_user.suspended? && !request.get? && !request.head? }
+  before_action :check_suspended, if: -> { logged_in_user.present? && logged_in_user.suspended? && !impersonating? && !request.get? && !request.head? }
 
   before_action :set_gumroad_guid
 
@@ -186,11 +185,33 @@ class ApplicationController < ActionController::Base
       end
     end
 
+    PROMPT_PASSKEY_SETUP_SESSION_KEY = :prompt_passkey_setup
+    private_constant :PROMPT_PASSKEY_SETUP_SESSION_KEY
+
+    def refresh_passkey_setup_prompt(user)
+      if cookies[:is_gumroad_mobile_app].blank? && user.passkeys_setup_pending?
+        session[PROMPT_PASSKEY_SETUP_SESSION_KEY] = user.id
+        Rails.logger.info("passkey.prompt.eligible user_id=#{user.id}")
+      else
+        session.delete(PROMPT_PASSKEY_SETUP_SESSION_KEY)
+      end
+    end
+
+    def show_passkey_setup_prompt?
+      logged_in_user.present? &&
+        !impersonating? &&
+        cookies[:is_gumroad_mobile_app].blank? &&
+        session[PROMPT_PASSKEY_SETUP_SESSION_KEY] == logged_in_user.id &&
+        logged_in_user.role_owner_for?(current_seller) &&
+        logged_in_user.passkeys_setup_pending?
+    end
+
     def sign_in_or_prepare_for_two_factor_auth(user)
       if skip_two_factor_authentication?(user)
         sign_in user
         reset_two_factor_auth_login_session
         merge_guest_cart_with_user_cart
+        refresh_passkey_setup_prompt(user)
       else
         prepare_for_two_factor_authentication(user)
       end
@@ -373,10 +394,14 @@ class ApplicationController < ActionController::Base
       Affiliate.valid_for_product(product).find_by_external_id_numeric(affiliate_id)
     end
 
-    def invalidate_active_sessions_except_the_current_session!
+    def invalidate_active_sessions_except_the_current_session!(revoke_mobile_tokens: true)
       return unless user_signed_in?
 
-      logged_in_user.invalidate_active_sessions!
+      if revoke_mobile_tokens
+        logged_in_user.invalidate_active_sessions!
+      else
+        logged_in_user.invalidate_browser_sessions!
+      end
 
       # NOTE: To keep the current session active, we reset the
       # "last_sign_in_at" value persisted in the current session with

@@ -13,6 +13,13 @@ class Payment < ApplicationRecord
   RETURNED = "returned"
   NON_TERMINAL_STATES = [CREATING, PROCESSING, UNCLAIMED, COMPLETED].freeze
 
+  # After this many consecutive failed/returned payouts to the same bank account, pause payouts and
+  # flag the account for review. Each failed Stripe payout round-trips funds through the creator's
+  # Connect account (transfer in, reverse out on failure), losing the FX spread every cycle and
+  # booking it against the creator's balance. Without a cap, a bad bank account bounces weekly for
+  # months and silently erodes real earnings. Pausing forces the payout details to be fixed first.
+  MAX_CONSECUTIVE_FAILED_PAYOUTS = 3
+
   belongs_to :user, optional: true
   belongs_to :bank_account, optional: true
   has_and_belongs_to_many :balances, join_table: "payments_balances"
@@ -28,6 +35,7 @@ class Payment < ApplicationRecord
   attr_json_data_accessor :arrival_date
   attr_json_data_accessor :payout_type
   attr_json_data_accessor :gumroad_fee_cents
+  attr_json_data_accessor :error_message
 
   # Payment state transitions:
   #
@@ -82,9 +90,13 @@ class Payment < ApplicationRecord
     after_transition any => :completed, do: :generate_default_abandoned_cart_workflow
 
     after_transition unclaimed: %i[cancelled reversed returned failed], do: :mark_balances_as_unpaid
+    after_transition processing: %i[reversed returned], do: :mark_balances_as_unpaid
 
     after_transition completed: :returned, do: :mark_balances_as_unpaid
     after_transition completed: :returned, do: :send_deposit_returned_email
+
+    after_transition any => :failed, do: :pause_payouts_after_repeated_failures
+    after_transition any => :returned, do: :pause_payouts_after_repeated_failures
 
     after_transition processing: %i[completed unclaimed], do: :send_deposit_email
 
@@ -256,6 +268,25 @@ class Payment < ApplicationRecord
 
     def log_transition
       logger.info "Payment: payment ID #{id} transitioned to #{state}"
+    end
+
+    def pause_payouts_after_repeated_failures
+      return if bank_account_id.blank?
+      return if user.nil? || user.payouts_paused?
+
+      payouts_for_bank_account = user.payments.where(bank_account_id:)
+      last_completed_at = payouts_for_bank_account.completed.maximum(:created_at)
+      failed_payouts = payouts_for_bank_account.where(state: [FAILED, RETURNED])
+      failed_payouts = failed_payouts.where("created_at > ?", last_completed_at) if last_completed_at
+      failed_count = failed_payouts.count
+      return if failed_count < MAX_CONSECUTIVE_FAILED_PAYOUTS
+
+      user.update!(payouts_paused_internally: true, payouts_paused_by: User::PAYOUT_PAUSE_SOURCE_SYSTEM)
+      user.comments.create!(
+        content: "Payouts paused automatically after #{failed_count} consecutive failed payouts to the same bank account. Verify the seller's payout details before resuming.",
+        comment_type: Comment::COMMENT_TYPE_ON_PROBATION,
+        author_name: User::SYSTEM_PAYOUT_PAUSE_COMMENT_AUTHORS[:repeated_failed_payouts]
+      )
     end
 
     def split_payment_validation

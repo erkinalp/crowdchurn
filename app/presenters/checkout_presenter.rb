@@ -127,7 +127,7 @@ class CheckoutPresenter
       affiliate_id: params[:affiliate_id],
       recommended_by: params[:recommended_by],
       recommender_model_name: params[:recommender_model_name],
-      accepted_offer: accepted_offer ? { id: accepted_offer.external_id, variant_id: accepted_offer&.variant&.external_id, discount: accepted_offer.offer_code&.discount } : nil,
+      accepted_offer: accepted_offer ? { id: accepted_offer.external_id, variant_id: accepted_offer&.variant&.external_id, discount: accepted_offer.offer_code&.discount_for_display(buyer: logged_in_user, product: accepted_offer.product) } : nil,
     }
     if include_cross_sells
       value[:product][:cross_sells] = product.available_cross_sells.filter_map do |cross_sell|
@@ -152,7 +152,7 @@ class CheckoutPresenter
           text: cross_sell.text,
           description: Rinku.auto_link(sanitize(cross_sell.description), :all, 'target="_blank" rel="noopener"'),
           offered_product: checkout_product(offered_product, offered_product_cart_item, {}, include_cross_sells: false),
-          discount: cross_sell.offer_code&.discount,
+          discount: cross_sell.offer_code&.discount_for_display(buyer: logged_in_user, product: cross_sell.product),
           ratings: offered_product.display_product_reviews? ? {
             count: offered_product.reviews_count,
             average: offered_product.average_rating,
@@ -169,7 +169,7 @@ class CheckoutPresenter
     tier_attrs = {
       recurrence: subscription.recurrence,
       variants: subscription.original_purchase.tiers,
-      price_cents: subscription.current_plan_displayed_price_cents / subscription.original_purchase.quantity,
+      price_cents: subscription.current_plan_displayed_price_cents(authenticated_offer_code_buyer: logged_in_user) / subscription.original_purchase.quantity,
     }
     show_current_prices = subscription.deactivated? ||
       (subscription.alive? && !subscription.overdue_for_charge? && product.recurrence_price_enabled?(subscription.recurrence))
@@ -180,7 +180,7 @@ class CheckoutPresenter
     if tier.present? && !options.any? { |option| option[:id] == tier.external_id }
       options << tier.to_option(subscription_attrs: tier_attrs)
     end
-    offer_code = subscription.discount_applies_to_next_charge? ? subscription.original_offer_code : nil
+    discount = subscription_discount_for_next_charge(subscription, buyer: logged_in_user)
     prices = product.prices.alive.is_buy.to_a
     if !prices.any? { |price| price.recurrence == subscription.recurrence }
       prices << product.prices.is_buy.where(recurrence: subscription.recurrence).order(deleted_at: :desc).take
@@ -211,12 +211,12 @@ class CheckoutPresenter
         id: subscription.external_id,
         option_id: (subscription.original_purchase.variant_attributes[0] || product.default_tier)&.external_id,
         recurrence: subscription.recurrence,
-        price: subscription.current_subscription_price_cents,
+        price: subscription.current_subscription_price_cents(authenticated_offer_code_buyer: logged_in_user),
         prorated_discount_price_cents: subscription.prorated_discount_price_cents,
         quantity: subscription.original_purchase.quantity,
         alive: subscription.alive?(include_pending_cancellation: false),
         pending_cancellation: subscription.pending_cancellation?,
-        discount: offer_code&.discount,
+        discount:,
         end_time_of_subscription: subscription.end_time_of_subscription.iso8601,
         successful_purchases_count: subscription.purchases.successful.count,
         is_in_free_trial: subscription.in_free_trial?,
@@ -246,12 +246,25 @@ class CheckoutPresenter
 
     def checkout_wishlist_props(params:)
       return {} if params[:wishlist].blank?
-      wishlist = Wishlist.alive.includes(wishlist_products: [:product, :variant]).find_by_external_id(params[:wishlist])
+      wishlist = Wishlist.alive.find_by_external_id(params[:wishlist])
       return {} if wishlist.blank?
 
+      wishlist_products = wishlist.alive_wishlist_products.available_to_buy.preload(
+        :variant,
+        product: [
+          :user,
+          :thumbnail,
+          :installment_plan,
+          :variant_categories_alive,
+          :alive_variants,
+          { available_upsell: :seller },
+        ]
+      )
+      affiliate_id = wishlist.user.global_affiliate.external_id_numeric.to_s
+
       {
-        add_products: wishlist.alive_wishlist_products.available_to_buy.map do |wishlist_product|
-          checkout_wishlist_product(wishlist_product, params.reverse_merge(affiliate_id: wishlist_product.wishlist.user.global_affiliate.external_id_numeric.to_s))
+        add_products: wishlist_products.map do |wishlist_product|
+          checkout_wishlist_product(wishlist_product, params.reverse_merge(affiliate_id:))
         end
       }
     end
@@ -307,6 +320,7 @@ class CheckoutPresenter
         currency_code: product.price_currency_type.downcase,
         price_cents: variant_price || product.price_cents,
         variant_price_cents: variant_price,
+
         supports_paypal: supports_paypal(product),
         custom_fields: product.custom_field_descriptors,
         exchange_rate: get_rate(product.price_currency_type).to_f / (is_currency_type_single_unit?(product.price_currency_type) ? 100 : 1),
@@ -374,5 +388,21 @@ class CheckoutPresenter
 
     def already_purchased?(product, variant)
       purchased_product_variant_set.include?([product&.id, variant&.id])
+    end
+
+    def subscription_discount_for_next_charge(subscription, buyer: logged_in_user)
+      if (auto = subscription.auto_renewal_offer_code(authenticated_offer_code_buyer: buyer))
+        return auto.offer_code.discount.merge(
+          auto.offer_code_is_percent ? { type: "percent", percents: auto.offer_code_amount } : { type: "fixed", cents: auto.offer_code_amount }
+        )
+      end
+
+      return nil unless subscription.discount_applies_to_next_charge?
+
+      original_purchase = subscription.original_purchase
+      original_offer_code = original_purchase&.purchase_offer_code_discount&.offer_code || original_purchase&.offer_code
+      return nil if original_offer_code&.tiered?
+
+      subscription.original_offer_code&.discount_for_display(buyer:, product: subscription.link, fallback_purchase: original_purchase)
     end
 end

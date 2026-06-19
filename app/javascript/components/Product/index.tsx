@@ -3,7 +3,7 @@ import { EditorContent } from "@tiptap/react";
 import { differenceInYears, parseISO } from "date-fns";
 import * as React from "react";
 
-import { getReviews, Review } from "$app/data/product_reviews";
+import { getReviews, type Review } from "$app/data/product_reviews";
 import { trackUserProductAction } from "$app/data/user_action_event";
 import { incrementProductViews } from "$app/data/view_event";
 import { Wishlist } from "$app/data/wishlists";
@@ -11,6 +11,7 @@ import { Discount } from "$app/parsers/checkout";
 import {
   AnalyticsData,
   AssetPreview,
+  BuyerCurrencyDisplay,
   COMMISSION_DEPOSIT_PROPORTION,
   CustomButtonTextOption,
   FreeTrial,
@@ -19,12 +20,17 @@ import {
   RatingsWithPercentages,
 } from "$app/parsers/product";
 import { classNames } from "$app/utils/classNames";
-import { CurrencyCode, formatPriceCentsWithCurrencySymbol } from "$app/utils/currency";
+import {
+  BuyerLocalCurrencyContext,
+  CurrencyCode,
+  formatBuyerLocalOrSetPrice,
+  formatPriceCentsWithCurrencySymbol,
+} from "$app/utils/currency";
 import { formatDate } from "$app/utils/date";
 import { formatOrderOfMagnitude } from "$app/utils/formatOrderOfMagnitude";
 import { variantLabel } from "$app/utils/labels";
 import { assertResponseError } from "$app/utils/request";
-import { startTrackingForSeller, trackProductEvent } from "$app/utils/user_analytics";
+import { startTrackingForSeller, trackBuyerCurrencyDisplayView, trackProductEvent } from "$app/utils/user_analytics";
 
 import { NavigationButton } from "$app/components/Button";
 import {
@@ -42,6 +48,7 @@ import { PaginationProps } from "$app/components/Pagination";
 import { AuthorByline } from "$app/components/Product/AuthorByline";
 import {
   applySelection,
+  buyerLocalContextFor,
   ConfigurationSelector,
   ConfigurationSelectorHandle,
   getMaxQuantity,
@@ -106,6 +113,12 @@ export type Product = {
   duration_in_months: number | null;
   is_sales_limited: boolean;
   price_cents: number;
+  buyer_currency?: string;
+  buyer_local_currency_rate?: number;
+  buyer_local_currency_subunit_to_unit?: number;
+  buyer_local_price_cents?: number;
+  buyer_local_original_price_cents?: number;
+  buyer_currency_display?: BuyerCurrencyDisplay;
   pwyw: { suggested_price_cents: number | null } | null;
   installment_plan: InstallmentPlan | null;
   ratings: RatingsWithPercentages | null;
@@ -159,6 +172,7 @@ export type Purchase = {
   created_at: string;
   review: FormReview | null;
   should_show_receipt: boolean;
+  was_paid: boolean;
   is_gift_receiver_purchase: boolean;
   content_url: string | null;
   show_view_content_button_on_product_page: boolean;
@@ -167,7 +181,15 @@ export type Purchase = {
   membership: { tier_name: string | null; tier_description: string | null; manage_url: string } | null;
 };
 export type ProductDiscount =
-  | { valid: false; error_code: "sold_out" | "invalid_offer" | "inactive" | "unmet_minimum_purchase_quantity" }
+  | {
+      valid: false;
+      error_code:
+        | "sold_out"
+        | "invalid_offer"
+        | "inactive"
+        | "unmet_minimum_purchase_quantity"
+        | "not_existing_customer";
+    }
   | { valid: true; code: string; discount: Discount }
   | null;
 
@@ -189,6 +211,20 @@ export const getStandalonePrice = (product: Product) =>
     (totalStandalonePrice, bundleProduct) => totalStandalonePrice + bundleProduct.price,
     0,
   );
+
+const formatDiscountAmount = (discount: Discount, buyerLocalContext: BuyerLocalCurrencyContext) => {
+  if (discount.type === "percent") {
+    return discount.tiered && discount.min_percents !== undefined && discount.max_percents !== undefined
+      ? discount.min_percents === discount.max_percents
+        ? `${discount.max_percents}%`
+        : `${discount.min_percents}%–${discount.max_percents}%`
+      : `${discount.percents}%`;
+  }
+
+  return formatBuyerLocalOrSetPrice(discount.cents, buyerLocalContext, {
+    symbolFormat: "long",
+  });
+};
 
 export const useSelectionFromUrl = (product: Product) => {
   const { searchParams } = new URL(useOriginalLocation());
@@ -298,11 +334,14 @@ export const Product = ({
     if (disableAnalytics) return;
     if (product.seller) {
       startTrackingForSeller(product.seller.id, product.analytics);
+      trackBuyerCurrencyDisplayView(product.seller.id, product.buyer_currency_display);
       trackProductEvent(product.seller.id, {
         permalink: product.permalink,
         action: "viewed",
         product_name: product.name,
       });
+    } else {
+      trackBuyerCurrencyDisplayView(undefined, product.buyer_currency_display);
     }
     void incrementProductViews({ permalink: product.permalink, recommendedBy: searchParams.get("recommended_by") });
     if (product.has_third_party_analytics)
@@ -319,9 +358,16 @@ export const Product = ({
         configurationSelectorRef?.current?.focusRequiredInput();
         showAlert("You must input an amount", "warning");
       } else if (selection.price.value < discountedPriceCents) {
-        const formattedMinPrice = formatPriceCentsWithCurrencySymbol(product.currency_code, discountedPriceCents, {
-          symbolFormat: "short",
-        });
+        const formattedMinPrice = formatBuyerLocalOrSetPrice(
+          discountedPriceCents,
+          {
+            currencyCode: product.currency_code,
+            buyerCurrency: product.buyer_currency,
+            buyerLocalCurrencyRate: product.buyer_local_currency_rate,
+            buyerLocalCurrencySubunitToUnit: product.buyer_local_currency_subunit_to_unit,
+          },
+          { symbolFormat: "short" },
+        );
         configurationSelectorRef?.current?.focusRequiredInput();
         showAlert(`Minimum price for this product is ${formattedMinPrice}.`, "error");
       }
@@ -368,6 +414,11 @@ export const Product = ({
                 isPayWhatYouWant={!!product.pwyw}
                 isSalesLimited={product.is_sales_limited}
                 creatorName={product.seller?.name}
+                buyerCurrency={product.buyer_currency}
+                buyerLocalCurrencyRate={product.buyer_local_currency_rate}
+                buyerLocalCurrencySubunitToUnit={product.buyer_local_currency_subunit_to_unit}
+                buyerLocalPriceCents={product.buyer_local_price_cents}
+                buyerLocalOriginalPriceCents={product.buyer_local_original_price_cents}
               />
             </div>
           ) : null}
@@ -413,9 +464,17 @@ export const Product = ({
             <h2>This bundle contains...</h2>
             <CartItemList>
               {product.bundle_products.map((bundleProduct) => {
-                const price = formatPriceCentsWithCurrencySymbol(bundleProduct.currency_code, bundleProduct.price, {
-                  symbolFormat: "long",
-                });
+                const price =
+                  bundleProduct.currency_code === product.currency_code
+                    ? formatBuyerLocalOrSetPrice(bundleProduct.price, {
+                        currencyCode: product.currency_code,
+                        buyerCurrency: product.buyer_currency,
+                        buyerLocalCurrencyRate: product.buyer_local_currency_rate,
+                        buyerLocalCurrencySubunitToUnit: product.buyer_local_currency_subunit_to_unit,
+                      })
+                    : formatPriceCentsWithCurrencySymbol(bundleProduct.currency_code, bundleProduct.price, {
+                        symbolFormat: "long",
+                      });
                 return (
                   <CartItem key={bundleProduct.id} isBundleItem>
                     <CartItemMedia className="h-28 w-28">
@@ -481,32 +540,22 @@ export const Product = ({
                 <Alert role="status" variant="success">
                   <div className="flex flex-col gap-4">
                     {discountCode.discount.minimum_quantity
-                      ? `Get ${
-                          discountCode.discount.type === "percent"
-                            ? `${discountCode.discount.percents}%`
-                            : formatPriceCentsWithCurrencySymbol(product.currency_code, discountCode.discount.cents, {
-                                symbolFormat: "long",
-                              })
-                        } off when you buy ${discountCode.discount.minimum_quantity} or more (Code ${discountCode.code.toUpperCase()})`
-                      : discountCode.discount.type === "percent"
-                        ? `${discountCode.discount.percents}% off will be applied at checkout (Code ${discountCode.code.toUpperCase()})`
-                        : `${formatPriceCentsWithCurrencySymbol(product.currency_code, discountCode.discount.cents, {
-                            symbolFormat: "long",
-                          })} off will be applied at checkout (Code ${discountCode.code.toUpperCase()})`}
+                      ? `Get ${formatDiscountAmount(discountCode.discount, buyerLocalContextFor(product))} off when you buy ${discountCode.discount.minimum_quantity} or more (Code ${discountCode.code.toUpperCase()})`
+                      : `${formatDiscountAmount(discountCode.discount, buyerLocalContextFor(product))} off will be applied at checkout (Code ${discountCode.code.toUpperCase()})`}
                     {discountCode.discount.duration_in_billing_cycles && product.is_recurring_billing ? (
                       <div>This discount will only apply to the first payment of your subscription.</div>
                     ) : null}
                     {discountCode.discount.minimum_amount_cents ? (
                       <div>
                         {(discountCode.discount.product_ids?.length ?? 0) === 1
-                          ? `This discount will apply when you spend ${formatPriceCentsWithCurrencySymbol(
-                              product.currency_code,
+                          ? `This discount will apply when you spend ${formatBuyerLocalOrSetPrice(
                               discountCode.discount.minimum_amount_cents,
+                              buyerLocalContextFor(product),
                               { symbolFormat: "short" },
                             )} or more.`
-                          : `This discount will apply when you spend ${formatPriceCentsWithCurrencySymbol(
-                              product.currency_code,
+                          : `This discount will apply when you spend ${formatBuyerLocalOrSetPrice(
                               discountCode.discount.minimum_amount_cents,
+                              buyerLocalContextFor(product),
                               { symbolFormat: "short" },
                             )} or more in ${
                               !discountCode.discount.product_ids && product.seller
@@ -530,7 +579,9 @@ export const Product = ({
                   ? "Sorry, the discount code you wish to use has expired."
                   : discountCode.error_code === "invalid_offer"
                     ? "Sorry, the discount code you wish to use is invalid."
-                    : "Sorry, the discount code you wish to use is inactive."}
+                    : discountCode.error_code === "not_existing_customer"
+                      ? "Sorry, this discount code is only for existing customers."
+                      : "Sorry, the discount code you wish to use is inactive."}
               </Alert>
             )
           ) : null}
@@ -552,7 +603,7 @@ export const Product = ({
               </b>{" "}
               to{" "}
               <b>
-                {formatPriceCentsWithCurrencySymbol(product.currency_code, discountedPriceCents, {
+                {formatBuyerLocalOrSetPrice(discountedPriceCents, buyerLocalContextFor(product), {
                   symbolFormat: "long",
                 })}
               </b>
@@ -657,6 +708,8 @@ export const Product = ({
 const Covers = ({ covers, mainCoverId }: { covers: AssetPreview[]; mainCoverId: string | null }) => {
   const [activeCoverId, setActiveCoverId] = React.useState(mainCoverId);
   useOnChange(() => setActiveCoverId(mainCoverId), [mainCoverId]);
+
+  if (covers.length === 0) return null;
 
   return (
     <CoversComponent

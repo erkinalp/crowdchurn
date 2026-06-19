@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
 class HelpCenter::BaseController < ApplicationController
-  include HelperWidget
-
   layout "inertia"
 
   rescue_from ActiveHash::RecordNotFound, with: :redirect_to_help_center_root
@@ -10,14 +8,6 @@ class HelpCenter::BaseController < ApplicationController
   before_action do
     set_meta_tag(property: "og:type", value: "website")
     set_meta_tag(name: "twitter:card", content: "summary")
-  end
-
-  inertia_share do
-    {
-      helper_widget_host: helper_widget_host,
-      helper_session: helper_session,
-      recaptcha_site_key: user_signed_in? ? nil : GlobalConfig.get("RECAPTCHA_LOGIN_SITE_KEY")
-    }
   end
 
   private

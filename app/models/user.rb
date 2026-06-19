@@ -6,8 +6,8 @@ class User < ApplicationRecord
 
   has_paper_trail
   has_one_time_password
-  include Flipper::Identifier, FlagShihTzu, CurrencyHelper, Mongoable, JsonData, Deletable, MoneyBalance,
-          DeviseInternal, PayoutSchedule, SocialGoogle, SocialApple, SocialGoogleMobile,
+  include Flipper::Identifier, FlagShihTzu, CurrencyHelper, JsonData, Deletable, MoneyBalance,
+          DeviseInternal, PayoutSchedule, SocialTwitter, SocialGoogle, SocialApple, SocialGoogleMobile,
           StripeConnect, Stats, PaymentStats, FeatureStatus, Risk, Compliance, Validations, Taxation, PingNotification,
           AsyncDeviseNotification, Posts, AffiliatedProducts, Followers, LowBalanceFraudCheck, MailerLevel,
           DirectAffiliates, AsJson, Tier, Recommendations, Team, AustralianBacktaxes, WithCdnUrl,
@@ -58,6 +58,7 @@ class User < ApplicationRecord
 
   has_many :orders, foreign_key: :purchaser_id
   has_many :purchases, foreign_key: :purchaser_id
+  has_one :billing_detail, foreign_key: :purchaser_id, dependent: :destroy
   has_many :purchased_products, -> { distinct }, through: :purchases, class_name: "Link", source: :link
   has_many :sales, class_name: "Purchase", foreign_key: :seller_id
   has_many :preorders_bought, class_name: "Preorder", foreign_key: :purchaser_id
@@ -78,6 +79,8 @@ class User < ApplicationRecord
   has_many :user_compliance_info_requests
   has_many :user_tax_forms
   has_many :scheduled_payouts
+  has_many :watched_users
+  has_one :active_watched_user, -> { alive }, class_name: "WatchedUser"
   has_many :workflows, foreign_key: :seller_id
   has_many :merchant_accounts
   has_many :shipping_destinations
@@ -124,6 +127,7 @@ class User < ApplicationRecord
   has_many :product_reviews, through: :purchases
   has_one :refund_policy, -> { where(product_id: nil) }, foreign_key: "seller_id", class_name: "SellerRefundPolicy", dependent: :destroy
   has_one :totp_credential, dependent: :destroy
+  has_many :webauthn_credentials, dependent: :destroy
   has_many :utm_links, dependent: :destroy, foreign_key: :seller_id
   has_many :seller_communities, class_name: "Community", foreign_key: :seller_id, dependent: :destroy
   has_many :community_chat_messages, dependent: :destroy
@@ -173,6 +177,15 @@ class User < ApplicationRecord
   attr_json_data_accessor :payouts_paused_by
   attr_json_data_accessor :daily_product_creation_limit
   attr_json_data_accessor :tiktok_pixel_id
+
+  def disable_buyer_local_currency
+    ActiveModel::Type::Boolean.new.cast(json_data_for_attr("disable_buyer_local_currency", default: false))
+  end
+  alias_method :disable_buyer_local_currency?, :disable_buyer_local_currency
+
+  def disable_buyer_local_currency=(value)
+    set_json_data_for_attr("disable_buyer_local_currency", ActiveModel::Type::Boolean.new.cast(value))
+  end
 
   attr_blockable :email
   attr_blockable :form_email, object_type: :email
@@ -267,7 +280,7 @@ class User < ApplicationRecord
             27 => :is_eu_vat_exclusive,
             28 => :is_team_member,
             29 => :has_dismissed_getting_started_checklist,
-            30 => :DEPRECATED_has_risk_privilege,
+            30 => :has_used_cli,
             31 => :disable_paypal_sales,
             32 => :all_adult_products,
             33 => :enable_free_downloads_email,
@@ -301,14 +314,12 @@ class User < ApplicationRecord
 
   after_save :create_updated_stripe_apple_pay_domain, if: ->(user) { user.saved_change_to_username? }
   after_save :delete_old_stripe_apple_pay_domain, if: ->(user) { user.saved_change_to_username? }
-  after_save :trigger_iffy_ingest
   after_update :update_audience_members_affiliates
   after_update :update_product_search_index!
   after_update :update_alive_cart_email, if: :saved_change_to_email?
   after_commit :move_purchases_to_new_email, on: :update, if: :email_previously_changed?
   after_commit :make_affiliate_of_the_matching_approved_affiliate_requests, on: [:create, :update], if: ->(user) { user.confirmed_at_previously_changed? && user.confirmed? }
   after_commit :generate_subscribe_preview, on: [:create, :update], if: :should_subscribe_preview_be_regenerated?
-  after_create :insert_null_chargeback_state
 
   state_machine(:user_risk_state, initial: :not_reviewed) do
     before_transition any => %i[flagged_for_fraud flagged_for_tos_violation suspended_for_fraud suspended_for_tos_violation],
@@ -322,7 +333,6 @@ class User < ApplicationRecord
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :suspend_sellers_other_accounts
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :block_seller_ip!
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :delete_custom_domain!
-    after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :log_suspension_time_to_mongo
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation], :do => :send_suspension_email
     after_transition any => %i[suspended_for_fraud suspended_for_tos_violation flagged_for_fraud flagged_for_tos_violation],
                      :do => :add_to_gmail_abuse_filter
@@ -414,15 +424,15 @@ class User < ApplicationRecord
   end
 
   def resized_avatar_url(size:)
-    return ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png") unless avatar.attached?
+    return ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png") unless avatar.attached?
     cdn_url_for(avatar.variant(resize_to_limit: [size, size]).processed.url)
-  rescue ActiveStorage::FileNotFoundError => e
+  rescue ActiveStorage::FileNotFoundError, Errno::ENOENT, ActiveRecord::InvalidForeignKey => e
     Rails.logger.warn("User#resized_avatar_url error (#{id}): #{e.class} => #{e.message}")
-    ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png")
+    ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png")
   end
 
   def avatar_url
-    return ActionController::Base.helpers.asset_url("gumroad-default-avatar-5.png") unless avatar.attached?
+    return ActionController::Base.helpers.image_url("gumroad-default-avatar-5.png") unless avatar.attached?
 
     cached_variant_url = Rails.cache.fetch("attachment_#{avatar.id}_variant_url") { avatar_variant.url }
     cdn_url_for(cached_variant_url)
@@ -707,6 +717,18 @@ class User < ApplicationRecord
     super || build_seller_profile
   end
 
+  # Serializes profile-section writes on the seller_profile row. Several paths read-modify-write a
+  # section's shown_products/shown_posts (the profile editor, product create/edit, post save), so
+  # they take this lock and re-read the sections inside it to avoid clobbering each other. The
+  # profile editor holds the same row via seller_profile.lock!, so all writers serialize on it.
+  # Looked up directly (not via #seller_profile, which builds a record) so callers like product
+  # creation don't leave an unsaved seller_profile behind to be autosaved later. A seller without a
+  # saved profile has nothing to serialize against, so it just runs the block.
+  def with_profile_sections_lock(&block)
+    profile = SellerProfile.find_by(seller_id: id)
+    profile ? profile.with_lock(&block) : yield
+  end
+
   def time_fields
     attributes.keys.keep_if { |key| key.include?("_at") && send(key) }
   end
@@ -726,10 +748,6 @@ class User < ApplicationRecord
   def generate_subscribe_preview
     raise "User must be persisted to generate a subscribe preview" unless persisted?
     GenerateSubscribePreviewJob.perform_async(id)
-  end
-
-  def insert_null_chargeback_state
-    Mongoer.async_write("user_risk_state", { "user_id" => id.to_s, "chargeback_state" => nil })
   end
 
   def minimum_payout_amount_cents
@@ -845,11 +863,14 @@ class User < ApplicationRecord
   def invalidate_active_sessions!
     update!(last_active_sessions_invalidated_at: DateTime.current)
 
-    # Also, revoke all active tokens assigned to the mobile application
     application = OauthApplication.find_by(uid: OauthApplication::MOBILE_API_OAUTH_APPLICATION_UID)
     if application.present?
-      Doorkeeper::AccessToken.revoke_all_for(application.id, self)
+      application.revoke_access_tokens_for(self)
     end
+  end
+
+  def invalidate_browser_sessions!
+    update!(last_active_sessions_invalidated_at: DateTime.current)
   end
 
   def subdomain
@@ -953,7 +974,16 @@ class User < ApplicationRecord
   end
 
   def payouts_paused_for_reason
-    payouts_paused_by_source == PAYOUT_PAUSE_SOURCE_ADMIN ? comments.with_type_payouts_paused.last&.content : nil
+    return nil unless payouts_paused?
+
+    case payouts_paused_by_source
+    when PAYOUT_PAUSE_SOURCE_ADMIN, PAYOUT_PAUSE_SOURCE_STRIPE
+      comments.with_type_payouts_paused.last&.content
+    when PAYOUT_PAUSE_SOURCE_SYSTEM
+      comments.with_type_on_probation
+              .where(author_name: SYSTEM_PAYOUT_PAUSE_COMMENT_AUTHORS.values)
+              .last&.content
+    end
   end
 
   def made_a_successful_sale_with_a_stripe_connect_or_paypal_connect_account?
@@ -1008,8 +1038,7 @@ class User < ApplicationRecord
     return tax_form_1099_download_url if tax_form_1099_download_url.present?
 
     begin
-      key = Digest::SHA1.hexdigest("#{year}-#{id}")
-      s3_path = "tax-forms/#{key}/#{external_id}/tax-1099-form-#{year}.pdf"
+      s3_path = tax_form_1099_s3_key(year:)
       s3_filename = s3_path.split("/").last
       download_url = signed_download_url_for_s3_key_and_filename(s3_path, s3_filename, expires_in: 10.years)
       $redis.set("tax_form_1099_download_url_#{year}_#{external_id}", download_url)
@@ -1017,6 +1046,21 @@ class User < ApplicationRecord
     rescue
       nil
     end
+  end
+
+  def tax_form_1099_s3_bytes(year:)
+    Aws::S3::Resource.new.bucket(S3_BUCKET).object(tax_form_1099_s3_key(year:)).get.body.read
+  rescue Aws::S3::Errors::NoSuchKey
+    nil
+  end
+
+  def tax_form_available_years
+    (created_at.year..(Time.current.year - 1)).to_a
+  end
+
+  private def tax_form_1099_s3_key(year:)
+    key = Digest::SHA1.hexdigest("#{year}-#{id}")
+    "tax-forms/#{key}/#{external_id}/tax-1099-form-#{year}.pdf"
   end
 
   def accessible_communities_ids
@@ -1212,14 +1256,6 @@ class User < ApplicationRecord
       subscriptions.active.each { |s| s.cancel!(by_seller: false) }
     end
 
-    def trigger_iffy_ingest
-      return unless saved_change_to_name? ||
-                    saved_change_to_username? ||
-                    saved_change_to_bio?
-
-      Iffy::Profile::IngestJob.perform_async(id)
-    end
-
     def has_completed_payouts?
       payments.completed.exists? ||
         made_a_successful_sale_with_a_stripe_connect_or_paypal_connect_account?
@@ -1244,3 +1280,4 @@ class User < ApplicationRecord
       value.present? && value.to_s == value.to_i.to_s
     end
 end
+# warm cache benchmark

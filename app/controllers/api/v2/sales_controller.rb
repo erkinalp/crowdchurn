@@ -2,13 +2,20 @@
 
 class Api::V2::SalesController < Api::V2::BaseController
   include CurrencyHelper
-  before_action(only: [:index, :show]) { doorkeeper_authorize! :view_sales }
+  before_action(only: [:index, :show, :export, :summary]) { doorkeeper_authorize! :view_sales }
   before_action(only: [:mark_as_shipped]) { doorkeeper_authorize! :mark_sales_as_shipped }
   before_action(only: [:refund]) { doorkeeper_authorize! :refund_sales, :edit_sales }
   before_action(only: [:resend_receipt]) { doorkeeper_authorize! :edit_sales }
   before_action :set_page, only: :index
 
   RESULTS_PER_PAGE = 10
+  SALES_API_PRELOADS = [
+    :preorder,
+    :subscription,
+    :tip,
+    :utm_link,
+    { order: { cart: { sent_abandoned_cart_emails: :installment } } },
+  ].freeze
 
   def index
     begin
@@ -24,6 +31,8 @@ class Api::V2::SalesController < Api::V2::BaseController
     end
 
     email = params[:email].present? ? params[:email].strip : nil
+    name = params[:name].present? ? params[:name].strip : nil
+    license_key = params[:license_key].present? ? params[:license_key].strip : nil
 
     if params[:product_id].present?
       product_id = ObfuscateIds.decrypt(params[:product_id])
@@ -41,11 +50,11 @@ class Api::V2::SalesController < Api::V2::BaseController
     end
 
     if params[:page] # DEPRECATED
-      filtered_sales = filter_sales(start_date:, end_date:, email:, product_id:, purchase_id:, root_scope: current_resource_owner.sales)
+      filtered_sales = filter_sales(start_date:, end_date:, email:, product_id:, purchase_id:, name:, license_key:, root_scope: current_resource_owner.sales)
       begin
         timeout_s = ($redis.get(RedisKey.api_v2_sales_deprecated_pagination_query_timeout) || 15).to_i
         WithMaxExecutionTime.timeout_queries(seconds: timeout_s) do
-          paginated_sales = filtered_sales.for_sales_api.limit(RESULTS_PER_PAGE + 1).offset((@page - 1) * RESULTS_PER_PAGE).to_a
+          paginated_sales = filtered_sales.for_sales_api.preload(*SALES_API_PRELOADS).limit(RESULTS_PER_PAGE + 1).offset((@page - 1) * RESULTS_PER_PAGE).to_a
           has_next_page = paginated_sales.size > RESULTS_PER_PAGE
           paginated_sales = paginated_sales.first(RESULTS_PER_PAGE)
           if has_next_page
@@ -69,11 +78,12 @@ class Api::V2::SalesController < Api::V2::BaseController
       where_page_data = ["created_at <= ? and id < ?", last_purchase_created_at, last_purchase_id]
     end
 
-    paginated_sales = filter_sales(start_date:, end_date:, email:, product_id:, purchase_id:)
+    paginated_sales = filter_sales(start_date:, end_date:, email:, product_id:, purchase_id:, name:, license_key:)
     subquery_filters = ->(query) {
       query.where(seller_id: current_resource_owner.id).where(where_page_data).order(created_at: :desc, id: :desc).limit(RESULTS_PER_PAGE + 1)
     }
     paginated_sales = paginated_sales.for_sales_api_ordered_by_date(subquery_filters)
+    paginated_sales = paginated_sales.preload(*SALES_API_PRELOADS)
     paginated_sales = paginated_sales.limit(RESULTS_PER_PAGE + 1).to_a
     has_next_page = paginated_sales.size > RESULTS_PER_PAGE
     paginated_sales = paginated_sales.first(RESULTS_PER_PAGE)
@@ -84,6 +94,26 @@ class Api::V2::SalesController < Api::V2::BaseController
   def show
     purchase = current_resource_owner.sales.find_by_external_id(params[:id])
     purchase ? success_with_sale(purchase.as_json(version: 2)) : error_with_sale
+  end
+
+  def export
+    filters = export_filters
+    return if performed?
+
+    Exports::PurchaseExportService.export(
+      seller: current_resource_owner,
+      recipient: current_resource_owner,
+      filters:,
+      force_async: true
+    )
+    render_response(true, status: "queued", recipient_email: current_resource_owner.email)
+  end
+
+  def summary
+    summary_params = sales_summary_params
+    return if performed?
+
+    render_response(true, Api::V2::SalesSummary.new(seller: current_resource_owner, **summary_params))
   end
 
   def mark_as_shipped
@@ -138,14 +168,70 @@ class Api::V2::SalesController < Api::V2::BaseController
       error_with_object(:sale, sale)
     end
 
-    def filter_sales(start_date:, end_date:, email:, product_id:, purchase_id:, root_scope: Purchase)
+    def filter_sales(start_date:, end_date:, email:, product_id:, purchase_id:, name: nil, license_key: nil, root_scope: Purchase)
       sales = root_scope
       sales = sales.where("created_at >= ?", start_date) if start_date
       sales = sales.where("created_at < ?", end_date) if end_date
       sales = sales.where(email:) if email.present?
       sales = sales.where(link_id: product_id) if product_id.present?
       sales = sales.where(id: purchase_id) if purchase_id.present?
+      sales = sales.where("full_name LIKE ?", "%#{Purchase.sanitize_sql_like(name)}%") if name.present?
+      sales = sales.where(id: License.where(serial: license_key.upcase).select(:purchase_id)) if license_key.present?
       sales.order(created_at: :desc, id: :desc)
+    end
+
+    def export_filters
+      filters = {}
+      if params[:from].present?
+        filters[:start_time] = parse_export_date_param(:from)
+        return filters if performed?
+      end
+      if params[:to].present?
+        filters[:end_time] = parse_export_date_param(:to)
+        return filters if performed?
+      end
+
+      if params[:product_id].present?
+        product = current_resource_owner.links.find_by_external_id(params[:product_id])
+        return error_400("Invalid product ID.") if product.nil?
+
+        filters[:product_ids] = [product.external_id]
+      end
+
+      filters
+    end
+
+    def parse_export_date_param(param)
+      Date.strptime(params[param], "%Y-%m-%d")
+      params[param]
+    rescue ArgumentError
+      error_400("Invalid date format provided in field '#{param}'. Dates must be in the format YYYY-MM-DD.")
+    end
+
+    def sales_summary_params
+      group_by = params[:group_by].presence
+      if group_by.present? && Api::V2::SalesSummary::VALID_GROUPS.exclude?(group_by)
+        return error_400("Invalid group_by. Valid values are: #{Api::V2::SalesSummary::VALID_GROUPS.join(', ')}.")
+      end
+
+      from = parse_summary_date_param(:from) if params[:from].present?
+      return if performed?
+
+      to = params[:to].present? ? parse_summary_date_param(:to) : ActiveSupport::TimeZone[current_resource_owner.timezone].today
+      return if performed?
+
+      from ||= to - 29
+
+      return error_400("'from' must be on or before 'to'.") if from > to
+      return error_400("Date range cannot exceed #{AnalyticsController::MAX_DATE_RANGE_DAYS} days.") if (to - from).to_i > AnalyticsController::MAX_DATE_RANGE_DAYS
+
+      { from:, to:, group_by: }
+    end
+
+    def parse_summary_date_param(param)
+      Date.strptime(params[param], "%Y-%m-%d")
+    rescue ArgumentError
+      error_400("Invalid date format provided in field '#{param}'. Dates must be in the format YYYY-MM-DD.")
     end
 
     def set_page # DEPRECATED

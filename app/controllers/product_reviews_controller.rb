@@ -5,7 +5,7 @@ class ProductReviewsController < ApplicationController
 
   PER_PAGE = 10
 
-  before_action :fetch_product, only: [:set]
+  before_action :fetch_visible_product, only: [:set]
 
   def index
     product = Link.find_by_external_id(permitted_params[:product_id])
@@ -56,6 +56,11 @@ class ProductReviewsController < ApplicationController
         return
       end
 
+      if purchase.purchaser&.suspended?
+        render json: { success: false, message: "Sorry, you are not authorized to review this product." }
+        return
+      end
+
       if purchase.created_at < 1.year.ago && @product.user.disable_reviews_after_year?
         render json: { success: false, message: "Sorry, something went wrong." }
         return
@@ -75,6 +80,13 @@ class ProductReviewsController < ApplicationController
       render json: { success: false, message: e.message }
     rescue StandardError
       render json: { success: false, message: "Sorry, something went wrong." }
+    end
+
+    def fetch_visible_product
+      @product = Link.fetch(params[:link_id])
+      unless @product
+        render json: { success: false, message: "Sorry, this product was removed by the seller." }
+      end
     end
 
     def permitted_params

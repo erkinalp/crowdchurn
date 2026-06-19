@@ -5,6 +5,8 @@ require "spec_helper"
 describe HomeController do
   render_views
 
+  before { allow(GithubStarsController).to receive(:cached_count).and_return(1234) }
+
   describe "GET features_md" do
     it "returns markdown with the feature list" do
       get :features_md
@@ -24,6 +26,16 @@ describe HomeController do
 
       expect(response).to be_successful
       expect(controller.send(:page_title)).to eq("Small Bets by Gumroad")
+      expect(assigns(:hide_layouts)).to be(true)
+    end
+  end
+
+  describe "GET saas" do
+    it "renders successfully" do
+      get :saas
+
+      expect(response).to be_successful
+      expect(controller.send(:page_title)).to include("Gumroad for SaaS")
       expect(assigns(:hide_layouts)).to be(true)
     end
   end

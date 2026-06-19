@@ -131,6 +131,21 @@ describe CustomerLowPriorityMailer do
         expect(mail.body.encoded).to include "Questions about your product?"
         expect(mail.reply_to).to eq [purchase.link.user.email]
       end
+
+      it "shows the upcoming renewal price instead of the original signup price" do
+        purchase = create(:membership_purchase)
+        subscription = purchase.subscription
+        allow(Subscription).to receive(:find).with(subscription.id).and_return(subscription)
+        allow(subscription).to receive(:current_subscription_price_cents).and_return(5_00)
+        allow(subscription).to receive(:original_purchase).and_return(purchase)
+        allow(purchase).to receive(:format_price_in_currency).with(5_00).and_return("$5")
+        allow(purchase).to receive(:formatted_total_price).and_return("$10")
+
+        mail = CustomerLowPriorityMailer.subscription_renewal_reminder(subscription.id)
+
+        expect(mail.body.encoded).to include "You're paying $5."
+        expect(mail.body.encoded).not_to include "You're paying $10."
+      end
     end
 
     context "installment plans" do
@@ -370,6 +385,20 @@ describe CustomerLowPriorityMailer do
       expect(mail.body.sanitized).to include "You will be charged once a month. If you would like to manage your membership you can visit"
       expect(mail.body.sanitized).to include "First payment #{subscription.formatted_end_time_of_subscription}"
       expect(mail.body.sanitized).to include "Payment method VISA *4242"
+    end
+
+    context "when the subscription's credit card is missing" do
+      let(:subscription) { create(:subscription, link: product, user: nil, credit_card: nil) }
+
+      it "logs the skip and does not deliver the email" do
+        expect(Rails.logger).to receive(:warn).with(
+          "[CustomerLowPriorityMailer] Skipping subscription email delivery because @subject is nil; action=subscription_giftee_added_card; subscription_id=#{subscription.id}"
+        )
+
+        expect do
+          CustomerLowPriorityMailer.subscription_giftee_added_card(subscription.id).deliver_now
+        end.not_to change(ActionMailer::Base.deliveries, :count)
+      end
     end
   end
 
@@ -668,6 +697,29 @@ describe CustomerLowPriorityMailer do
         expect(mail.subject).to eq "Your installment plan has been canceled."
         expect(mail.body.encoded).to include "Your installment plan for #{product.name} has been canceled"
         expect(mail.body.encoded).to include "due to the creator deleting the product"
+      end
+    end
+  end
+
+  describe "deposit" do
+    let(:seller) { create(:user) }
+    let(:product) { create(:product, user: seller) }
+    let(:payment) { create(:payment_completed, user: seller) }
+
+    context "when the payout period has only Stripe Connect revenue" do
+      before do
+        allow_any_instance_of(User).to receive(:paypal_revenue_by_product_for_duration).and_return({})
+        allow_any_instance_of(User).to receive(:stripe_connect_revenue_by_product_for_duration).and_return({ product.id => 1_000 })
+      end
+
+      it "renders the Stripe Connect revenue without raising when there is no Gumroad or PayPal revenue" do
+        expect(payment.revenue_by_link).to be_blank
+
+        mail = CustomerLowPriorityMailer.deposit(payment.id)
+
+        expect(mail.subject).to eq "It's pay day!"
+        expect(mail.body.encoded).to include product.name
+        expect(mail.body.encoded).to include Money.new(1_000, "USD").format(symbol: true)
       end
     end
   end

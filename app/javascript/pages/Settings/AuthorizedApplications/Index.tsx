@@ -2,7 +2,7 @@ import { XSquare } from "@boxicons/react";
 import { router, usePage } from "@inertiajs/react";
 import { parseISO } from "date-fns";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { SettingPage } from "$app/parsers/settings";
 
@@ -27,6 +27,7 @@ type AuthorizedApplication = {
 
 type Scope =
   | "account"
+  | "edit_emails"
   | "edit_products"
   | "ifttt"
   | "mark_sales_as_shipped"
@@ -37,12 +38,14 @@ type Scope =
   | "view_public"
   | "view_sales"
   | "view_payouts"
+  | "view_tax_data"
   | "revenue_share"
   | "mobile_api"
   | "creator_api";
 
 const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   account: "Full access to your account.",
+  edit_emails: "Create and manage your audience emails.",
   edit_products: "Create new products and edit your existing products.",
   ifttt: "See your sales data.",
   mark_sales_as_shipped: "Mark your sales as shipped.",
@@ -50,9 +53,10 @@ const SCOPE_DESCRIPTIONS: Record<Scope, string> = {
   edit_sales: "Refund your sales and resend purchase receipts to customers.",
   unfurl: "Fetch public information of any product to preview it in Notion.",
   view_profile: "See your profile data.",
-  view_public: "See your public information (name, Facebook profile, bio, Twitter handle).",
+  view_public: "See your public information (name, bio).",
   view_sales: "See your sales data.",
   view_payouts: "See your payouts data.",
+  view_tax_data: "See your tax forms and annual earnings summary.",
   revenue_share: "Revenue Share",
   mobile_api: "Mobile API",
   creator_api: "Creator API",
@@ -64,7 +68,7 @@ type Props = {
 };
 
 export default function AuthorizedApplicationsPage() {
-  const props = cast<Props>(usePage().props);
+  const props = typia.assert<Props>(usePage().props);
   const userAgentInfo = useUserAgentInfo();
   const [applications, setApplications] = React.useState(props.authorized_applications);
   const [revokingAccessForApp, setRevokingAccessForApp] = React.useState<{ id: string; revoking?: boolean } | null>(
@@ -76,7 +80,7 @@ export default function AuthorizedApplicationsPage() {
     router.delete(Routes.oauth_authorized_application_path(id), {
       only: ["authorized_applications"],
       onSuccess: (page) => {
-        const updatedProps = cast<Props>(page.props);
+        const updatedProps = typia.assert<Props>(page.props);
         setApplications(updatedProps.authorized_applications);
         showAlert("Authorized application revoked", "success");
         setRevokingAccessForApp(null);

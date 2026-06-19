@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp, CodeAlt, Plus, Trash } from "@boxicons/react";
 import { useForm, usePage } from "@inertiajs/react";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { Snippet, SNIPPET_LOCATIONS, ThirdPartyAnalytics } from "$app/data/third_party_analytics";
 import { SettingPage } from "$app/parsers/settings";
@@ -32,7 +32,7 @@ type ThirdPartyAnalyticsPageProps = {
 };
 
 export default function ThirdPartyAnalyticsPage() {
-  const props = cast<ThirdPartyAnalyticsPageProps>(usePage().props);
+  const props = typia.assert<ThirdPartyAnalyticsPageProps>(usePage().props);
   const loggedInUser = useLoggedInUser();
 
   const form = useForm({
@@ -114,7 +114,11 @@ export default function ThirdPartyAnalyticsPage() {
               <Fieldset>
                 <FieldsetTitle>
                   <Label htmlFor={`${uid}googleAnalyticsId`}>Google Analytics Property ID</Label>
-                  <a href="/help/article/174-third-party-analytics#Google-Analytics-Ib1dB" target="_blank" rel="noreferrer">
+                  <a
+                    href="/help/article/174-third-party-analytics#Google-Analytics-Ib1dB"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     Learn more
                   </a>
                 </FieldsetTitle>
@@ -337,7 +341,6 @@ const SnippetRow = ({
             <Label htmlFor={`${uid}code`}>Code</Label>
             <Textarea
               id={`${uid}code`}
-              placeholder="Enter your analytics code"
               value={snippet.code}
               onChange={(evt) => updateSnippet({ code: evt.target.value })}
             />

@@ -95,6 +95,15 @@ describe PayoutUsersService, :vcr do
   end
 
   describe "PayoutUsersService#create_payments" do
+    before do
+      allow(Stripe::Balance).to receive(:retrieve).and_call_original
+      allow(Stripe::Balance).to receive(:retrieve).with({}, anything).and_return(
+        Stripe::Balance.construct_from(object: "balance",
+                                       available: [{ amount: 1_000_000_00, currency: "usd" }],
+                                       pending: [{ amount: 0, currency: "usd" }])
+      )
+    end
+
     it "returns array of payments and cross-border payments" do
       service_object = described_class.new(date_string: payout_date.to_s, processor_type: PayoutProcessorType::STRIPE, user_ids: user1.id)
 
@@ -123,11 +132,18 @@ describe PayoutUsersService, :vcr do
       stripe_account2 = Stripe::Account.retrieve(merchant_account2.charge_processor_merchant_id)
       stripe_account1.refresh until stripe_account1.payouts_enabled?
       stripe_account2.refresh until stripe_account2.payouts_enabled?
+
+      allow(Stripe::Balance).to receive(:retrieve).and_call_original
+      allow(Stripe::Balance).to receive(:retrieve).with({}, anything).and_return(
+        Stripe::Balance.construct_from(object: "balance",
+                                       available: [{ amount: 1_000_000_00, currency: "usd" }],
+                                       pending: [{ amount: 0, currency: "usd" }])
+      )
     end
 
     include_examples "PayoutUsersService#process specs"
 
-    it "does not process cross-border payouts immediately and schedules for 25 hours later" do
+    it "does not process cross-border payouts immediately and schedules for 25 hours later", :freeze_time do
       allow_any_instance_of(UserComplianceInfo).to receive(:legal_entity_country_code).and_return("TH")
       expect(StripePayoutProcessor).not_to receive(:process_payments)
 

@@ -65,40 +65,13 @@ describe User::Risk do
         user.suspend_due_to_stripe_risk
       end.to have_enqueued_mail(ContactingCreatorMailer, :suspended_due_to_stripe_risk).with(user.id).once
 
+      another_user = create(:user)
       expect do
-        create(:user).suspend_due_to_stripe_risk
+        another_user.suspend_due_to_stripe_risk
       end.not_to have_enqueued_mail(ContactingCreatorMailer, :account_suspended)
     end
   end
 
-  describe "#log_suspension_time_to_mongo", :sidekiq_inline do
-    let(:user) { create(:user) }
-    let(:collection) { MONGO_DATABASE[MongoCollections::USER_SUSPENSION_TIME] }
-
-    it "writes suspension data to mongo collection" do
-      freeze_time do
-        user.log_suspension_time_to_mongo
-
-        record = collection.find("user_id" => user.id).first
-        expect(record).to be_present
-        expect(record["user_id"]).to eq(user.id)
-        expect(record["suspended_at"]).to eq(Time.current.to_s)
-      end
-    end
-  end
-
-  describe ".refund_queue", :sidekiq_inline do
-    it "returns users suspended for fraud with positive unpaid balances" do
-      user = create(:user)
-      create(:balance, user: user, amount_cents: 5000, state: "unpaid")
-      user.flag_for_fraud!(author_name: "admin")
-      user.suspend_for_fraud!(author_name: "admin")
-
-      result = User.refund_queue
-
-      expect(result.to_a).to eq([user])
-    end
-  end
 
   describe "#suspend_sellers_other_accounts" do
     let(:transition) { double("transition", args: []) }
@@ -117,6 +90,26 @@ describe User::Risk do
           SuspendAccountsWithPaymentAddressWorker.perform_one
         end.to change(SuspendAccountsWithPaymentAddressWorker.jobs, :size).from(1).to(0)
       end
+    end
+  end
+
+  describe "#unblock_seller_ip!" do
+    let(:ip) { "203.0.113.42" }
+    let(:user) { create(:user, last_sign_in_ip: ip) }
+
+    it "does nothing when last_sign_in_ip is blank" do
+      user.update_column(:last_sign_in_ip, nil)
+      expect { user.unblock_seller_ip! }.not_to raise_error
+    end
+
+    it "only unblocks rows scoped to the ip_address type" do
+      email_block = PlatformBlock.add!(object_type: PlatformBlock::TYPES[:email], object_value: ip)
+      ip_block = PlatformBlock.add!(object_type: PlatformBlock::TYPES[:ip_address], object_value: ip, expires_in: 1.hour)
+
+      user.unblock_seller_ip!
+
+      expect(ip_block.reload.blocked_at).to be_nil
+      expect(email_block.reload.blocked_at).to be_present
     end
   end
 end

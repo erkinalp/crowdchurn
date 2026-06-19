@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "zip/zipfilesystem"
+require "zip/filesystem"
 
 class Link < ApplicationRecord
   has_paper_trail
@@ -37,8 +37,8 @@ class Link < ApplicationRecord
             28 => :is_collab,
             29 => :is_unpublished_by_admin,
             30 => :community_chat_enabled,
-            31 => :DEPRECATED_excluded_from_mobile_app_discover,
-            32 => :moderated_by_iffy,
+            31 => :created_via_cli,
+            32 => :DEPRECATED_moderated_by_iffy,
             33 => :hide_sold_out_variants,
             34 => :batch_billing_enabled,
             35 => :batch_entitlement_enabled,
@@ -50,7 +50,7 @@ class Link < ApplicationRecord
           Product::Validations, Product::Caching, Product::NativeTypeTemplates, Product::Recommendations,
           Product::Prices, Product::Shipping, Product::Searchable, Product::Tags, Product::Taxonomies,
           Product::ReviewStat, Product::Utils, Product::StructuredData, ActionView::Helpers::SanitizeHelper,
-          ActionView::Helpers::NumberHelper, Mongoable, TimestampScopes, ExternalId,
+          ActionView::Helpers::NumberHelper, TimestampScopes, ExternalId,
           WithFileProperties, JsonData, Deletable, WithProductFiles, WithCdnUrl, MaxPurchaseCount,
           Integrations, Product::StaffPicked, RichContents, Product::Sorting, Product::CreationLimit
 
@@ -101,6 +101,17 @@ class Link < ApplicationRecord
   has_many :prices
   has_many :alive_prices, -> { alive }, class_name: "Price"
   has_one :installment_plan, -> { alive }, class_name: "ProductInstallmentPlan"
+  has_one :page, as: :pageable, dependent: :destroy, autosave: true
+  delegate :custom_html, to: :page, allow_nil: true
+
+  def custom_html=(value)
+    if value.blank?
+      page.custom_html = nil if page.present?
+      return
+    end
+
+    (page || build_page).custom_html = value
+  end
   has_many :sales, class_name: "Purchase"
   has_many :orders, through: :sales, source: :order
   has_many :sold_calls, through: :sales, source: :call
@@ -221,11 +232,14 @@ class Link < ApplicationRecord
   validate :published_bundle_must_have_at_least_one_product, on: :update
   validate :user_is_eligible_for_service_products, on: :create, if: :is_service?
   validate :commission_price_is_valid, if: -> { native_type == Link::NATIVE_TYPE_COMMISSION }
-  validate :one_coffee_per_user, on: :create, if: -> { native_type == Link::NATIVE_TYPE_COFFEE }
+  validate :one_coffee_per_user, if: -> { native_type == Link::NATIVE_TYPE_COFFEE && (new_record? || (archived_changed? && !archived?)) }
   validate :quantity_enabled_state_is_allowed
   validate :default_offer_code_must_be_valid
+  validate :content_moderation_check, if: -> { publishing? || (persisted? && published? && (name_changed? || description_changed?)) }
 
   validates_associated :installment_plan, message: -> (link, _) { link.installment_plan.errors.full_messages.first }
+
+  attr_accessor :publishing
 
   before_save :downcase_filetype
   before_save :remove_xml_tags
@@ -246,6 +260,11 @@ class Link < ApplicationRecord
   rescue ArgumentError
     super(:buy_only)
   end
+
+  def price_currency_type=(value)
+    super(value.present? ? value.to_s.downcase : value)
+  end
+
   enum free_trial_duration_unit: %i[week month]
   enum pricing_mode: %i[legacy gross multi_currency]
   enum shipping_mode: %i[shipping_added shipping_inclusive no_shipping] # Shipping handling mode for gross pricing
@@ -256,6 +275,8 @@ class Link < ApplicationRecord
   attr_json_data_accessor :custom_view_content_button_text
   attr_json_data_accessor :custom_receipt_text
   attr_json_data_accessor :batch_billing_day, default: -> { 1 }
+  attr_json_data_accessor :content_moderation_disabled, default: -> { false }
+  alias_method :content_moderation_disabled?, :content_moderation_disabled
 
   scope :alive,                           -> { where(purchase_disabled_at: nil, banned_at: nil, deleted_at: nil) }
   scope :visible,                         -> { where(deleted_at: nil) }
@@ -415,6 +436,7 @@ class Link < ApplicationRecord
 
   def delete!
     mark_deleted!
+    clear_featured_product_sections!
     custom_domain&.mark_deleted!
     alive_public_files.update_all(scheduled_for_deletion_at: 10.minutes.from_now)
     CancelSubscriptionsForProductWorker.perform_in(10.minutes, id) if subscriptions.active.present?
@@ -428,16 +450,25 @@ class Link < ApplicationRecord
     enforce_shipping_destinations_presence!
     enforce_user_email_confirmation!
     enforce_merchant_account_exits_for_new_users!
-    if auto_transcode_videos?
-      transcode_videos!
-    else
-      enable_transcode_videos_on_purchase!
-    end
-
     self.purchase_disabled_at = nil
     self.deleted_at = nil
     self.draft = false
-    save!
+    self.publishing = true
+    deadlock_retries = 0
+    begin
+      if auto_transcode_videos?
+        transcode_videos!
+      else
+        enable_transcode_videos_on_purchase!
+      end
+      save!
+    rescue ActiveRecord::Deadlocked
+      deadlock_retries += 1
+      retry if deadlock_retries <= 2
+      raise
+    ensure
+      self.publishing = false
+    end
 
     user.direct_affiliates.alive.apply_to_all_products.each do |affiliate|
       unless affiliate.products.include?(self)
@@ -445,6 +476,10 @@ class Link < ApplicationRecord
         AffiliateMailer.notify_direct_affiliate_of_new_product(affiliate.id, id).deliver_later
       end
     end
+  end
+
+  def publishing?
+    !!publishing
   end
 
   def unpublish!(is_unpublished_by_admin: false)
@@ -550,7 +585,7 @@ class Link < ApplicationRecord
 
   def for_email_thumbnail_url
     thumbnail_alive&.url ||
-      ActionController::Base.helpers.asset_url("native_types/thumbnails/#{native_type}.png")
+      ActionController::Base.helpers.image_url("native_types/thumbnails/#{native_type}.png")
   end
 
   def plaintext_description
@@ -618,12 +653,17 @@ class Link < ApplicationRecord
     return tiers.first.quantity_left if tiers.size == 1
 
     minimum_bundle_product_quantity_left = if is_bundle?
-      bundle_products.alive.flat_map do
+      alive_bundles = if bundle_products.loaded?
+        bundle_products.select(&:alive?)
+      else
+        bundle_products.alive
+      end
+      alive_bundles.flat_map do
         [_1.product.remaining_for_sale_count, _1.variant&.quantity_left]
       end.compact.min
     end
 
-    product_quantity_left = (max_purchase_count - sales_count_for_inventory) unless max_purchase_count.nil?
+    product_quantity_left = (max_purchase_count - sales_count_for_inventory.to_i) unless max_purchase_count.nil?
 
     quantity_left = [product_quantity_left, minimum_bundle_product_quantity_left].compact.min
     return if quantity_left.nil?
@@ -665,7 +705,12 @@ class Link < ApplicationRecord
   end
 
   def rental
-    purchase_type != "buy_only" ? { price_cents: rental_price_cents, rent_only: purchase_type == "rent_only" } : nil
+    return unless rentable?
+
+    price_cents = rental_price_cents
+    return if price_cents.nil?
+
+    { price_cents:, rent_only: rent_only? }
   end
 
   def is_legacy_subscription?
@@ -673,6 +718,7 @@ class Link < ApplicationRecord
   end
 
   def sales_count_for_inventory
+    return sales_count_for_inventory_cache if Feature.active?(:inventory_counter_cache)
     sales.counts_towards_inventory.sum(:quantity)
   end
 
@@ -690,7 +736,6 @@ class Link < ApplicationRecord
   #          if not passed, the search will return the earliest product by unique or custom permalink.
   #                         NOTE: a custom permalink can match different products by different sellers,
   #                         this option should only be used to support legacy URLs.
-  #                         Ref: https://gumroad.slack.com/archives/C01B70APF9P/p1627054984386700
   def self.fetch_leniently(general_permalink, user: nil)
     product_via_legacy_permalink = Link.visible.find_by(id: LegacyPermalink.select(:product_id).where(permalink: general_permalink)) if user.blank?
 
@@ -1047,7 +1092,12 @@ class Link < ApplicationRecord
   end
 
   def has_customizable_price_option?
-    is_tiered_membership? ? tiers.alive.exists?(customizable_price: true) : customizable_price?
+    return customizable_price? unless is_tiered_membership?
+    if association(:tiers).loaded?
+      tiers.any? { |t| t.alive? && t.customizable_price? }
+    else
+      tiers.alive.exists?(customizable_price: true)
+    end
   end
 
   def recurrence_price_enabled?(recurrence)
@@ -1124,13 +1174,15 @@ class Link < ApplicationRecord
   end
 
   def show_in_sections!(section_external_ids)
-    user.seller_profile_products_sections.each do |section|
-      shown = section.shown_products.include?(id)
-      selected = section_external_ids.include?(section.external_id)
-      if selected && !shown
-        section.update!(shown_products: section.shown_products + [id])
-      elsif !selected && shown
-        section.update!(shown_products: section.shown_products - [id])
+    user.with_profile_sections_lock do
+      user.seller_profile_products_sections.reload.each do |section|
+        shown = section.shown_products.include?(id)
+        selected = section_external_ids.include?(section.external_id)
+        if selected && !shown
+          section.update!(shown_products: section.shown_products + [id])
+        elsif !selected && shown
+          section.update!(shown_products: section.shown_products - [id])
+        end
       end
     end
   end
@@ -1346,6 +1398,17 @@ class Link < ApplicationRecord
     end
 
   private
+    # When a product is soft-deleted, clear any references to it from
+    # SellerProfileFeaturedProductSection.featured_product_id (a JSON column).
+    # Without this, the section's cached props would point at a missing product
+    # and crash the seller's profile page until the cache TTL elapsed.
+    def clear_featured_product_sections!
+      SellerProfileFeaturedProductSection
+        .where(seller_id: user_id)
+        .where('CAST(JSON_EXTRACT(json_data, "$.featured_product_id") AS UNSIGNED) = ?', id)
+        .find_each { |section| section.update!(json_data: section.json_data.except("featured_product_id")) }
+    end
+
     def compute_ppp_prices(price_cents, factors, currency)
       factors.keys.index_with do |country_code|
         price_cents == 0 ? 0 : [factors[country_code] * price_cents, currency["min_price"]].max.round
@@ -1362,10 +1425,11 @@ class Link < ApplicationRecord
     end
 
     def add_to_profile_sections
-      user.seller_profile_products_sections.each do |section|
-        next unless section.add_new_products
-        section.shown_products = section.shown_products << id
-        section.save!
+      user.with_profile_sections_lock do
+        user.seller_profile_products_sections.reload.each do |section|
+          next unless section.add_new_products
+          section.update!(shown_products: section.shown_products + [id])
+        end
       end
     end
 
@@ -1418,7 +1482,8 @@ class Link < ApplicationRecord
         if %w[strong b em u s h1 h2 h3 h4 h5 h6 pre code ul ol li hr blockquote p a figure figcaption img div span iframe script br upsell-card public-file-embed review-card].exclude?(node.name) && !node.text?
           node.remove
         elsif node.name == "iframe"
-          if node["src"].present? && (URI.parse(node["src"]) rescue nil)&.host == "cdn.iframe.ly"
+          iframe_host = (URI.parse(node["src"]) rescue nil)&.host if node["src"].present?
+          if %w[cdn.iframe.ly iframely.net].include?(iframe_host)
             node.attributes.each do |attr|
               node.remove_attribute(attr.first) unless %w[src frameborder allowfullscreen scrolling allow style].include?(attr.first)
             end
@@ -1455,14 +1520,13 @@ class Link < ApplicationRecord
       end
     end
 
-    def reset_moderated_by_iffy_flag
-      update_attribute(:moderated_by_iffy, false)
-    end
+    def content_moderation_check
+      return if user&.vip_creator?
 
-    def queue_iffy_ingest_job_if_unpublished_by_admin
-      return unless is_unpublished_by_admin? && !saved_change_to_is_unpublished_by_admin?
+      result = ContentModeration::ModerateRecordService.check(self, :product)
+      return if result.passed
 
-      Iffy::Product::IngestJob.perform_async(id)
+      errors.add(:base, ContentModeration::ModerateRecordService.seller_message(result.reasons, "product"))
     end
 
     def create_fund_cart_if_needed

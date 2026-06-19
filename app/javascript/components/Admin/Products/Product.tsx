@@ -1,6 +1,6 @@
 import { usePage } from "@inertiajs/react";
 import React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import AdminProductActions from "$app/components/Admin/Products/Actions";
 import AdminProductComments from "$app/components/Admin/Products/Comments";
@@ -46,6 +46,7 @@ export type Product = {
   html_safe_description: string | null;
   alive: boolean;
   is_adult: boolean;
+  content_moderation_disabled: boolean;
   active_integrations: ActiveIntegration[];
   admins_can_mark_as_staff_picked: boolean;
   admins_can_unmark_as_staff_picked: boolean;
@@ -62,7 +63,7 @@ type AdminUsersProductsProductProps = {
 
 const AdminUsersProductsProduct = ({ product, isAffiliateUser = false }: AdminUsersProductsProductProps) => {
   const { url, props } = usePage();
-  const compliance: Compliance = cast<Compliance>(props.compliance);
+  const compliance: Compliance = typia.assert<Compliance>(props.compliance);
   const isCurrentUrl = url === Routes.admin_product_path(product.external_id);
 
   return (

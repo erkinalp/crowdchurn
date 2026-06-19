@@ -19,6 +19,7 @@ class Comment < ApplicationRecord
   COMMENT_TYPE_COUNTRY_CHANGED = "country_changed"
   COMMENT_TYPE_PAYOUTS_PAUSED = "payouts_paused"
   COMMENT_TYPE_PAYOUTS_RESUMED = "payouts_resumed"
+  COMMENT_TYPE_REFUND_BALANCE = "refund_balance"
   RISK_STATE_COMMENT_TYPES = [COMMENT_TYPE_COMPLIANT, COMMENT_TYPE_NOT_REVIEWED, COMMENT_TYPE_ON_PROBATION, COMMENT_TYPE_FLAGGED, COMMENT_TYPE_SUSPENDED]
   MAX_ALLOWED_DEPTH = 4 # Depth of a root comment starts with 0.
 
@@ -117,7 +118,7 @@ class Comment < ApplicationRecord
 
     def content_cannot_contain_adult_keywords
       return if author&.is_team_member?
-      return if !author && author_name == "iffy"
+      return if !author && author_name == ContentModeration::ModerateRecordService::AUTHOR_NAME
 
       errors.add(:base, "Adult keywords are not allowed") if AdultKeywordDetector.adult?(content)
     end

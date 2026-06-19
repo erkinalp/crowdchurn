@@ -18,6 +18,14 @@ class SellerProfile < ApplicationRecord
     self.highlight_color ||= "#ff90e8"
   end
 
+  # Version stamp for optimistic concurrency in the pages/sections editor: the most recent change
+  # to either the tab layout (this record) or any on-profile section row. Section edits write the
+  # section rows rather than this record, so the section timestamps must be folded in too — without
+  # them a concurrent section-content edit could pass the editor's stale-save check unnoticed.
+  def layout_version
+    [updated_at, seller.seller_profile_sections.on_profile.maximum(:updated_at)].compact.max
+  end
+
   def custom_styles
     Rails.cache.fetch(custom_style_cache_name) do
       component_path = File.read(Rails.root.join("app", "views", "layouts", "custom_styles", "styles.scss.erb"))
@@ -26,7 +34,6 @@ class SellerProfile < ApplicationRecord
       SassC::Engine.new(
         sass,
         syntax: :scss,
-        load_paths: Rails.application.config.assets.paths,
         read_cache: false,
         cache: false,
         style: :compressed,

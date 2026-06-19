@@ -74,6 +74,70 @@ describe RichContent do
     end
   end
 
+  describe "rejecting cross-product file embeds" do
+    let(:product) { create(:product) }
+    let(:own_file) { create(:product_file, link: product) }
+    let(:foreign_file) { create(:product_file, link: create(:product)) }
+
+    def embed(file)
+      { "type" => "fileEmbed", "attrs" => { "id" => file.external_id, "uid" => SecureRandom.uuid } }
+    end
+
+    it "rejects a product's content embedding a file owned by another product" do
+      rich_content = build(:product_rich_content, entity: product, description: [embed(own_file), embed(foreign_file)])
+      expect(rich_content).to be_invalid
+      expect(rich_content.errors.full_messages.first).to include("not belonging to this product")
+      expect(rich_content.errors.full_messages.first).to include(foreign_file.external_id)
+    end
+
+    it "rejects a variant's content embedding a file owned by another product" do
+      variant = create(:variant, variant_category: create(:variant_category, link: product))
+      rich_content = build(:rich_content, entity: variant, description: [embed(own_file), embed(foreign_file)])
+      expect(rich_content).to be_invalid
+      expect(rich_content.errors.full_messages.first).to include("not belonging to this product")
+    end
+
+    it "rejects a foreign embed nested inside a file embed group" do
+      description = [{ "type" => "fileEmbedGroup", "attrs" => { "uid" => SecureRandom.uuid, "name" => "Files" }, "content" => [embed(foreign_file)] }]
+      rich_content = build(:product_rich_content, entity: product, description:)
+      expect(rich_content).to be_invalid
+      expect(rich_content.errors.full_messages.first).to include("not belonging to this product")
+    end
+
+    it "allows content that only embeds the product's own files" do
+      another_own_file = create(:product_file, link: product)
+      rich_content = create(:product_rich_content, entity: product, description: [embed(own_file), embed(another_own_file)])
+      expect(rich_content.reload.embedded_product_file_ids_in_order).to match_array([own_file.id, another_own_file.id])
+    end
+
+    it "allows content with no file embeds" do
+      rich_content = build(:product_rich_content, entity: product, description: [{ "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Hello" }] }])
+      expect(rich_content).to be_valid
+    end
+  end
+
+  describe ".reject_file_embeds" do
+    let(:product) { create(:product) }
+    let(:keep_file) { create(:product_file, link: product) }
+    let(:drop_file) { create(:product_file, link: product) }
+
+    def embed(file)
+      { "type" => "fileEmbed", "attrs" => { "id" => file.external_id, "uid" => SecureRandom.uuid } }
+    end
+
+    it "removes embeds whose decrypted id is in the rejection set" do
+      nodes = [embed(keep_file), embed(drop_file)]
+      result = described_class.reject_file_embeds(nodes, Set[drop_file.id])
+      expect(result.length).to eq(1)
+      expect(ObfuscateIds.decrypt(result.first.dig("attrs", "id"))).to eq(keep_file.id)
+    end
+
+    it "prunes a file embed group left empty after removal" do
+      nodes = [{ "type" => "fileEmbedGroup", "attrs" => { "uid" => SecureRandom.uuid }, "content" => [embed(drop_file)] }]
+      expect(described_class.reject_file_embeds(nodes, Set[drop_file.id])).to eq([])
+    end
+  end
+
   describe "#has_license_key?" do
     let(:product) { create(:product) }
 
@@ -214,38 +278,6 @@ describe RichContent do
           file_upload_node,
         ]
       )
-    end
-  end
-
-  describe "callbacks" do
-    describe "#reset_moderated_by_iffy_flag" do
-      let(:product) { create(:product, moderated_by_iffy: true) }
-      let(:rich_content) { create(:rich_content, entity: product) }
-
-      context "when description is changed" do
-        it "resets moderated_by_iffy flag on the associated product" do
-          expect do
-            rich_content.update!(description: [{ "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Updated content" }] }])
-          end.to change { product.reload.moderated_by_iffy }.from(true).to(false)
-        end
-      end
-
-      context "when description is not changed" do
-        it "does not reset moderated_by_iffy flag on the associated product" do
-          expect do
-            rich_content.update!(updated_at: Time.current)
-          end.not_to change { product.reload.moderated_by_iffy }
-        end
-      end
-
-      context "when rich_content is not alive" do
-        it "does not reset moderated_by_iffy flag on the associated product" do
-          rich_content.update!(deleted_at: Time.current)
-          expect do
-            rich_content.update!(description: [{ "type" => "paragraph", "content" => [{ "type" => "text", "text" => "Updated content" }] }])
-          end.not_to change { product.reload.moderated_by_iffy }
-        end
-      end
     end
   end
 end

@@ -1,8 +1,8 @@
-import { FileDetail } from "@boxicons/react";
-import { useForm } from "@inertiajs/react";
+import { Envelope, FileDetail } from "@boxicons/react";
+import { router, useForm } from "@inertiajs/react";
 import React from "react";
 
-import { SavedInstallment, getAudienceCount } from "$app/data/installments";
+import { SavedInstallment, getAudienceCount, getNonOpenerCount, resendToNonOpeners } from "$app/data/installments";
 import { formatStatNumber } from "$app/utils/formatStatNumber";
 import { asyncVoid } from "$app/utils/promise";
 import { assertResponseError } from "$app/utils/request";
@@ -12,6 +12,15 @@ import { EditEmailButton, NewEmailButton } from "$app/components/EmailsPage/Layo
 import { ViewEmailButton } from "$app/components/EmailsPage/ViewEmailButton";
 import { Modal } from "$app/components/Modal";
 import { showAlert } from "$app/components/server-components/Alert";
+
+// Only purchase-backed posts have per-recipient open tracking, so a resend to non-openers
+// is offered for these types alone (follower/affiliate posts have no per-recipient open linkage).
+const NON_OPENER_RESEND_TYPES = ["seller", "product", "variant"];
+
+export const canResendToNonOpeners = (installment: SavedInstallment) =>
+  installment.display_type === "published" &&
+  installment.send_emails &&
+  NON_OPENER_RESEND_TYPES.includes(installment.installment_type);
 
 type DeleteEmailModalProps = {
   installment: { id: string; name: string } | null;
@@ -94,6 +103,94 @@ export const formatAudienceCount = (audienceCounts: AudienceCounts, installmentI
       : formatStatNumber({ value: count });
 };
 
+export const ResendToNonOpenersButton = ({ installment }: { installment: SavedInstallment }) => {
+  const [loadingCount, setLoadingCount] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  const [count, setCount] = React.useState<number | null>(null);
+  const [recentlyResent, setRecentlyResent] = React.useState(false);
+  const [audienceFilteredOut, setAudienceFilteredOut] = React.useState(false);
+  const [resending, setResending] = React.useState(false);
+
+  const openConfirmation = asyncVoid(async () => {
+    if (loadingCount || confirming) return;
+    setLoadingCount(true);
+    try {
+      const {
+        count: nonOpenerCount,
+        recently_resent,
+        audience_filtered_out,
+      } = await getNonOpenerCount(installment.external_id);
+      setCount(nonOpenerCount);
+      setRecentlyResent(recently_resent);
+      setAudienceFilteredOut(audience_filtered_out);
+      setConfirming(true);
+    } catch (error) {
+      assertResponseError(error);
+      showAlert("Sorry, something went wrong. Please try again.", "error");
+    } finally {
+      setLoadingCount(false);
+    }
+  });
+
+  const handleResend = asyncVoid(async () => {
+    setResending(true);
+    try {
+      const { count: sentCount } = await resendToNonOpeners(installment.external_id);
+      showAlert(
+        `Resending to ${formatStatNumber({ value: sentCount })} people who haven't opened this yet.`,
+        "success",
+      );
+      setRecentlyResent(true);
+      setConfirming(false);
+      router.reload();
+    } catch (error) {
+      assertResponseError(error);
+      showAlert(error.message, "error");
+    } finally {
+      setResending(false);
+    }
+  });
+
+  const disableResend = resending || recentlyResent || count === null || count === 0;
+
+  return (
+    <>
+      <Button disabled={loadingCount} onClick={openConfirmation}>
+        <Envelope pack="filled" className="size-5" />
+        {loadingCount ? "Loading..." : "Resend to non-openers"}
+      </Button>
+      {confirming && count !== null ? (
+        <Modal
+          open
+          allowClose={!resending}
+          onClose={() => setConfirming(false)}
+          title="Resend to non-openers?"
+          footer={
+            <>
+              <Button disabled={resending} onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              <Button color="accent" disabled={disableResend} onClick={handleResend}>
+                {resending ? "Resending..." : "Resend"}
+              </Button>
+            </>
+          }
+        >
+          <h4>
+            {recentlyResent
+              ? "You've already resent this to non-openers recently. Try again in 24 hours."
+              : count === 0
+                ? audienceFilteredOut
+                  ? "The remaining unopened recipients are no longer eligible for this email's audience."
+                  : "Everyone who was emailed has already opened this."
+                : `This will resend "${installment.name}" to ${formatStatNumber({ value: count })} people who were emailed but haven't opened it yet.`}
+          </h4>
+        </Modal>
+      ) : null}
+    </>
+  );
+};
+
 type EmailSheetActionsProps = {
   installment: SavedInstallment;
   onDelete: () => void;
@@ -103,6 +200,7 @@ export const EmailSheetActions = ({ installment, onDelete }: EmailSheetActionsPr
   <>
     <div className="grid grid-flow-col gap-4">
       {installment.send_emails ? <ViewEmailButton installment={installment} /> : null}
+      {canResendToNonOpeners(installment) ? <ResendToNonOpenersButton installment={installment} /> : null}
       {installment.shown_on_profile ? (
         <NavigationButton href={installment.full_url} target="_blank" rel="noopener noreferrer">
           <FileDetail pack="filled" className="size-5" />

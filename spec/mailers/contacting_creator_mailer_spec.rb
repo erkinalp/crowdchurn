@@ -318,6 +318,17 @@ describe ContactingCreatorMailer do
       expect(mail.subject).to eq "You've received Gumroad credit!"
       expect(mail.body.encoded).to include "$2"
     end
+
+    it "includes the reason in the body when one is given" do
+      mail = ContactingCreatorMailer.credit_notification(@user.id, 200, "Thanks for reporting the checkout bug")
+      expect(mail.body.encoded).to include "Thanks for reporting the checkout bug"
+    end
+
+    it "preserves line breaks in a multi-line reason" do
+      mail = ContactingCreatorMailer.credit_notification(@user.id, 200, "Refunded the duplicate charge.\nAdded a little extra for the trouble.")
+      body = (mail.html_part || mail).body.decoded
+      expect(body).to match(%r{Refunded the duplicate charge\.\s*<br\s*/?>\s*Added a little extra for the trouble})
+    end
   end
 
   describe "gumroad_day_credit_notification" do
@@ -360,6 +371,25 @@ describe ContactingCreatorMailer do
       expect(mail.to).to eq([seller.email])
 
       expect_push_alert(seller.id, mail.subject)
+    end
+
+    it "displays the resolved tiered offer code discount" do
+      product = create(:product, user: seller, price_cents: 2_00)
+      offer_code = create(:tiered_offer_code, :for_existing_customers, name: "Renewal discount", products: [product], ownership_products: [product], user: seller)
+      purchase = create(:purchase, link: product, seller: product.user, purchaser: buyer, email: buyer.email, offer_code:, displayed_price_cents: 1_00, price_cents: 1_00)
+      purchase.create_purchase_offer_code_discount!(
+        offer_code:,
+        offer_code_amount: 50,
+        offer_code_is_percent: true,
+        pre_discount_minimum_price_cents: 2_00,
+        duration_in_months: nil
+      )
+
+      mail = ContactingCreatorMailer.notify(purchase.id)
+
+      expect(mail.body.decoded).to include("Renewal discount")
+      expect(mail.body.decoded).to include("50% off")
+      expect(mail.body.decoded).not_to include("(0% off)")
     end
 
     it "works for $0 purchases" do
@@ -619,6 +649,13 @@ describe ContactingCreatorMailer do
       upsell = create(:upsell, product:, name: "Complete course", seller:, offer_code:)
       upsell_variant = create(:upsell_variant, upsell:, selected_variant: product.alive_variants.first, offered_variant: product.alive_variants.second)
       upsell_purchase = create(:upsell_purchase, upsell:, upsell_variant:)
+      upsell_purchase.purchase.create_purchase_offer_code_discount!(
+        offer_code:,
+        offer_code_amount: 20,
+        offer_code_is_percent: true,
+        pre_discount_minimum_price_cents: product.price_cents,
+        duration_in_months: nil
+      )
       mail = ContactingCreatorMailer.notify(upsell_purchase.purchase.id)
       expect(mail.body.encoded).to include "Upsell"
       expect(mail.body.encoded).to include "Complete course (20% off)"
@@ -1714,10 +1751,10 @@ describe ContactingCreatorMailer do
       mail = ContactingCreatorMailer.stripe_document_verification_failed(creator.id, stripe_error_reason)
 
       expect(mail.to).to eq [creator.email]
-      expect(mail.subject).to eq "[Action Required] Document Verification Failed"
-      expect(mail.body.encoded).to include "Sorry about this! We ran into the following issue when trying to verify the document you uploaded on your payout settings page:"
+      expect(mail.subject).to eq "[Action Required] Stripe needs an updated document"
+      expect(mail.body.encoded).to include "Stripe, our payment processor, was unable to verify a document"
       expect(mail.body.encoded).to include stripe_error_reason
-      expect(mail.body.encoded).to include "Please upload a valid document at:"
+      expect(mail.body.encoded).to include "gumroad.com/settings/payments"
       expect(mail.body.encoded).to include settings_payments_url
     end
   end
@@ -1730,10 +1767,10 @@ describe ContactingCreatorMailer do
       mail = ContactingCreatorMailer.stripe_identity_verification_failed(creator.id, stripe_error_reason)
 
       expect(mail.to).to eq [creator.email]
-      expect(mail.subject).to eq "[Action Required] Identity Verification Failed"
-      expect(mail.body.encoded).to include "Sorry about this! We ran into the following issue when trying to verify the information entered on your payout settings page:"
+      expect(mail.subject).to eq "[Action Required] Stripe needs updated identity information"
+      expect(mail.body.encoded).to include "Stripe, our payment processor, was unable to verify some of the identity information"
       expect(mail.body.encoded).to include stripe_error_reason
-      expect(mail.body.encoded).to include "Please make any required changes at:"
+      expect(mail.body.encoded).to include "gumroad.com/settings/payments"
       expect(mail.body.encoded).to include settings_payments_url
     end
   end
@@ -1750,8 +1787,8 @@ describe ContactingCreatorMailer do
       expect(mail.body.encoded).to have_link(review.link.name, href: review.link.long_url)
       expect(mail.body.encoded).to have_text(review.message)
       expect(mail.body.encoded).to have_selector("[aria-label='1 star']")
-      expect(mail.body.encoded).to have_selector("img[src='#{ActionController::Base.helpers.asset_path("email/solid-star.png")}']", count: 1)
-      expect(mail.body.encoded).to have_selector("img[src='#{ActionController::Base.helpers.asset_path("email/outline-star.png")}']", count: 4)
+      expect(mail.body.encoded).to have_selector("img[src='#{ActionController::Base.helpers.image_path("email/solid-star.png")}']", count: 1)
+      expect(mail.body.encoded).to have_selector("img[src='#{ActionController::Base.helpers.image_path("email/outline-star.png")}']", count: 4)
       expect(mail.body.encoded).to have_link("View all reviews", href: review.link.long_url)
     end
 
@@ -1883,6 +1920,18 @@ describe ContactingCreatorMailer do
     end
   end
 
+  describe "#more_kyc_needed" do
+    let!(:seller) { create(:named_seller) }
+
+    it "links the call-to-action to the remediation endpoint so sellers reach Stripe's hosted upload flow" do
+      mail = ContactingCreatorMailer.more_kyc_needed(seller.id, %w[individual_tax_id])
+
+      expect(mail.to).to eq([seller.email])
+      expect(mail.body.encoded).to have_link("Provide your information", href: remediation_settings_payments_url)
+      expect(mail.body.encoded).not_to have_link("Provide your information", href: settings_payments_url)
+    end
+  end
+
   describe "#suspended_due_to_stripe_risk" do
     let(:seller) { create(:named_seller) }
 
@@ -1900,7 +1949,6 @@ describe ContactingCreatorMailer do
         expect(mail.body.encoded).to include("Of course, we will pay you out your remaining balance. Your existing customers' purchases will not be affected by this.")
         expect(mail.body.encoded).to include("And you can contact our support team to get your account reviewed again.")
         expect(mail.body.encoded).to include("We're super sorry about the inconvenience!")
-        expect(mail.body.encoded).to include("Sahil and the Gumroad team")
       end
     end
   end
@@ -1992,7 +2040,6 @@ describe ContactingCreatorMailer do
       expect(mail.body.encoded).to include("Your Gumroad account has been suspended for a policy violation.")
       expect(mail.body.encoded).to include("contact our support team")
       expect(mail.body.encoded).to include("reply to this email")
-      expect(mail.body.encoded).to include("The Gumroad team")
     end
 
     context "when the seller has a pending scheduled payout" do
@@ -2058,7 +2105,6 @@ describe ContactingCreatorMailer do
         expect(mail.body.encoded).to include("Your account will be permanently suspended in 10 days, on 7 April, if your storefront is not updated to be compliant by then.")
         expect(mail.body.encoded).to include("Of course, we will pay you out your remaining balance. Your existing customers' purchases will not be affected by this.")
         expect(mail.body.encoded).to include("We're super sorry about the inconvenience!")
-        expect(mail.body.encoded).to include("Sahil and the Gumroad team")
       end
     end
   end

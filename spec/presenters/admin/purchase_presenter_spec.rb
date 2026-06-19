@@ -5,7 +5,7 @@ require "spec_helper"
 describe Admin::PurchasePresenter do
   describe "#props" do
     let(:seller) { create(:user) }
-    let(:product) { create(:product, user: seller) }
+    let(:product) { create(:product, user: seller, price_cents: 1000) }
     let(:purchase) { create(:purchase, link: product, seller: seller) }
     let(:presenter) { described_class.new(purchase) }
 
@@ -88,8 +88,38 @@ describe Admin::PurchasePresenter do
             is_free_trial_purchase: purchase.is_free_trial_purchase?,
             buyer_blocked: purchase.buyer_blocked?,
             is_deleted_by_buyer: purchase.is_deleted_by_buyer?,
+            is_guest_buyer: purchase.purchaser_id.nil?,
+            is_buyer_email_anonymized: false,
             comments_count: purchase.comments.count,
+            early_fraud_warning: nil,
+            disputes: [],
+            stripe_risk_level: nil,
           )
+        end
+      end
+
+      context "when the buyer email is already anonymized" do
+        let(:purchase) { create(:free_purchase, link: product, seller: seller, purchaser: nil).tap { |p| p.update_columns(email: "buyer-abc@deleted.gumroad.com") } }
+
+        it "exposes is_buyer_email_anonymized as true" do
+          expect(props[:is_buyer_email_anonymized]).to be(true)
+        end
+      end
+
+      context "when the purchase is a guest buyer" do
+        let(:purchase) { create(:free_purchase, link: product, seller: seller, purchaser: nil) }
+
+        it "exposes is_guest_buyer as true" do
+          expect(props[:is_guest_buyer]).to be(true)
+        end
+      end
+
+      context "when the purchase has a registered buyer" do
+        let(:buyer) { create(:user) }
+        let(:purchase) { create(:free_purchase, link: product, seller: seller, purchaser: buyer) }
+
+        it "exposes is_guest_buyer as false" do
+          expect(props[:is_guest_buyer]).to be(false)
         end
       end
 
@@ -99,6 +129,22 @@ describe Admin::PurchasePresenter do
 
         it "returns the tip amount in cents" do
           expect(props[:tip]).to eq(500)
+        end
+      end
+
+      context "when purchase has a cached offer code discount" do
+        let(:offer_code) { create(:tiered_offer_code, user: seller, products: [product], amount_percentage: 0) }
+        let(:purchase) { create(:purchase, link: product, seller:, offer_code:, price_cents: 500) }
+
+        before do
+          purchase.create_purchase_offer_code_discount(offer_code:, offer_code_amount: 50, offer_code_is_percent: true, pre_discount_minimum_price_cents: 1000)
+        end
+
+        it "uses the cached resolved discount amount for offer code display" do
+          expect(props[:offer_code]).to eq(
+            code: offer_code.code,
+            displayed_amount_off: "50%"
+          )
         end
       end
 

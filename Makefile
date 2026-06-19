@@ -74,8 +74,10 @@ build_test:
 		--cache-from $(NEW_BASE_REPO):$(shell ./docker/base/generate_tag_for_web_base.sh) \
 		--cache-from $(NEW_WEB_BASE_TEST_REPO):$(shell ./docker/base/generate_tag_for_web_base_test.sh) \
 		--cache-from $(NEW_WEB_REPO):test-$(NEW_WEB_TAG) \
+		--cache-from $(NEW_WEB_REPO):test-cache \
 		--build-arg WEB_DOCKERFILE_FROM \
 		--build-arg WEB_BASE_TEST_DOCKERFILE_FROM \
+		--build-arg BUILDKIT_INLINE_CACHE=1 \
 		--file docker/web/Dockerfile.test \
 		--compress .
 	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) \
@@ -97,7 +99,7 @@ build_test:
 		--name worker_$(COMPOSE_PROJECT_NAME) \
 		-v $${PWD}:/mnt/host \
 		$(NEW_WEB_REPO):test-$(NEW_WEB_TAG) \
-		bash -c "su -c \"[[ -e /mnt/host/$$CACHE_TAR_FILE ]] && tar -xf /mnt/host/$$CACHE_TAR_FILE -C . || true; npm ci && npm run setup && bundle exec rake db:setup assets:precompile --trace\" app; exit_status=$$?; [[ $$BRANCH_CACHE_UPLOAD_ENABLED == 'true' ]] && tar -cf /mnt/host/$$CACHE_TAR_FILE node_modules public/assets public/packs-test tmp/cache/assets tmp/shakapacker || true; [[ $$BRANCH_CACHE_RESTORE_ENABLED == 'true' ]] && rm -rf node_modules public/assets tmp/cache/assets tmp/shakapacker || true; exit $$exit_status"
+		bash -c "su -c \"[[ -e /mnt/host/$$CACHE_TAR_FILE ]] && tar -xf /mnt/host/$$CACHE_TAR_FILE -C . || true; npm run setup && bundle exec rake db:setup assets:precompile --trace\" app; exit_status=$$?; [[ $$BRANCH_CACHE_UPLOAD_ENABLED == 'true' ]] && tar -cf /mnt/host/$$CACHE_TAR_FILE node_modules public/assets public/js public/vite-test tmp/cache/assets || true; [[ $$BRANCH_CACHE_RESTORE_ENABLED == 'true' ]] && rm -rf node_modules public/assets tmp/cache/assets || true; exit $$exit_status"
 	$(DOCKER_CMD) ps -lq --filter='label=routes_compiled=true' --filter='exited=0' --filter='name=worker_$(COMPOSE_PROJECT_NAME)' | xargs -I{} $(DOCKER_CMD) commit {} $(NEW_WEB_REPO):test-$(NEW_WEB_TAG)
 	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) \
 		$(DOCKER_COMPOSE_CMD) -f docker/docker-compose-test-and-ci.yml down
@@ -133,16 +135,16 @@ build_staging:
 		gosu app bash -c "docker/web/compile_assets.sh && $(call remove_spec_folder)"
 	$(DOCKER_CMD) ps -lq --filter='name=$(COMPOSE_PROJECT_NAME)_staging-assets' --filter='label=assets_compiled=true' --filter='exited=0' | xargs -I{} $(DOCKER_CMD) commit {} $(NEW_WEB_REPO):staging-$(NEW_WEB_TAG)
 ifeq ($(PUSH_ASSETS),true)
-	$(DOCKER_CMD) run -d \
-		--entrypoint="bash" \
-		--volume /app \
-		$(NEW_WEB_REPO):staging-$(NEW_WEB_TAG) | xargs -I{} docker run \
-			-e AWS_ACCESS_KEY_ID=$$GUM_AWS_ACCESS_KEY_ID \
-			-e AWS_SECRET_ACCESS_KEY=$$GUM_AWS_SECRET_ACCESS_KEY \
-			-e ASSETS_S3_BUCKET=gumroad-staging-assets \
-			--volumes-from {} \
-			$(AWS_CLI_DOCKER_IMAGE) \
-			sh /app/docker/web/push_assets_to_s3.sh
+	set -e; \
+	container_id=$$($(DOCKER_CMD) run -d --entrypoint="bash" --volume /app $(NEW_WEB_REPO):staging-$(NEW_WEB_TAG)); \
+	trap "$(DOCKER_CMD) rm -f $$container_id >/dev/null 2>&1 || true" EXIT; \
+	$(DOCKER_CMD) run \
+		-e AWS_ACCESS_KEY_ID=$$GUM_AWS_ACCESS_KEY_ID \
+		-e AWS_SECRET_ACCESS_KEY=$$GUM_AWS_SECRET_ACCESS_KEY \
+		-e ASSETS_S3_BUCKET=gumroad-staging-assets \
+		--volumes-from $$container_id \
+		$(AWS_CLI_DOCKER_IMAGE) \
+		sh /app/docker/web/push_assets_to_s3.sh
 endif
 	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) \
 		$(DOCKER_COMPOSE_CMD) -f docker/docker-compose-test-and-ci.yml down
@@ -167,22 +169,23 @@ build_production:
 		-e DATABASE_PASSWORD="password" \
 		-e RAILS_MASTER_KEY=$$RAILS_PRODUCTION_MASTER_KEY \
 		-e DEVISE_SECRET_KEY="sample_secret_key" \
+		-e BUILDKITE_BRANCH=$(BUILDKITE_BRANCH) \
 		-e REVISION=$(NEW_WEB_TAG) \
 		--label assets_compiled=true \
 		$(NEW_WEB_REPO):web-$(NEW_WEB_TAG) \
 		gosu app bash -c "docker/web/compile_assets.sh && $(call remove_spec_folder)"
 	$(DOCKER_CMD) ps -lq --filter='name=$(COMPOSE_PROJECT_NAME)_production-assets' --filter='label=assets_compiled=true' --filter='exited=0' | xargs -I{} $(DOCKER_CMD) commit {} $(NEW_WEB_REPO):production-$(NEW_WEB_TAG)
 ifeq ($(PUSH_ASSETS),true)
-	$(DOCKER_CMD) run -d \
-		--entrypoint="bash" \
-		--volume /app \
-		$(NEW_WEB_REPO):production-$(NEW_WEB_TAG) | xargs -I{} docker run \
-			-e AWS_ACCESS_KEY_ID=$$GUM_AWS_ACCESS_KEY_ID \
-			-e AWS_SECRET_ACCESS_KEY=$$GUM_AWS_SECRET_ACCESS_KEY \
-			-e ASSETS_S3_BUCKET=gumroad-production-assets \
-			--volumes-from {} \
-			$(AWS_CLI_DOCKER_IMAGE) \
-			sh /app/docker/web/push_assets_to_s3.sh
+	set -e; \
+	container_id=$$($(DOCKER_CMD) run -d --entrypoint="bash" --volume /app $(NEW_WEB_REPO):production-$(NEW_WEB_TAG)); \
+	trap "$(DOCKER_CMD) rm -f $$container_id >/dev/null 2>&1 || true" EXIT; \
+	$(DOCKER_CMD) run \
+		-e AWS_ACCESS_KEY_ID=$$GUM_AWS_ACCESS_KEY_ID \
+		-e AWS_SECRET_ACCESS_KEY=$$GUM_AWS_SECRET_ACCESS_KEY \
+		-e ASSETS_S3_BUCKET=gumroad-production-assets \
+		--volumes-from $$container_id \
+		$(AWS_CLI_DOCKER_IMAGE) \
+		sh /app/docker/web/push_assets_to_s3.sh
 endif
 	COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) \
 		$(DOCKER_COMPOSE_CMD) -f docker/docker-compose-test-and-ci.yml down

@@ -34,6 +34,8 @@ export const GetSales = () => (
       <ApiParameter name="product_id" description="(optional) - Filter sales by this product" />
       <ApiParameter name="email" description="(optional) - Filter sales by this email" />
       <ApiParameter name="order_id" description="(optional) - Filter sales by this Order ID" />
+      <ApiParameter name="name" description="(optional) - Filter sales by customer name" />
+      <ApiParameter name="license_key" description="(optional) - Filter sales by license key" />
       <ApiParameter
         name="page_key"
         description="(optional) - A key representing a page of results. It is given in the response as `next_page_key`."
@@ -54,7 +56,16 @@ export const GetSales = () => (
   -d "after=2020-09-03" \\
   -d "product_id=bfi_30HLgGWL8H2wo_Gzlg==" \\
   -d "email=calvin@gumroad.com" \\
+  -d "name=Calvin" \\
+  -d "license_key=83DB262A-C19D3B06-A5235A6B-8C079166" \\
   -X GET`}
+    </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">
+      {`gumroad sales list --all \\
+  --before 2021-09-03 \\
+  --after 2020-09-03 \\
+  --product bfi_30HLgGWL8H2wo_Gzlg== \\
+  --email calvin@gumroad.com`}
     </CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
@@ -73,6 +84,14 @@ export const GetSales = () => (
       "product_has_variants": true,
       "price": 1000,
       "gumroad_fee": 60,
+      "tax_cents": 0,
+      "shipping_cents": 0,
+      "access_revoked": false,
+      "variants_price_cents": 0,
+      "sent_abandoned_cart_email": false,
+      "utm_source": "facebook",
+      "utm_medium": "social",
+      "utm_campaign": "launch",
       "subscription_duration": "monthly",
       "formatted_display_price": "$10 a month",
       "formatted_total_price": "$10 a month",
@@ -144,6 +163,7 @@ export const GetSale = () => (
   -d "access_token=ACCESS_TOKEN" \\
   -X GET`}
     </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">gumroad sales view FO8TXN-dvxYabdavG97Y-Q==</CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
   "success": true,
@@ -158,6 +178,22 @@ export const GetSale = () => (
     "product_has_variants": true,
     "price": 1000,
     "gumroad_fee": 60,
+    "tip_cents": 200,
+    "tax_cents": 125,
+    "shipping_cents": 0,
+    "tax_label": "Sales tax",
+    "tax_included_in_price": false,
+    "payment_processor": "stripe_connect",
+    "processor_transaction_id": "ch_1234567890",
+    "processor_fee_cents": 59,
+    "processor_fee_currency": "usd",
+    "access_revoked": false,
+    "variants_price_cents": 0,
+    "review": "Loved it.",
+    "sent_abandoned_cart_email": false,
+    "utm_source": "newsletter",
+    "utm_medium": "email",
+    "utm_campaign": "launch",
     "subscription_duration": "monthly",
     "formatted_display_price": "$10 a month",
     "formatted_total_price": "$10 a month",
@@ -235,6 +271,10 @@ export const MarkSaleAsShipped = () => (
   -d "access_token=ACCESS_TOKEN" \\
   -d "tracking_url=https://www.shippingcompany.com/track/t123" \\
   -X PUT`}
+    </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">
+      {`gumroad sales ship A-m3CDDC5dlrSdKZp0RFhA== \\
+  --tracking-url https://www.shippingcompany.com/track/t123`}
     </CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
@@ -333,6 +373,7 @@ export const RefundSale = () => (
   -d "amount_cents=200" \\
   -X PUT`}
     </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">gumroad sales refund A-m3CDDC5dlrSdKZp0RFhA== --amount 2.00</CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
   "success": true,
@@ -407,6 +448,7 @@ export const ResendReceipt = () => (
   -d "access_token=ACCESS_TOKEN" \\
   -X POST`}
     </CodeSnippet>
+    <CodeSnippet caption="Gumroad CLI">gumroad sales resend-receipt A-m3CDDC5dlrSdKZp0RFhA==</CodeSnippet>
     <CodeSnippet caption="Example response:">
       {`{
   "success": true

@@ -590,7 +590,7 @@ describe Subscription::UpdaterService, :vcr do
         end
 
         context "when the membership was cancelled by the creator" do
-          it "does not allow restarting the membership" do
+          it "blocks restarting with the existing card and surfaces the product checkout URL alongside a plain text message" do
             @subscription.update!(cancelled_by_buyer: false)
 
             result = Subscription::UpdaterService.new(
@@ -602,8 +602,27 @@ describe Subscription::UpdaterService, :vcr do
             ).perform
 
             expect(result[:success]).to eq false
-            expect(result[:error_message]).to eq "This subscription cannot be restarted."
+            expect(result[:error_message]).to eq "This membership was cancelled by the creator. To continue, please subscribe again from the product page."
+            expect(result[:error_message]).not_to include("<")
+            expect(result[:restart_at_checkout_url]).to eq @product.long_url
             expect(@subscription.reload).not_to be_alive
+          end
+
+          it "allows restart-at-checkout to proceed past the seller-cancelled guard when a new payment method is being attached" do
+            @subscription.update!(cancelled_by_buyer: false)
+            allow(CardParamsHelper).to receive(:build_chargeable).and_return(nil)
+
+            result = Subscription::UpdaterService.new(
+              subscription: @subscription,
+              gumroad_guid: @gumroad_guid,
+              params: existing_card_params.merge(use_existing_card: false, paypal_order_id: "PAYID-TEST"),
+              logged_in_user: @user,
+              remote_ip: @remote_ip,
+            ).perform
+
+            expect(result[:success]).to eq false
+            expect(result[:error_message]).not_to include("This membership was cancelled by the creator.")
+            expect(result[:error_message]).to include("couldn't charge")
           end
         end
 
@@ -620,8 +639,23 @@ describe Subscription::UpdaterService, :vcr do
             ).perform
 
             expect(result[:success]).to eq false
-            expect(result[:error_message]).to eq "This subscription cannot be restarted."
+            expect(result[:error_message]).to eq "This product is no longer available, so this membership can't be restarted."
             expect(@subscription.reload).not_to be_alive
+          end
+
+          it "blocks restart even when a new payment method is being attached" do
+            @product.mark_deleted!
+
+            result = Subscription::UpdaterService.new(
+              subscription: @subscription,
+              gumroad_guid: @gumroad_guid,
+              params: existing_card_params.merge(use_existing_card: false, paypal_order_id: "PAYID-TEST"),
+              logged_in_user: @user,
+              remote_ip: @remote_ip,
+            ).perform
+
+            expect(result[:success]).to eq false
+            expect(result[:error_message]).to eq "This product is no longer available, so this membership can't be restarted."
           end
         end
       end
@@ -2758,6 +2792,62 @@ describe Subscription::UpdaterService, :vcr do
       end
     end
 
+    context "buyer-aware fallback pricing" do
+      let(:logged_in_user) { create(:user) }
+      let(:subscription) { instance_double(Subscription) }
+      let(:service) do
+        described_class.new(
+          subscription:,
+          gumroad_guid: "abc123",
+          params: {},
+          logged_in_user:,
+          remote_ip: "127.0.0.1",
+        )
+      end
+
+      it "uses the logged in user when validating the unchanged plan price" do
+        expect(subscription).to receive(:current_subscription_price_cents).with(authenticated_offer_code_buyer: logged_in_user).and_return(12_34)
+
+        expect(service.send(:new_price_cents)).to eq(12_34)
+      end
+
+      it "uses the logged in user when checking whether the subscription price changed" do
+        service.original_purchase = instance_double(Purchase, quantity: 2)
+        allow(service).to receive(:pwyw?).and_return(false)
+        allow(subscription).to receive(:send).with(:tier_price).and_return(instance_double(Price, price_cents: 6_17))
+        expect(subscription).to receive(:current_subscription_price_cents).with(authenticated_offer_code_buyer: logged_in_user).and_return(12_34)
+
+        expect(service.send(:price_changed?)).to eq(false)
+      end
+
+      it "passes the logged in user when charging an immediate update" do
+        service.is_resubscribing = false
+        upgrade_purchase = instance_double(Purchase,
+                                           successful?: true,
+                                           test_successful?: false,
+                                           in_progress?: false,
+                                           errors: double(full_messages: []),
+                                           error_code: nil,
+                                           external_id: "upgrade-purchase")
+        allow(service).to receive(:amount_owed).and_return(12_34)
+        allow(service).to receive(:prorated_discount_price_cents).and_return(0)
+        allow(service).to receive(:upgrade?).and_return(true)
+        allow(service).to receive(:use_existing_card?).and_return(true)
+        allow(service).to receive(:send_subscription_updated_api_notification)
+        allow(service).to receive(:same_variants?).and_return(true)
+        allow(service).to receive(:success_message).and_return("Your membership has been updated.")
+        allow(subscription).to receive(:credit_card_to_charge).and_return(nil)
+        expect(subscription).to receive(:charge!).with(
+          override_params: hash_including(perceived_price_cents: 12_34, is_upgrade_purchase: true),
+          from_failed_charge_email: nil,
+          off_session: true,
+          authenticated_offer_code_buyer: logged_in_user,
+        ).and_return(upgrade_purchase)
+
+        expect(service.send(:charge_user!)[:success]).to eq(true)
+      end
+    end
+
     context "when restarting with offer code changes" do
       let(:free_trial) { false }
 
@@ -2866,6 +2956,7 @@ describe Subscription::UpdaterService, :vcr do
         new_perceived = @original_tier_quarterly_price.price_cents - new_offer_code.amount_off(@original_tier_quarterly_price.price_cents)
 
         expect(@subscription).to receive(:send_restart_notifications!)
+        expect(@subscription).to receive(:update_current_plan!).with(hash_including(authenticated_offer_code_buyer: @user)).and_call_original
         result = described_class.new(
           subscription: @subscription,
           gumroad_guid: @gumroad_guid,
@@ -2932,6 +3023,115 @@ describe Subscription::UpdaterService, :vcr do
 
         expect(result[:success]).to eq(false)
         expect(result[:error_message]).to eq("This installment plan has already been completed and cannot be restarted.")
+      end
+    end
+
+    context "inventory counter cache" do
+      before :each do
+        setup_subscription
+        @gumroad_guid = "abc123"
+        @remote_ip = "11.22.33.44"
+        travel_to(@originally_subscribed_at + 1.month)
+      end
+
+      it "does not drift link or variant cache on a non-immediate downgrade" do
+        product = @product.reload
+        original_tier = @original_tier.reload
+        lower_tier = @lower_tier.reload
+
+        link_before = product.sales_count_for_inventory_cache.to_i
+        original_tier_before = original_tier.sales_count_for_inventory_cache.to_i
+        lower_tier_before = lower_tier.sales_count_for_inventory_cache.to_i
+
+        params = {
+          price_id: @quarterly_product_price.external_id,
+          variants: [@lower_tier.external_id],
+          quantity: 1,
+          use_existing_card: true,
+          perceived_price_cents: @lower_tier_quarterly_price.price_cents,
+          perceived_upgrade_price_cents: 0,
+        }
+
+        result = Subscription::UpdaterService.new(
+          subscription: @subscription,
+          gumroad_guid: @gumroad_guid,
+          params:,
+          logged_in_user: @user,
+          remote_ip: @remote_ip,
+        ).perform
+        expect(result[:success]).to eq(true)
+
+        expect(product.reload.sales_count_for_inventory_cache.to_i).to eq(link_before)
+        expect(original_tier.reload.sales_count_for_inventory_cache.to_i).to eq(original_tier_before)
+        expect(lower_tier.reload.sales_count_for_inventory_cache.to_i).to eq(lower_tier_before)
+      end
+
+      it "credits the new variant on an immediate tier upgrade and decrements the previous tier" do
+        product = @product.reload
+        original_tier = @original_tier.reload
+        new_tier = @new_tier.reload
+
+        link_before = product.sales_count_for_inventory_cache.to_i
+        original_tier_before = original_tier.sales_count_for_inventory_cache.to_i
+        new_tier_before = new_tier.sales_count_for_inventory_cache.to_i
+
+        params = {
+          price_id: @quarterly_product_price.external_id,
+          variants: [@new_tier.external_id],
+          quantity: 1,
+          use_existing_card: true,
+          perceived_price_cents: @new_tier_quarterly_price.price_cents,
+          perceived_upgrade_price_cents: @new_tier_quarterly_upgrade_cost_after_one_month,
+        }
+
+        result = Subscription::UpdaterService.new(
+          subscription: @subscription,
+          gumroad_guid: @gumroad_guid,
+          params:,
+          logged_in_user: @user,
+          remote_ip: @remote_ip,
+        ).perform
+        expect(result[:success]).to eq(true)
+
+        expect(product.reload.sales_count_for_inventory_cache.to_i).to eq(link_before)
+        expect(original_tier.reload.sales_count_for_inventory_cache.to_i).to eq(original_tier_before - 1)
+        expect(new_tier.reload.sales_count_for_inventory_cache.to_i).to eq(new_tier_before + 1)
+      end
+
+      it "does not double-count when resubscribing with a tier change" do
+        travel_to(@originally_subscribed_at + 4.months)
+        @subscription.update!(cancelled_at: 1.day.ago, cancelled_by_buyer: true)
+        @subscription.deactivate!
+
+        product = @product.reload
+        original_tier = @original_tier.reload
+        new_tier = @new_tier.reload
+
+        link_after_deactivate = product.sales_count_for_inventory_cache.to_i
+        original_tier_after_deactivate = original_tier.sales_count_for_inventory_cache.to_i
+        new_tier_after_deactivate = new_tier.sales_count_for_inventory_cache.to_i
+
+        params = {
+          price_id: @quarterly_product_price.external_id,
+          variants: [@new_tier.external_id],
+          quantity: 1,
+          use_existing_card: true,
+          perceived_price_cents: @new_tier_quarterly_price.price_cents,
+          perceived_upgrade_price_cents: @new_tier_quarterly_price.price_cents,
+        }
+
+        result = Subscription::UpdaterService.new(
+          subscription: @subscription,
+          gumroad_guid: @gumroad_guid,
+          params:,
+          logged_in_user: @user,
+          remote_ip: @remote_ip,
+        ).perform
+        expect(result[:success]).to eq(true)
+
+        expect(product.reload.sales_count_for_inventory_cache.to_i).to eq(link_after_deactivate + 1)
+        expect(original_tier.reload.sales_count_for_inventory_cache.to_i).to eq(original_tier_after_deactivate)
+        expect(new_tier.reload.sales_count_for_inventory_cache.to_i).to eq(new_tier_after_deactivate + 1)
       end
     end
   end

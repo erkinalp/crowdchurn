@@ -105,9 +105,29 @@ describe SearchProducts do
         expect(JSON.parse(response.body)["filetypes"]).to eq(["pdf", "video"])
       end
 
+      it "parses ids from string" do
+        get :index, params: { ids: "abc,def, ghi" }
+        expect(JSON.parse(response.body)["ids"]).to eq(["abc", "def", "ghi"])
+      end
+
       it "converts size to integer" do
         get :index, params: { size: "20" }
         expect(JSON.parse(response.body)["size"]).to eq(20)
+      end
+
+      it "converts size from array to integer" do
+        get :index, params: { size: ["20", "30"] }
+        expect(JSON.parse(response.body)["size"]).to eq(20)
+      end
+
+      it "converts from to integer when present" do
+        get :index, params: { from: "5" }
+        expect(JSON.parse(response.body)["from"]).to eq(5)
+      end
+
+      it "converts from from array to integer" do
+        get :index, params: { from: ["10", "20"] }
+        expect(JSON.parse(response.body)["from"]).to eq(10)
       end
     end
   end

@@ -12,7 +12,10 @@ module Charge::Disputable
     end
 
     def charge_processor_transaction_id
-      is_a?(Charge) ? processor_transaction_id : stripe_transaction_id
+      return stripe_transaction_id unless is_a?(Charge)
+      return processor_transaction_id if processor_transaction_id.present?
+
+      disputed_purchases.one? ? disputed_purchases.first.stripe_transaction_id : nil
     end
 
     def purchase_for_dispute_evidence
@@ -154,6 +157,16 @@ module Charge::Disputable
     FightDisputeJob.perform_async(dispute_evidence.dispute.id) if dispute_evidence.present?
   end
 
+  def resolve_pending_dispute_evidence_if_any!(error_message)
+    evidence = dispute.dispute_evidence
+    return if evidence.nil? || evidence.resolved?
+
+    evidence.update_as_resolved!(
+      resolution: DisputeEvidence::RESOLUTION_REJECTED,
+      error_message:
+    )
+  end
+
   def handle_event_dispute_won!(event)
     unless disputed_purchases.any?(&:successful?)
       ErrorNotifier.notify("Invalid charge event received for failed #{self.class.name} #{external_id} - " \
@@ -198,11 +211,32 @@ module Charge::Disputable
     end
 
     ContactingCreatorMailer.chargeback_won(dispute.id).deliver_later unless disputed_purchases.all?(&:refunded?)
+
+    resolve_pending_dispute_evidence_if_any!("Dispute closed (won) before evidence was submitted.")
   end
 
   def handle_event_dispute_lost!(event)
     dispute = find_or_build_dispute(event)
     dispute.mark_lost!
+
+    # PayPal can resolve a dispute as non-seller-favour while only partially refunding the buyer
+    # (e.g. INCORRECT_AMOUNT settled with a partial refund). The purchase stays successful and
+    # partially_refunded, so the chargeback flag set at formalization must be lifted to restore access.
+    # Scoped to PayPal because Stripe-lost disputes pull the full disputed amount via the bank,
+    # so a pre-dispute partial refund there does not mean the buyer is net-paying.
+    disputed_purchases.each do |purchase|
+      next unless purchase.charge_processor_id == PaypalChargeProcessor.charge_processor_id
+      next unless purchase.successful?
+      next if purchase.stripe_refunded
+      next unless purchase.stripe_partially_refunded
+
+      purchase.update!(chargeback_reversed: true)
+      purchase.mark_giftee_purchase_as_chargeback_reversed if purchase.is_gift_sender_purchase
+      purchase.mark_product_purchases_as_chargeback_reversed!
+    end
+
+    resolve_pending_dispute_evidence_if_any!("Dispute closed (lost) before evidence was submitted.")
+
     return unless first_product_without_refund_policy.present?
 
     ContactingCreatorMailer.chargeback_lost_no_refund_policy(dispute.id).deliver_later

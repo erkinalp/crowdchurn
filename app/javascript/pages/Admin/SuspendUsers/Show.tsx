@@ -4,6 +4,7 @@ import React from "react";
 import { Button } from "$app/components/Button";
 import CodeSnippet from "$app/components/ui/CodeSnippet";
 import { FormSection } from "$app/components/ui/FormSection";
+import { Input } from "$app/components/ui/Input";
 import { Label } from "$app/components/ui/Label";
 import { Select } from "$app/components/ui/Select";
 import { Textarea } from "$app/components/ui/Textarea";
@@ -13,15 +14,43 @@ type PageProps = {
   suspend_reasons: string[];
 };
 
+const DEFAULT_SCHEDULED_PAYOUT_DELAY_DAYS = "21";
+
+const NOTES_SUGGESTIONS = [
+  "Adult (18+) content",
+  "Stripe reported high risk",
+  "Intellectual property infringement",
+  "General non-compliance",
+  "Credit repair services",
+  "Pirated/unauthorized software or content",
+  "Counterfeit or copied products from another creator",
+  "DMCA/copyright infringement",
+  "Card testing or fraudulent transactions",
+  "High chargeback rate",
+  "Shared bank account with previously suspended user",
+  "Unauthorized resale of third-party products",
+  "Spam or SEO manipulation",
+  "Phishing or scam products",
+  "Physical goods only (not permitted)",
+  "Negative balance over 3 months",
+  "No products / empty storefront with balance",
+];
+
 const SuspendUsers = () => {
   const { authenticity_token: authenticityToken, suspend_reasons: suspendReasons } = usePage<PageProps>().props;
+
+  const initialIdentifiers = new URLSearchParams(window.location.search).get("identifiers") ?? "";
 
   const form = useForm({
     authenticity_token: authenticityToken,
     suspend_users: {
-      identifiers: "",
+      identifiers: initialIdentifiers,
       reason: "",
       additional_notes: "",
+    },
+    scheduled_payout: {
+      action: "payout",
+      delay_days: DEFAULT_SCHEDULED_PAYOUT_DELAY_DAYS,
     },
   });
 
@@ -35,6 +64,14 @@ const SuspendUsers = () => {
 
   const setAdditionalNotes = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     form.setData("suspend_users.additional_notes", event.target.value);
+  };
+
+  const setPayoutAction = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    form.setData("scheduled_payout.action", event.target.value);
+  };
+
+  const setPayoutDelayDays = (event: React.ChangeEvent<HTMLInputElement>) => {
+    form.setData("scheduled_payout.delay_days", event.target.value);
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -93,6 +130,22 @@ const SuspendUsers = () => {
         </Select>
 
         <Label htmlFor="additionalNotes">Notes</Label>
+        <div className="mb-2 flex flex-wrap gap-1">
+          {NOTES_SUGGESTIONS.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              className="rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-black hover:text-white"
+              onClick={() => {
+                const current = form.data.suspend_users.additional_notes;
+                const sep = current && !current.endsWith("\n") ? "\n" : "";
+                form.setData("suspend_users.additional_notes", current + sep + suggestion);
+              }}
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
         <Textarea
           id="additionalNotes"
           name="suspend_users[additional_notes]"
@@ -101,6 +154,41 @@ const SuspendUsers = () => {
           value={form.data.suspend_users.additional_notes}
           onChange={setAdditionalNotes}
         />
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-end gap-2">
+            <div className="flex flex-1 flex-col gap-2">
+              <Label htmlFor="scheduled_payout_action">Balance action</Label>
+              <Select
+                id="scheduled_payout_action"
+                name="scheduled_payout[action]"
+                value={form.data.scheduled_payout.action}
+                onChange={setPayoutAction}
+              >
+                <option value="payout">Payout after delay</option>
+                <option value="refund">Refund purchases</option>
+                <option value="hold">Hold (manual release)</option>
+              </Select>
+            </div>
+            {form.data.scheduled_payout.action !== "hold" ? (
+              <div className="flex w-24 flex-col gap-2">
+                <Label htmlFor="scheduled_payout_delay">Delay (days)</Label>
+                <Input
+                  id="scheduled_payout_delay"
+                  type="number"
+                  name="scheduled_payout[delay_days]"
+                  min={0}
+                  value={form.data.scheduled_payout.delay_days}
+                  onChange={setPayoutDelayDays}
+                />
+              </div>
+            ) : null}
+          </div>
+          <small>
+            Only applied to users with an unpaid balance. Users with a zero balance are suspended but no scheduled
+            payout is created.
+          </small>
+        </div>
 
         <Button type="submit" color="primary">
           Suspend users

@@ -1,7 +1,7 @@
 import { router, useForm, usePage } from "@inertiajs/react";
 import { reverse } from "lodash-es";
 import * as React from "react";
-import { cast } from "ts-safe-cast";
+import typia from "typia";
 
 import { type SurchargesResponse } from "$app/data/customer_surcharge";
 import { startOrderCreation } from "$app/data/order";
@@ -10,7 +10,7 @@ import { type SavedCreditCard } from "$app/parsers/card";
 import { type CardProduct, COMMISSION_DEPOSIT_PROPORTION, type CustomFieldDescriptor } from "$app/parsers/product";
 import { isOpenTuple } from "$app/utils/array";
 import { assert } from "$app/utils/assert";
-import { formatPriceCentsWithCurrencySymbol, getIsSingleUnitCurrency } from "$app/utils/currency";
+import { CurrencyCode, formatPriceCentsWithCurrencySymbol, getIsSingleUnitCurrency } from "$app/utils/currency";
 import { isValidEmail } from "$app/utils/email";
 import { calculateFirstInstallmentPaymentPriceCents } from "$app/utils/price";
 import { assertResponseError } from "$app/utils/request";
@@ -164,10 +164,10 @@ const CheckoutIndexPage = () => {
       default_tip_option,
     },
     ...props
-  } = cast<CheckoutIndexPageProps>(usePage().props);
+  } = typia.assert<CheckoutIndexPageProps>(usePage().props);
 
   const user = useLoggedInUser();
-  const email = props.cart?.email ?? user?.email ?? "";
+  const email = user?.email ?? props.cart?.email ?? "";
   const cartForm = useForm<{ cart: CartState }>(() => {
     const initialCart = clear_cart ? newCartState() : (props.cart ?? newCartState());
     const url = new URL(window.location.href);
@@ -520,18 +520,21 @@ const CheckoutIndexPage = () => {
 
       for (const { result, item } of results) {
         if (!result.success) continue;
-        trackProductEvent(item.product.creator.id, {
-          action: "purchased",
-          seller_id: result.seller_id,
-          permalink: result.permalink,
-          purchase_external_id: result.id,
-          currency: result.currency_type.toUpperCase(),
-          product_name: result.name,
-          value: result.non_formatted_price,
-          valueIsSingleUnit: getIsSingleUnitCurrency(cast(result.currency_type)),
-          quantity: result.quantity,
-          tax: result.non_formatted_seller_tax_amount,
-        });
+        if (redirectTo !== "content-page") {
+          trackProductEvent(item.product.creator.id, {
+            action: "purchased",
+            seller_id: result.seller_id,
+            permalink: result.permalink,
+            purchase_external_id: result.id,
+            currency: result.currency_type.toUpperCase(),
+            product_name: result.name,
+            value: result.non_formatted_price,
+            valueIsSingleUnit: getIsSingleUnitCurrency(typia.assert<CurrencyCode>(result.currency_type)),
+            quantity: result.quantity,
+            tax: result.non_formatted_seller_tax_amount,
+            buyer_currency_display: item.product.buyer_currency_display,
+          });
+        }
         if (result.has_third_party_analytics && !redirectTo)
           addThirdPartyAnalytics({ permalink: result.permalink, location: "receipt", purchaseId: result.id });
       }

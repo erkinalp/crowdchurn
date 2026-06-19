@@ -2,59 +2,85 @@ import React from "react";
 
 import { ApiResource } from "$app/components/ApiDocumentation/ApiResource";
 import { Authentication } from "$app/components/ApiDocumentation/Authentication";
+import { CommandLine } from "$app/components/ApiDocumentation/CommandLine";
+import { CreateCover, DeleteCover } from "$app/components/ApiDocumentation/Endpoints/Covers";
 import {
-  GetCustomFields,
   CreateCustomField,
-  UpdateCustomField,
   DeleteCustomField,
+  GetCustomFields,
+  UpdateCustomField,
 } from "$app/components/ApiDocumentation/Endpoints/CustomFields";
+import { GetEarnings } from "$app/components/ApiDocumentation/Endpoints/Earnings";
 import {
-  VerifyLicense,
-  EnableLicense,
-  DisableLicense,
+  CreateEmail,
+  DeleteEmail,
+  GetEmail,
+  GetEmails,
+  PreviewEmail,
+  SendEmail,
+} from "$app/components/ApiDocumentation/Endpoints/Emails";
+import {
+  AbortFile,
+  AttachFile,
+  CompleteFile,
+  FilesOverview,
+  PresignFile,
+} from "$app/components/ApiDocumentation/Endpoints/Files";
+import {
   DecrementUsesCount,
+  DisableLicense,
+  EnableLicense,
   RotateLicense,
+  VerifyLicense,
 } from "$app/components/ApiDocumentation/Endpoints/Licenses";
 import {
-  GetOfferCodes,
-  GetOfferCode,
   CreateOfferCode,
-  UpdateOfferCode,
   DeleteOfferCode,
+  GetOfferCode,
+  GetOfferCodes,
+  UpdateOfferCode,
 } from "$app/components/ApiDocumentation/Endpoints/OfferCodes";
-import {GetPayouts, GetPayout, GetUpcomingPayouts} from "$app/components/ApiDocumentation/Endpoints/Payouts";
+import { GetPayout, GetPayouts, GetUpcomingPayouts } from "$app/components/ApiDocumentation/Endpoints/Payouts";
 import {
-  GetProducts,
-  GetProduct,
+  CreateProduct,
   DeleteProduct,
-  EnableProduct,
   DisableProduct,
+  EnableProduct,
+  GetCategories,
+  GetProduct,
+  GetProducts,
+  UpdateProduct,
 } from "$app/components/ApiDocumentation/Endpoints/Products";
+import { GetPublicProductPage } from "$app/components/ApiDocumentation/Endpoints/PublicProductPage";
+import { GetPublicProfile } from "$app/components/ApiDocumentation/Endpoints/PublicProfile";
+import { GetRefundPolicy, UpdateRefundPolicy } from "$app/components/ApiDocumentation/Endpoints/RefundPolicy";
 import {
   CreateResourceSubscription,
-  GetResourceSubscriptions,
   DeleteResourceSubscription,
+  GetResourceSubscriptions,
 } from "$app/components/ApiDocumentation/Endpoints/ResourceSubscriptions";
 import {
-  GetSales,
-  GetSale,
   MarkSaleAsShipped,
   RefundSale,
   ResendReceipt,
+  GetSale,
+  GetSales,
 } from "$app/components/ApiDocumentation/Endpoints/Sales";
 import { GetSubscribers, GetSubscriber } from "$app/components/ApiDocumentation/Endpoints/Subscribers";
+import { GetTaxForms, DownloadTaxForm } from "$app/components/ApiDocumentation/Endpoints/TaxForms";
+import { CreateThumbnail, DeleteThumbnail } from "$app/components/ApiDocumentation/Endpoints/Thumbnails";
 import { GetUser } from "$app/components/ApiDocumentation/Endpoints/User";
 import {
-  CreateVariantCategory,
-  GetVariantCategory,
-  UpdateVariantCategory,
-  DeleteVariantCategory,
-  GetVariantCategories,
   CreateVariant,
-  GetVariant,
-  UpdateVariant,
+  CreateVariantCategory,
   DeleteVariant,
+  DeleteVariantCategory,
+  GetVariant,
+  GetVariantCategories,
+  GetVariantCategory,
   GetVariants,
+  UpdateVariant,
+  UpdateVariantCategory,
 } from "$app/components/ApiDocumentation/Endpoints/Variants";
 import { Errors } from "$app/components/ApiDocumentation/Errors";
 import { Introduction } from "$app/components/ApiDocumentation/Introduction";
@@ -65,6 +91,20 @@ import { Layout } from "$app/components/Developer/Layout";
 import { Card, CardContent } from "$app/components/ui/Card";
 
 export default function Api() {
+  React.useEffect(() => {
+    const scrollToHash = () => {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      const target = id ? document.getElementById(id) : null;
+      target?.scrollIntoView();
+    };
+    const frame = requestAnimationFrame(scrollToHash);
+    window.addEventListener("hashchange", scrollToHash);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("hashchange", scrollToHash);
+    };
+  }, []);
+
   return (
     <Layout currentPage="api">
       <main className="p-4 md:p-8">
@@ -72,6 +112,7 @@ export default function Api() {
           <div className="grid grid-cols-1 items-start gap-x-16 gap-y-8 lg:grid-cols-[var(--grid-cols-sidebar)]">
             <Navigation />
             <article className="grid gap-8">
+              <CommandLine />
               <Introduction />
               <Authentication />
               <Scopes />
@@ -93,9 +134,37 @@ export default function Api() {
               <ApiResource name="Products" id="products">
                 <GetProducts />
                 <GetProduct />
+                <CreateProduct />
+                <UpdateProduct />
                 <DeleteProduct />
                 <EnableProduct />
                 <DisableProduct />
+              </ApiResource>
+
+              <ApiResource name="Public product page" id="public-product-page">
+                <GetPublicProductPage />
+              </ApiResource>
+
+              <ApiResource name="Categories" id="categories">
+                <GetCategories />
+              </ApiResource>
+
+              <ApiResource name="Files" id="files">
+                <FilesOverview />
+                <PresignFile />
+                <CompleteFile />
+                <AbortFile />
+                <AttachFile />
+              </ApiResource>
+
+              <ApiResource name="Covers" id="covers">
+                <CreateCover />
+                <DeleteCover />
+              </ApiResource>
+
+              <ApiResource name="Thumbnails" id="thumbnails">
+                <CreateThumbnail />
+                <DeleteThumbnail />
               </ApiResource>
 
               <ApiResource name="Variant categories" id="variant-categories">
@@ -119,6 +188,15 @@ export default function Api() {
                 <DeleteOfferCode />
               </ApiResource>
 
+              <ApiResource name="Emails" id="emails">
+                <GetEmails />
+                <GetEmail />
+                <CreateEmail />
+                <PreviewEmail />
+                <SendEmail />
+                <DeleteEmail />
+              </ApiResource>
+
               <ApiResource name="Custom fields" id="custom-fields">
                 <GetCustomFields />
                 <CreateCustomField />
@@ -128,6 +206,15 @@ export default function Api() {
 
               <ApiResource name="User" id="user">
                 <GetUser />
+              </ApiResource>
+
+              <ApiResource name="Public profile" id="public-profile">
+                <GetPublicProfile />
+              </ApiResource>
+
+              <ApiResource name="Refund policy" id="refund-policy">
+                <GetRefundPolicy />
+                <UpdateRefundPolicy />
               </ApiResource>
 
               <ApiResource name="Resource subscriptions" id="resource-subscriptions">
@@ -161,6 +248,15 @@ export default function Api() {
                 <GetPayouts />
                 <GetPayout />
                 <GetUpcomingPayouts />
+              </ApiResource>
+
+              <ApiResource name="Tax forms" id="tax-forms">
+                <GetTaxForms />
+                <DownloadTaxForm />
+              </ApiResource>
+
+              <ApiResource name="Earnings" id="earnings">
+                <GetEarnings />
               </ApiResource>
             </article>
           </div>

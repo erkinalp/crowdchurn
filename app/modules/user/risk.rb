@@ -3,57 +3,12 @@
 module User::Risk
   extend ActiveSupport::Concern
 
-  IFFY_ENDPOINT = "http://internal-production-iffy-live-internal-1668548970.us-east-1.elb.amazonaws.com"
-
   PAYMENT_REMINDER_RISK_STATES = %w[flagged_for_tos_violation not_reviewed compliant].freeze
   SUSPENDED_STATES = %w[suspended_for_tos_violation suspended_for_fraud].freeze
   INCREMENTAL_ENQUEUE_BALANCE = 100_00
-  COUNTRIES_THAT_DO_NOT_HAVE_ZIPCODES = [
-    # Country Codes: http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
-    "ie" # Ireland
-  ].freeze
   PROBATION_WITH_REMINDER_DAYS = 30
   PROBATION_REVIEW_DAYS = 2
-  MAX_REFUND_QUEUE_SIZE = 100000
   MAX_CHARGEBACK_RATE_ALLOWED_FOR_PAYOUTS = 3.0
-
-  def self.contact_iffy_risk_analysis(iffy_request_parameters)
-    return nil unless Rails.env.production?
-    return nil if iffy_request_parameters.blank?
-    return nil if iffy_request_parameters[:is_multi_buy]
-    return nil if iffy_request_parameters[:card_country] && COUNTRIES_THAT_DO_NOT_HAVE_ZIPCODES.include?(iffy_request_parameters[:card_country].downcase)
-
-    begin
-      iffy_call_timeout = determine_iffy_call_timeout
-      iffy_response = HTTParty.post("#{IFFY_ENDPOINT}/people/buyer_info", body: iffy_request_parameters, timeout: iffy_call_timeout)
-    rescue StandardError
-      Rails.logger.info("iffy_fraud_check_timed_out")
-      return nil
-    end
-    if iffy_response.code == 200
-      Rails.logger.info("iffy_fraud_check_succeeded, require_zip=#{iffy_response['require_zip']}")
-      iffy_response
-    else
-      Rails.logger.info("iffy_fraud_check_failed, response_code=#{iffy_response.code}")
-      nil
-    end
-  end
-
-  DEFAULT_IFFY_CALL_TIMEOUT = 0.4.seconds
-
-  def self.determine_iffy_call_timeout
-    if $redis.present?
-      redis_iffy_timeout_value = $redis.get("iffy_zipcode_request_timeout")
-      iffy_call_timeout = if redis_iffy_timeout_value.present?
-        redis_iffy_timeout_value.to_f
-      else
-        DEFAULT_IFFY_CALL_TIMEOUT
-      end
-    else
-      iffy_call_timeout = DEFAULT_IFFY_CALL_TIMEOUT
-    end
-    iffy_call_timeout
-  end
 
   def enable_refunds!
     self.refunds_disabled = false
@@ -111,10 +66,6 @@ module User::Risk
     ContactingCreatorMailer.account_suspended(id).deliver_later
   end
 
-  def log_suspension_time_to_mongo
-    Mongoer.async_write(MongoCollections::USER_SUSPENSION_TIME, "user_id" => id, "suspended_at" => Time.current.to_s)
-  end
-
   def disable_links_and_tell_chat
     links.each do |link|
       link.update(banned_at: Time.current)
@@ -169,7 +120,8 @@ module User::Risk
   end
 
   def unblock_seller_ip!
-    BlockedObject.unblock!(last_sign_in_ip) if last_sign_in_ip.present?
+    return if last_sign_in_ip.blank?
+    PlatformBlock.ip_address.where(object_value: last_sign_in_ip).find_each(&:unblock!)
   end
 
   def delete_custom_domain!
@@ -282,19 +234,12 @@ module User::Risk
     self.const_set("PAYOUT_PAUSE_SOURCE_#{source.upcase}", source)
   end
 
-  class_methods do
-    def refund_queue(from_date = 30.days.ago)
-      user_ids = MONGO_DATABASE[MongoCollections::USER_SUSPENSION_TIME]
-        .find(suspended_at: { "$gte": from_date.utc.to_s })
-        .limit(MAX_REFUND_QUEUE_SIZE)
-        .map { |record| record["user_id"] }
+  SYSTEM_PAYOUT_PAUSE_COMMENT_AUTHORS = {
+    repeated_failed_payouts: "pause_payouts_after_repeated_failures",
+    high_chargeback_rate: "pause_payouts_for_seller_based_on_chargeback_rate",
+    recent_failed_purchases: "pause_payouts_for_seller_based_on_recent_failures",
+  }.freeze
 
-      User.where(id: user_ids, user_risk_state: "suspended_for_fraud")
-        .joins(:balances)
-        .merge(Balance.unpaid)
-        .group(:user_id)
-        .having("SUM(amount_cents) > 0")
-        .order(updated_at: :desc, id: :desc)
-    end
+  class_methods do
   end
 end
