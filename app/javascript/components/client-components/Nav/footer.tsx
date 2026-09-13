@@ -1,6 +1,8 @@
 import { ArrowOutRightSquareHalf, Book, Cog, Group, Plus, Store } from "@boxicons/react";
-import { Link } from "@inertiajs/react";
+import { Link, usePage } from "@inertiajs/react";
 import React from "react";
+
+import { CurrentUser } from "$app/types/user";
 
 import { ClientNavLink } from "$app/components/client-components/Nav";
 import { CreateBrandAccountModal } from "$app/components/CreateBrandAccountModal";
@@ -15,6 +17,7 @@ function NavbarFooter() {
   const routeParams = { host: useAppDomain() };
   const loggedInUser = useLoggedInUser();
   const currentSeller = useCurrentSeller();
+  const { current_user: currentUser } = usePage<{ current_user?: CurrentUser }>().props;
   const teamMemberships = loggedInUser?.teamMemberships;
   const [showCreateBrandAccountModal, setShowCreateBrandAccountModal] = React.useState(false);
 
@@ -69,10 +72,17 @@ function NavbarFooter() {
             component={Link}
           />
           <MenuItem asChild>
-            <Link href={Routes.logout_url(routeParams)} method="delete" className="all-unset">
-              <ArrowOutRightSquareHalf pack="filled" className="mx-1 size-5" />
-              Logout
-            </Link>
+            {currentUser?.impersonated_user ? (
+              <Link href={Routes.admin_unimpersonate_path()} method="delete" className="all-unset">
+                <ArrowOutRightSquareHalf pack="filled" className="mx-1 size-5" />
+                Unbecome
+              </Link>
+            ) : (
+              <Link href={Routes.logout_url(routeParams)} method="delete" className="all-unset">
+                <ArrowOutRightSquareHalf pack="filled" className="mx-1 size-5" />
+                Logout
+              </Link>
+            )}
           </MenuItem>
         </Menu>
       </DashboardNavProfilePopover>

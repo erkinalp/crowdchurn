@@ -102,10 +102,8 @@ SecureHeaders::Configuration.default do |config|
       "iframely.net",
 
       # helper widget
-      "help.gumroad.com",
+      "help.example.com",
 
-      # lottie - homepage (pinned version; no @latest)
-      "unpkg.com/@lottiefiles/lottie-player@2.0.12/",
     ],
     script_src: [
       "'self'",
@@ -173,7 +171,7 @@ SecureHeaders::Configuration.default do |config|
       "analytics.tiktok.com",
 
       # helper widget
-      "help.gumroad.com",
+      "help.example.com",
 
       # lottie - homepage (pinned version; no @latest)
       "unpkg.com/@lottiefiles/lottie-player@2.0.12/"
@@ -209,8 +207,9 @@ SecureHeaders::Configuration.default do |config|
 
   if Rails.env.test?
     config.csp[:default_src] = ["'self'"]
-    config.csp[:style_src] << "blob:" # Required to serve CSS as blob URLs in tests
-    config.csp[:script_src] << "test-custom-domain.gumroad.com:#{URI("#{PROTOCOL}://#{DOMAIN}").port}" # To allow loading widget scripts from the custom domain
+    config.csp[:style_src] << "blob:" # Required by Shakapacker to serve CSS
+    config.csp[:script_src] << "test-custom-domain.example.com:#{URI("#{PROTOCOL}://#{DOMAIN}").port}" # To allow loading widget scripts from the custom domain
+
     config.csp[:script_src] << ROOT_DOMAIN # Required to load gumroad.js for overlay/embed.
     config.csp[:connect_src] << "ws://#{ANYCABLE_HOST}:8080" # Required by AnyCable
     config.csp[:connect_src] << "wss://#{ANYCABLE_HOST}:8080" # Required by AnyCable

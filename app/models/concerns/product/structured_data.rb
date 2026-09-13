@@ -13,7 +13,7 @@ module Product::StructuredData
   # host: threads the seller's custom domain through so the JSON-LD urls match the
   # canonical tag on the same page (PageMeta::Product). nil keeps the subdomain default.
   def structured_data(host: nil)
-    if native_type == Link::NATIVE_TYPE_EBOOK
+    if native_type.in?([Link::NATIVE_TYPE_EBOOK, Link::NATIVE_TYPE_PRINT_BOOK])
       build_ebook_structured_data(host:)
     else
       build_product_structured_data(host:)
@@ -151,7 +151,7 @@ module Product::StructuredData
       book_files.map do |file|
         work_example = {
           "@type" => "Book",
-          "bookFormat" => "EBook",
+          "bookFormat" => native_type == Link::NATIVE_TYPE_PRINT_BOOK ? "Hardcover" : "EBook",
           "name" => "#{name} (#{file.filetype.upcase})"
         }
 

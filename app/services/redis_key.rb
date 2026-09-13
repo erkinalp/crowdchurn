@@ -4,6 +4,8 @@ class RedisKey
   class << self
     def total_made = "homepage:total_made"
     def number_of_creators = "company_page:number_of_creators"
+    def unreviewed_users_data = "admin:unreviewed_users_data"
+    def unreviewed_users_cutoff_date = "admin:unreviewed_users_cutoff_date"
     def prev_week_payout_usd = "homepage:prev_week_payout_usd"
     def balance_stats_sales_caching_threshold = "balance_stats:sales_caching_threshold"
     def balance_stats_users_excluded_from_caching = "balance_stats:users_excluded_from_caching"

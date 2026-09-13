@@ -1869,6 +1869,7 @@ const RefundForm = ({
   });
 
   const refundAmountRemaining = amountRefundable - (refundAmountCents.value ?? 0);
+  const [refundOperationKey, setRefundOperationKey] = React.useState(() => crypto.randomUUID());
   const isPartialRefund = refundAmountRemaining > 0;
 
   const handleRefund = async () => {
@@ -1878,11 +1879,20 @@ const RefundForm = ({
     }
     try {
       setIsLoading(true);
-      await refund(purchaseId, priceCentsToUnit(refundAmountCents.value, getIsSingleUnitCurrency(currencyType)));
-      const refundAmountRemaining = amountRefundable - refundAmountCents.value;
-      onChange(refundAmountRemaining);
-      setRefundAmountCents({ value: refundAmountRemaining });
-      showAlert("Purchase successfully refunded.", "success");
+      const result = await refund(
+        purchaseId,
+        priceCentsToUnit(refundAmountCents.value, getIsSingleUnitCurrency(currencyType)),
+        refundOperationKey,
+      );
+      if (result.pending) {
+        showAlert("Refund requested; processing. Refresh to check its status.", "success");
+      } else {
+        const refundAmountRemaining = amountRefundable - refundAmountCents.value;
+        onChange(refundAmountRemaining);
+        setRefundAmountCents({ value: refundAmountRemaining });
+        setRefundOperationKey(crypto.randomUUID());
+        showAlert("Purchase successfully refunded.", "success");
+      }
     } catch (e) {
       assertResponseError(e);
       showAlert(e.message, "error");
@@ -1907,7 +1917,10 @@ const RefundForm = ({
       <Fieldset state={refundAmountCents.error ? "danger" : undefined} className={className}>
         <PriceInput
           cents={refundAmountCents.value}
-          onChange={(value) => setRefundAmountCents({ value })}
+          onChange={(value) => {
+            setRefundAmountCents({ value });
+            setRefundOperationKey(crypto.randomUUID());
+          }}
           currencyCode={currencyType}
           placeholder={formatPriceCentsWithoutCurrencySymbol(currencyType, amountRefundable)}
           hasError={refundAmountCents.error ?? false}

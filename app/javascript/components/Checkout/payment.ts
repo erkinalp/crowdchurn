@@ -30,7 +30,7 @@ import { useRunOnce } from "$app/components/useRunOnce";
 
 enableMapSet();
 
-export type PaymentMethodType = "paypal" | "stripePaymentRequest" | "card";
+export type PaymentMethodType = "paypal" | "stripePaymentRequest" | "card" | "killbill";
 export type PaymentMethod = { type: PaymentMethodType; button: React.ReactElement | null };
 
 // Passed through to Stripe Elements as `mode`; these are Stripe's UI configuration values,

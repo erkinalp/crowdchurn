@@ -11,6 +11,15 @@ import { Label } from "$app/components/ui/Label";
 import { Select } from "$app/components/ui/Select";
 import { Textarea } from "$app/components/ui/Textarea";
 
+const EXPORT_FORMATS: Record<string, string> = {
+  pdf: "PDF",
+  ubl: "UBL",
+  peppol: "PEPPOL",
+  xrechnung: "XRechnung",
+  zugferd: "ZUGFeRD",
+  efatura_ithalat: "e-Fatura (ITHALAT)",
+};
+
 type NewInvoicePageProps = {
   form_data: {
     purchase_id: string;
@@ -26,6 +35,7 @@ type NewInvoicePageProps = {
     business_name: string;
     vat_id: string;
     additional_notes: string;
+    export_format: string;
   };
   form_metadata: {
     heading: string;
@@ -55,7 +65,7 @@ const PurchaseNewInvoicePage = () => {
   const { form_data, form_metadata, invoice_file_url } = typia.assert<NewInvoicePageProps>(usePage().props);
   const { supplier_info, seller_info, order_info, countries } = form_metadata;
 
-  const form = useForm(form_data);
+  const form = useForm({ ...form_data, export_format: form_data.export_format || "pdf" });
   const initialCountryCode = form_data.address_fields.country_code;
   const showStateField = !form.data.address_fields.country_code || form.data.address_fields.country_code === "US";
   const showBusinessIdField =
@@ -214,6 +224,22 @@ const PurchaseNewInvoicePage = () => {
                   onChange={(e) => form.setData("additional_notes", e.target.value)}
                 />
               </Fieldset>
+              <Fieldset className="flex-1">
+                <FieldsetTitle>
+                  <Label htmlFor="export_format">Invoice format</Label>
+                </FieldsetTitle>
+                <Select
+                  id="export_format"
+                  value={form.data.export_format}
+                  onChange={(e) => form.setData("export_format", e.target.value)}
+                >
+                  {Object.entries(EXPORT_FORMATS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+              </Fieldset>
             </CardContent>
             <CardContent>
               <h5 className="grow font-bold">{supplier_info.heading}</h5>
@@ -308,10 +334,14 @@ const PurchaseNewInvoicePage = () => {
                     <a href={invoice_file_url} download>
                       here
                     </a>{" "}
-                    and "Save as..." if the PDF hasn't been automatically downloaded to your computer.
+                    and "Save as..." if the {EXPORT_FORMATS[form.data.export_format] ?? "PDF"} file hasn't been
+                    automatically downloaded to your computer.
                   </span>
                 ) : (
-                  <span className="grow">This invoice will be downloaded as a PDF to your computer.</span>
+                  <span className="grow">
+                    This invoice will be downloaded as a {EXPORT_FORMATS[form.data.export_format] ?? "PDF"} to your
+                    computer.
+                  </span>
                 )}
                 <Button color="accent" onClick={downloadInvoice} disabled={form.processing}>
                   Download

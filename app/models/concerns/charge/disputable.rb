@@ -257,6 +257,9 @@ module Charge::Disputable
       # Scoped to PayPal because Stripe-lost disputes pull the full disputed amount via the bank,
       # so a pre-dispute partial refund there does not mean the buyer is net-paying.
       disputed_purchases.each do |purchase|
+        if FundCartFundingLot.exists?(source_purchase_id: purchase.id)
+          FundCart::RefundService.new(purchase:).dispute!(dispute:, flow_of_funds: build_flow_of_funds(event.flow_of_funds, purchase), lost: true)
+        end
         if paypal_partial_refund_carve_out?(purchase)
           purchase.update!(chargeback_reversed: true)
           purchase.mark_giftee_purchase_as_chargeback_reversed if purchase.is_gift_sender_purchase
@@ -376,7 +379,11 @@ module Charge::Disputable
         # Replay-safe without a guard here: decrement_balance_for_refund_or_chargeback! checks
         # seller_balance_update_eligible? internally and returns early once the purchase already
         # has a purchase_chargeback_balance, so a replay never debits the seller twice.
-        purchase.decrement_balance_for_refund_or_chargeback!(flow_of_funds, dispute:)
+        if FundCartFundingLot.exists?(source_purchase_id: purchase.id)
+          FundCart::RefundService.new(purchase:).dispute!(dispute:, flow_of_funds:)
+        else
+          purchase.decrement_balance_for_refund_or_chargeback!(flow_of_funds, dispute:)
+        end
 
         # Read the purchase's own subscription: a seller converting a membership to a one-off flips
         # link.is_recurring_billing for every past sale, live ones included.

@@ -27,10 +27,13 @@ class ForeignWebhooksController < ApplicationController
     validate_resend_webhook(endpoint_secret)
   end
 
+  before_action :validate_killbill_webhook, only: [:killbill]
+
   before_action only: [:sendgrid] do
     public_keys = SENDGRID_WEBHOOK_PUBLIC_KEY_ENV_VARS.map { |name| GlobalConfig.get(name) }.reject(&:blank?)
     validate_sendgrid_webhook(public_keys)
   end
+
 
   def stripe
     if @stripe_event["id"]
@@ -81,6 +84,15 @@ class ForeignWebhooksController < ApplicationController
     HandleResendEventJob.perform_async(event_json) if trackable_resend_event?(event_json)
 
     render json: { success: true }
+  end
+
+  def killbill
+    if @killbill_event["eventType"].present? && @killbill_event["objectId"].present?
+      HandleKillbillEventWorker.perform_async(@killbill_event)
+      render json: { success: true }
+    else
+      render json: { success: false }
+    end
   end
 
   def sns
@@ -215,5 +227,33 @@ class ForeignWebhooksController < ApplicationController
     rescue => e
       ErrorNotifier.notify("Error verifying Resend webhook: #{e.message}")
       render json: { success: false }, status: :bad_request
+    end
+
+    def validate_killbill_webhook
+      payload = request.body.read
+      signature_header = request.headers["X-Killbill-Signature"]
+
+      begin
+        @killbill_event = JSON.parse(payload)
+      rescue JSON::ParserError
+        render json: { success: false }, status: :bad_request
+        return
+      end
+
+      # Kill Bill uses tenant API key/secret for webhook authentication
+      # Verify signature if present and secret is configured
+      api_secret = ENV.fetch("KILLBILL_API_SECRET", nil)
+
+      if signature_header.present? && api_secret.present?
+        # Kill Bill signs webhooks with HMAC-SHA256 using the tenant API secret
+        expected_signature = Base64.strict_encode64(
+          OpenSSL::HMAC.digest("SHA256", api_secret, payload)
+        )
+
+        unless ActiveSupport::SecurityUtils.secure_compare(signature_header, expected_signature)
+          ErrorNotifier.notify("Error verifying Kill Bill webhook: Invalid signature")
+          render json: { success: false }, status: :bad_request
+        end
+      end
     end
 end

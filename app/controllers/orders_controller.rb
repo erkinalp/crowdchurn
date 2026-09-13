@@ -19,9 +19,11 @@ class OrdersController < ApplicationController
   def create
     order_params = build_order_params
 
+    buyer_cookie = VariantPriceService.get_or_create_buyer_cookie(cookies)
     order, purchase_responses, offer_codes = Order::CreateService.new(
       buyer: logged_in_user,
-      params: order_params
+      params: order_params,
+      buyer_cookie: buyer_cookie
     ).perform
 
     charge_responses = Order::ChargeService.new(order:, params: order_params).perform
@@ -75,7 +77,8 @@ class OrdersController < ApplicationController
 
     order, purchase_responses, offer_codes = Order::CreateService.new(
       buyer: logged_in_user,
-      params: order_params
+      params: order_params,
+      buyer_cookie: VariantPriceService.get_or_create_buyer_cookie(cookies)
     ).perform
 
     prepare_responses = Order::PreparePaymentIntentService.new(
@@ -478,6 +481,7 @@ class OrdersController < ApplicationController
         :card_country, :card_country_source, :wallet_type, :payment_details_source, :cc_zipcode, :vat_id, :email, :tax_country_election,
         :save_shipping_address, :card_expiry_month, :card_expiry_year, :stripe_status, :visual,
         :billing_agreement_id, :paypal_order_id, :stripe_payment_method_id, :stripe_customer_id, :stripe_setup_intent_id,
+        :killbill_payment_method_id, :killbill_account_id,
         :braintree_transient_customer_store_key, :braintree_device_data, :use_existing_card, :paymentToken,
         :url_parameters, :is_gift, :giftee_email, :giftee_id, :gift_note, :referrer, :buyer_currency_quote,
         # The browser reports a client-side tokenization/setup failure (e.g. a failed 3DS on the

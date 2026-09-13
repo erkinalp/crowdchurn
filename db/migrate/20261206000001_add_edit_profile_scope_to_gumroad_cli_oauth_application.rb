@@ -15,9 +15,7 @@ class AddEditProfileScopeToGumroadCliOauthApplication < ActiveRecord::Migration[
 
     if app.nil?
       message = "Gumroad CLI OAuth application #{CLI_CLIENT_ID} was not found"
-      raise ActiveRecord::RecordNotFound, message if Rails.env.production?
-
-      say "#{message}; skipping production-only scope update"
+      say "#{message}; skipping vendor application scope update"
       return
     end
 

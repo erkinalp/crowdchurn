@@ -9,6 +9,7 @@ class RecurringChargeWorker
       SuoSemaphore.recurring_charge(subscription_id).lock do
         Rails.logger.info("Processing RecurringChargeWorker#perform(#{subscription_id})")
         subscription = Subscription.find(subscription_id)
+        return if subscription.link.batch_billing_enabled?
         return if subscription.link.user.suspended?
         return unless subscription.alive?(include_pending_cancellation: false)
         indian_card_mandate_recovered = false
@@ -77,6 +78,7 @@ class RecurringChargeWorker
                 is_applying_plan_change: true,
               )
               latest_applicable_plan_change.update!(applied: true)
+              subscription.update!(flat_fee_applicable: true) unless subscription.flat_fee_applicable?
               subscription.reload
 
               mandate_reauthorization_required = check_mandate_terms_after_plan_change &&

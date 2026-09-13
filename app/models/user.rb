@@ -279,12 +279,13 @@ class User < ApplicationRecord
     Feature.active?(:high_volume_seller_fee, self) && high_volume_fee_eligible?
   end
 
-  def gumroad_fee_per_thousand
+  def operator_fee_per_thousand
     return custom_fee_per_thousand if custom_fee_per_thousand.present?
     return HIGH_VOLUME_FEE_PER_THOUSAND if high_volume_seller_fee?
 
-    Purchase::GUMROAD_FLAT_FEE_PER_THOUSAND
+    Purchase::OPERATOR_FLAT_FEE_PER_THOUSAND
   end
+  alias_method :gumroad_fee_per_thousand, :operator_fee_per_thousand
 
   def month_to_date_gross_sales_cents
     sales.paid.where("purchases.created_at >= ?", Time.current.beginning_of_month).sum(:price_cents)

@@ -1,24 +1,6 @@
-<p align="center">
-  <picture>
-    <source srcset="https://public-files.gumroad.com/logo/gumroad-dark.svg" media="(prefers-color-scheme: dark)">
-    <source srcset="https://public-files.gumroad.com/logo/gumroad.svg" media="(prefers-color-scheme: light)">
-    <img src="https://public-files.gumroad.com/logo/gumroad.svg" width="714" alt="Gumroad logo">
-  </picture>
-</p>
+# CrowdChurn
 
-<p align="center">
-  <strong>See what sticks.</strong>
-</p>
-
-<p align="center">
-  <a href="https://gumroad.com">Gumroad</a> is an e-commerce platform that enables creators to sell products directly to consumers. This repository contains the source code for the Gumroad web application.
-</p>
-
-<p align="center">
-  <a href="https://github.com/antiwork/gumroad-cli">
-    <img src="https://img.shields.io/badge/CLI-gumroad--cli-FF90E8?style=for-the-badge" alt="Gumroad CLI">
-  </a>
-</p>
+CrowdChurn is a self-hostable e-commerce platform that enables creators to sell products and offer services directly to consumers. It is a fork of [Gumroad](https://github.com/antiwork/gumroad), designed for self-hosted deployments.
 
 ## Contributing
 
@@ -34,15 +16,37 @@ Your PR still has to meet the same bar as our own work — visual evidence for a
   - [Installation](#installation)
   - [Configuration](#configuration)
   - [Running Locally](#running-locally)
-- [Testing](#testing)
-  - [Dependencies](#dependencies)
-  - [Integration tests](#integration-tests)
 - [Development](#development)
   - [Logging in](#logging-in)
   - [Resetting Elasticsearch indices](#resetting-elasticsearch-indices)
   - [Push Notifications](#push-notifications)
   - [Common Development Tasks](#common-development-tasks)
   - [Linting](#linting)
+
+## Differences from Upstream Gumroad
+
+CrowdChurn is a fork of [antiwork/gumroad](https://github.com/antiwork/gumroad) tailored for **self-hosted, multi-merchant deployments**. The upstream project targets gumroad.com as a single-tenant SaaS; CrowdChurn diverges in several key areas.
+
+### Architecture
+
+| Area | Upstream (Gumroad) | CrowdChurn |
+|---|---|---|
+| **View layer** | Fully migrated to [Inertia.js](https://inertiajs.com/) — React components rendered via `render inertia:` from Rails controllers. All ERB templates for buyer/seller pages have been removed. | Same Inertia-based pages for buyer/seller flows, **plus** retained ERB-based admin views (`app/views/admin/`) for platform-level management of users, products, payouts, compliance, and merchant accounts. |
+| **Admin UI** | Removed from the open-source repo (managed internally at gumroad.com). | Preserved — includes user search, product stats, payout management, compliance review, fraud flagging, merchant account views, and sales reports. Essential for operating a multi-merchant platform. |
+| **Invoice generation** | Removed from open-source. | Preserved — supports PDF invoices and electronic formats (UBL, PEPPOL, XRechnung, ZUGFeRD, e-Fatura). |
+
+### Additional Features
+
+| Feature | Description |
+|---|---|
+| **Kill Bill payments** | Alternative payment processor via [Kill Bill](https://killbill.io/). Supports card and cryptocurrency payments through Kill Bill plugins. Uses `instance_base_currency` for FlowOfFunds. |
+| **Multi-currency billing** | Sellers can set prices in multiple fiat currencies and cryptocurrencies per product. Managed via `currency_prices` on products. |
+| **A/B testing** | `ProductExperimentService` allows running pricing/variant experiments with cookie-based cohort assignment. |
+| **Batch billing** | Charge all members on a fixed billing anchor date instead of individual renewal dates. Configurable per-product with optional delayed content access (`batch_entitlement_enabled`). |
+
+### Naming Conventions
+
+Upstream uses "buyer" and "seller" (per [CONTRIBUTING.md](CONTRIBUTING.md)). CrowdChurn follows the same convention but renames vendor-specific references (e.g. `gumroad` in variable names) to generic platform terms where appropriate for self-hosting.
 
 ## Getting Started
 
@@ -116,7 +120,7 @@ We use `ffprobe` that comes with `FFmpeg` package to fetch metadata from video f
 
 #### PDFtk
 
-We use [pdftk](https://www.pdflabs.com/tools/pdftk-server/) to stamp PDF files with the Gumroad logo and the buyers' emails.
+We use [pdftk](https://www.pdflabs.com/tools/pdftk-server/) to stamp PDF files with the buyers' emails.
 
 - For MacOS: Download from [here](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/pdftk_server-2.02-mac_osx-10.11-setup.pkg)
   - **Note:** pdftk may be blocked by Apple's firewall. If this happens, go to Settings > Privacy & Security and click "Open Anyways" to allow the installation.
@@ -180,7 +184,7 @@ If you installed Docker Desktop (on a Mac or Windows machine), you can run the f
 make local
 ```
 
-If you are on Linux, or installed Docker via a package manager on a mac, you may need superuser access to expose container ports. To do that, use `sudo make local` instead.
+If you are on Linux, or installed Docker via a package manager on a mac, you may have to manually give docker superuser access to open ports 80 and 443. To do that, use `sudo make local` instead.
 
 This command will not terminate. You run this in one tab and start the application in another tab.
 If you want to run Docker services in the background, use `LOCAL_DETACHED=true make local` instead.
@@ -203,51 +207,13 @@ bin/dev
 
 This starts the Rails server, the JavaScript build system, and a Sidekiq worker.
 
-You can now access the application at `http://localhost:3000`. Seller subdomains and the asset/api hosts use `*.localhost` (e.g. `http://seller.localhost:3000`, `http://api.localhost:3000`) — modern browsers auto-resolve these to 127.0.0.1, so no `/etc/hosts` edits are needed.
-
-##### Local dev limitations
-
-`*.localhost` over HTTP is treated as a secure context by browsers (so Stripe.js, Stripe Elements, and other secure-context APIs work), but a couple of features that need either HTTPS or a registrable cookie domain don't work in this setup:
-
-- **Apple Pay** — Stripe requires HTTPS for Apple Pay domain registration. Workaround: expose the app over HTTPS with [ngrok](https://ngrok.com/) (`ngrok http 3000`) and register the resulting hostname in the [Stripe Apple Pay dashboard](https://dashboard.stripe.com/settings/payments/apple_pay).
-- **Cross-subdomain cookies** (affiliate attribution, `_gumroad_guid`, multi-account "switch seller", session) — browsers reject `Domain=localhost`, so cookies set on `localhost:3000` aren't sent to `seller.localhost:3000`. Test these flows on a single host, or front the app with a local HTTPS reverse proxy on a registrable hostname (e.g. `gumroad.test` via mkcert) where `Domain=.gumroad.test` works.
-
-## Testing
-
-Run the full test suite:
-
-```shell
-bin/rspec
-```
-
-Run a single file or specific test:
-
-```shell
-bin/rspec spec/requests/dashboard_spec.rb
-bin/rspec spec/requests/dashboard_spec.rb:75
-```
-
-### Dependencies
-
-Before running tests:
-
-```shell
-make local                          # start Docker services (db, Redis, etc.)
-RAILS_ENV=test bin/rails db:setup   # set up the test database
-RAILS_ENV=test bin/rails js:export  # generate JS constants for the test environment
-```
-
-### Integration tests
-
-Integration specs use Capybara with Selenium driving Chrome. Install Chrome from [google.com/chrome](https://www.google.com/chrome/).
-
-See [docs/testing.md](docs/testing.md) for details on preventing flaky specs, VCR cassettes, debugging widgets, and purchase testing with Stripe/PayPal.
+You can now access the application at `https://app.localhost`.
 
 ## Development
 
 ### Logging in
 
-You can log in with the username `seller@gumroad.com` and the password `password`. The two-factor authentication code is `000000`.
+You can log in with the username `seller@example.com` and the password `password`. The two-factor authentication code is `000000`.
 
 Read more about logging in as a user with a different team role at [Users & authentication](docs/users.md).
 
@@ -284,7 +250,7 @@ bin/rake task_name
 
 ### Linting
 
-We use ESLint for JS, and Rubocop for Ruby. Your editor should support displaying and fixing issues reported by these inline, and CI checks these on every push.
+We use ESLint for JS, and Rubocop for Ruby. Your editor should support displaying and fixing issues reported by these inline, and CI will automatically check and fix (if possible) these.
 
 If you'd like, you can run `git config --local core.hooksPath .githooks` to check for these locally when committing.
 

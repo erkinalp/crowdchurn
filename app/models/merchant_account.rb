@@ -38,6 +38,57 @@ class MerchantAccount < ApplicationRecord
   # back to USD — on managed and connected accounts alike.
   attr_json_data_accessor :settlement_currency_mismatch_map
 
+  # Kill Bill configuration accessors
+  # Non-sensitive fields stored directly in meta
+  def killbill_instance_url
+    meta&.dig("killbill_instance_url")
+  end
+
+  def killbill_instance_url=(value)
+    self.meta = (meta || {}).merge("killbill_instance_url" => value)
+  end
+
+  def killbill_username
+    meta&.dig("killbill_username")
+  end
+
+  def killbill_username=(value)
+    self.meta = (meta || {}).merge("killbill_username" => value)
+  end
+
+  def killbill_api_key
+    meta&.dig("killbill_api_key")
+  end
+
+  def killbill_api_key=(value)
+    self.meta = (meta || {}).merge("killbill_api_key" => value)
+  end
+
+  # Sensitive fields encrypted using SecureEncryptService
+  def killbill_password
+    encrypted_value = meta&.dig("killbill_password_encrypted")
+    return nil if encrypted_value.blank?
+
+    SecureEncryptService.decrypt(encrypted_value)
+  end
+
+  def killbill_password=(value)
+    encrypted_value = value.present? ? SecureEncryptService.encrypt(value) : nil
+    self.meta = (meta || {}).merge("killbill_password_encrypted" => encrypted_value)
+  end
+
+  def killbill_api_secret
+    encrypted_value = meta&.dig("killbill_api_secret_encrypted")
+    return nil if encrypted_value.blank?
+
+    SecureEncryptService.decrypt(encrypted_value)
+  end
+
+  def killbill_api_secret=(value)
+    encrypted_value = value.present? ? SecureEncryptService.encrypt(value) : nil
+    self.meta = (meta || {}).merge("killbill_api_secret_encrypted" => encrypted_value)
+  end
+
   validates :charge_processor_id, presence: true
   validates :charge_processor_merchant_id, presence: true, if: -> { user && charge_processor_alive? }
   validates :charge_processor_merchant_id, uniqueness: { case_sensitive: true, message: "This account is already connected with another Gumroad account" }, allow_blank: true, if: proc { |ma| ma.is_a_gumroad_managed_stripe_account? }
@@ -51,14 +102,26 @@ class MerchantAccount < ApplicationRecord
   scope :paypal, -> { where(charge_processor_id: PaypalChargeProcessor.charge_processor_id) }
   scope :stripe, -> { where(charge_processor_id: StripeChargeProcessor.charge_processor_id) }
   scope :stripe_connect, -> { stripe.where("json_data->>'$.meta.stripe_connect' = 'true'").where.not(user_id: nil) } # Logic should match method `#is_a_stripe_connect_account?`
+  scope :killbill, -> { where(charge_processor_id: KillbillChargeProcessor.charge_processor_id) }
 
-  def self.gumroad(charge_processor_id)
+  # Public: Get the operator's merchant account on the charge processor.
+  # (CrowdChurn is a fork of Gumroad)
+  #
+  # charge_processor_id – The charge processor to get a MerchantAccount for.
+  #
+  # Returns a MerchantAccount which is the operator's merchant account on the given charge processor.
+  def self.operator(charge_processor_id)
     where(user_id: nil, charge_processor_id:).first
   end
 
-  def is_managed_by_gumroad?
+  def self.gumroad(charge_processor_id)
+    operator(charge_processor_id)
+  end
+
+  def is_managed_by_operator?
     !user_id
   end
+  alias_method :is_managed_by_gumroad?, :is_managed_by_operator?
 
   # One extra doomed FX quote/day per marked currency is cheaper than a dark picker.
   SETTLEMENT_CURRENCY_MISMATCH_TTL = 1.day
@@ -123,6 +186,10 @@ class MerchantAccount < ApplicationRecord
     stripe_charge_processor? && json_data.dig("meta", "stripe_connect") != "true"
   end
 
+  def is_a_killbill_merchant_account?
+    charge_processor_id == KillbillChargeProcessor.charge_processor_id
+  end
+
   # Public: Returns who holds the funds for charges created for this merchant account.
   def holder_of_funds
     if charge_processor_id.in?(ChargeProcessor.charge_processor_ids)
@@ -147,6 +214,11 @@ class MerchantAccount < ApplicationRecord
     case charge_processor_id
     when StripeChargeProcessor.charge_processor_id
       StripeMerchantAccountManager.delete_account(self)
+    when KillbillChargeProcessor.charge_processor_id
+      # Kill Bill merchant accounts are managed externally
+      # Just mark the account as deleted locally
+      self.charge_processor_deleted_at = Time.current
+      save!
     else
       raise NotImplementedError
     end

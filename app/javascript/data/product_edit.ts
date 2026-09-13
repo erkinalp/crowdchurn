@@ -559,6 +559,9 @@ export const saveProduct = async (
       availabilities: product.availabilities.map(({ newlyAdded, ...availability }) =>
         newlyAdded ? { ...availability, id: null } : availability,
       ),
+      currency_prices: product.currency_prices.map(({ newlyAdded, ...price }) =>
+        newlyAdded ? { ...price, id: null } : price,
+      ),
       installment_plan: product.allow_installment_plan ? product.installment_plan : null,
     },
   });

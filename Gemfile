@@ -36,17 +36,9 @@ group :test do
   gem "capybara", "~> 3.38"
   gem "factory_bot_rails", "~> 6.4"
   gem "faker", "~> 3.1"
-  # Pin minitest to 5.x. Rails 7.1's test runner is not compatible with
-  # Minitest 6.x APIs, and the rubygems index has a stub `minitest 6.0.6`
-  # with no actual code (just metadata + a `bin/minitest` script) that
-  # bundler happily resolves to for any `>= 5.x` constraint from transitive
-  # deps, which breaks `require "minitest/mock"` and friends.
+  # The Minitest harness requires minitest/mock, which is absent from Minitest 6.
   gem "minitest", "~> 5.25"
-  # Mocha powers the Minitest + fixtures suite's mocking (test/). It's loaded
-  # only from test/test_helper.rb (require: false here) so it can't interfere
-  # with the RSpec suite's rspec-mocks. RSpec's `allow_any_instance_of` has no
-  # equivalent in minitest/mock; Mocha's `.any_instance.stubs` maps to it 1:1,
-  # which the model-spec ports (#5801) rely on heavily.
+  # Load only from test/test_helper.rb so Mocha never interferes with rspec-mocks.
   gem "mocha", "~> 2.1", require: false
   gem "rspec", "~> 3.12"
   gem "rspec-github", "~> 2.4.0", require: false
@@ -76,6 +68,7 @@ gem "actionpack-action_caching", "~> 1.2"
 gem "actionpack-cloudflare", "~> 1.1", group: %i[staging production] # Verify that this works after upgrading the Rails gem version
 gem "activerecord-mysql-index-hint", "~> 0.0"
 gem "active_model_otp", "~> 2.3"
+gem "acts_as_list", "1.2.6"
 gem "after_commit_everywhere", "~> 1.3"
 gem "active_hash", "~> 3.3"
 gem "alterity", "~> 1.4"
@@ -135,6 +128,8 @@ gem "lograge", "~> 0.12"
 gem "maxmind-geoip2", "~> 1.1"
 gem "mime-types", "~> 3.4"
 gem "money", "~> 6.16"
+# Historical engagement migration only; do not load legacy Mongoid runtime models.
+gem "mongo", "~> 2.20.0", require: false
 gem "mysql2", ">= 0.5.6"
 # Makara replacement: statement-level primary/replica split on Rails 7.2.
 # Only used when database.yml sets adapter: mysql2_proxy (USE_DB_WORKER_REPLICAS).
@@ -208,6 +203,7 @@ gem "stackprof", "~> 0.2"
 gem "state_machines-activerecord", "~> 0.8"
 gem "streamio-ffmpeg", "~> 3.0"
 gem "stripe", "~> 12.0"
+gem "killbill-client", "~> 3.2", require: "killbill_client"
 gem "strongbox", "~> 0.7"
 gem "taxjar-ruby", "~> 3.0", require: "taxjar"
 gem "typhoeus", "~> 1.4"
@@ -223,3 +219,6 @@ group :development do
   gem "derailed_benchmarks", "~> 2.1"
   gem "bullet"
 end
+
+gem "ubl", "~> 0.1"
+gem "secretariat", "~> 3.0"

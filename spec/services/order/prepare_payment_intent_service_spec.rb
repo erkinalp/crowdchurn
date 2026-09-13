@@ -3439,6 +3439,7 @@ describe Order::PreparePaymentIntentService, :vcr do
       # Stripe's default marks the buyer's amount up by the tax and the banking-app total stops
       # matching the price checkout quoted. This is what all Pix traffic looks like today.
       it "sends amount_includes_iof and bills the IOF fee when the Pix charge is created on a Gumroad-held account" do
+        MerchantAccount.operator(StripeChargeProcessor.charge_processor_id) || create(:merchant_account, user: nil)
         connect_account.mark_deleted!
         seller.reload
 

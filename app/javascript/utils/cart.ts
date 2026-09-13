@@ -40,6 +40,7 @@ export const PLACEHOLDER_CART_ITEM: CartItem = {
     thumbnail_url: "",
     currency_code: "usd",
     price_cents: 100,
+    variant_price_cents: null,
     quantity_remaining: null,
     pwyw: null,
     installment_plan: null,

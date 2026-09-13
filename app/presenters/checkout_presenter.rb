@@ -11,11 +11,12 @@ class CheckoutPresenter
   include PreorderHelper
   include CardParamsHelper
 
-  attr_reader :logged_in_user, :ip
+  attr_reader :logged_in_user, :ip, :buyer_cookie
 
-  def initialize(logged_in_user:, ip:)
+  def initialize(logged_in_user:, ip:, buyer_cookie: nil)
     @logged_in_user = logged_in_user
     @ip = ip
+    @buyer_cookie = buyer_cookie
   end
 
   def checkout_props(params:, browser_guid:, cart: nil, arrival_props: nil)
@@ -306,6 +307,9 @@ class CheckoutPresenter
         payment_method_update_required: subscription.status == "payment_method_update_required",
         is_gift: subscription.gift?,
         is_installment_plan: subscription.is_installment_plan,
+        is_batch_billed: subscription.link.batch_billing_enabled?,
+        is_batch_entitled: subscription.link.batch_entitlement_enabled?,
+        batch_billing_day: subscription.link.batch_billing_enabled? ? subscription.link.batch_billing_day.to_i : nil,
         # False when the seller has retired the recurrence this buyer is on; the row is still
         # offered above only because it is theirs.
         current_recurrence_available: current_recurrence_alive,
@@ -422,7 +426,8 @@ class CheckoutPresenter
     end
 
     def product_common(product, recommended_by:)
-      buyer_currency_display = buyer_currency_display_props(product:, price_cents: product.price_cents, ip:)
+      variant_price = variant_price_override_cents(product)
+      buyer_currency_display = buyer_currency_display_props(product:, price_cents: variant_price || product.price_cents, ip:)
 
       {
         permalink: product.unique_permalink,
@@ -434,7 +439,8 @@ class CheckoutPresenter
           id: product.user.external_id,
         } : nil,
         currency_code: product.price_currency_type.downcase,
-        price_cents: product.price_cents,
+        price_cents: variant_price || product.price_cents,
+        variant_price_cents: variant_price,
         buyer_currency_display:,
         supports_paypal: supports_paypal(product),
         custom_fields: product.custom_field_descriptors,
@@ -449,6 +455,32 @@ class CheckoutPresenter
         is_multiseat_license: product.multiseat_license_enabled?,
         shippable_country_codes: product.is_physical ? product.shipping_destinations.alive.flat_map { |shipping_destination| shipping_destination.country_or_countries.keys } : [],
       }
+    end
+
+    # Returns the variant price override in cents if a variant with price_cents is assigned
+    # for A/B test pricing, otherwise returns nil (use default product price)
+    # Also records exposure for A/B test tracking since this is when the buyer sees the price
+    def variant_price_override_cents(product)
+      return nil unless buyer_cookie.present? || logged_in_user.present?
+
+      # Find first installment with multiple post_variants (A/B test) using a single query
+      # This avoids N+1 by using a subquery instead of iterating and calling has_ab_test? on each
+      installment = product.installments.alive.published
+        .joins(:post_variants)
+        .group("installments.id")
+        .having("COUNT(post_variants.id) > 1")
+        .first
+      return nil unless installment.present?
+
+      service = VariantPriceService.new(
+        product: product,
+        installment: installment,
+        user: logged_in_user,
+        buyer_cookie: buyer_cookie
+      )
+      # Use price_override_cents_with_exposure! to record that the buyer saw this variant
+      # This is the canonical "exposure" point for A/B test tracking
+      service.price_override_cents_with_exposure!
     end
 
     # PayPal stays available to buyers on the presentment-display lane: selecting the

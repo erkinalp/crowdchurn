@@ -13,6 +13,7 @@ module Charge::Refundable
   # unambiguous money facts), alert a human for everything that needs judgment
   # (buyer communication, re-refund, subscription/payout follow-up).
   def handle_event_refund_failed!(event)
+    return if FundCart::RefundService.handle_event!(event)
     db_refunds = Refund.where(processor_refund_id: event.refund_id)
     if db_refunds.blank?
       # A failure for a refund we have no record of: alert rather than ignore, because
@@ -35,6 +36,7 @@ module Charge::Refundable
   end
 
   def handle_event_refund_updated!(event)
+    return if FundCart::RefundService.handle_event!(event)
     stripe_refund_id = event.refund_id
 
     db_refunds = Refund.where(processor_refund_id: stripe_refund_id)

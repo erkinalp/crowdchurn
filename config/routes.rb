@@ -121,6 +121,16 @@ Rails.application.routes.draw do
         end
         resources :skus, only: [:index]
         resources :subscribers, only: [:index]
+        resources :posts, only: [:index, :show] do
+          resources :post_variants, only: [:index, :create, :show, :update, :destroy] do
+            resources :distribution_rules, only: [:index, :create, :show, :update, :destroy]
+            resources :variant_assignments, only: [:index], path: "assignments"
+            collection do
+              get :metrics
+            end
+          end
+          resources :comments, only: [:index, :create, :show, :update, :destroy], controller: "post_comments"
+        end
         # Documented read access to the reviews shown on the product's public page, including the
         # submission date the public page-data endpoint never returned.
         resources :product_reviews, path: "reviews", only: [:index]
@@ -176,6 +186,10 @@ Rails.application.routes.draw do
         end
       end
       resources :subscribers, only: [:show]
+
+      resources :fund_carts, only: [:index, :show] do
+        resources :items, controller: "fund_cart_items", only: [:index, :create, :destroy]
+      end
 
       put "/resource_subscriptions", to: "resource_subscriptions#create"
       delete "/resource_subscriptions/:id", to: "resource_subscriptions#destroy"
@@ -293,6 +307,12 @@ Rails.application.routes.draw do
     namespace :stripe do
       resources :setup_intents, only: :create
     end
+
+    namespace :killbill do
+      resources :setup_intents, only: [:create, :show]
+    end
+
+    post "/shipments/verify_shipping_address", to: "shipments#verify_shipping_address"
 
     # discover/autocomplete_search
     delete "/discover_search_autocomplete", to: "discover/search_autocomplete#delete_search_suggestion"
@@ -1236,6 +1256,14 @@ Rails.application.routes.draw do
       get "/", to: "public#api"
     end
 
+    namespace :api, defaults: { format: :json } do
+      namespace :internal do
+        resources :fund_carts, only: [] do
+          resources :items, only: [:index, :create, :destroy], controller: "fund_cart_items"
+        end
+      end
+    end
+
     # React Router routes
     scope module: :api, defaults: { format: :json } do
       namespace :internal do
@@ -1267,6 +1295,10 @@ Rails.application.routes.draw do
         end
 
         resources :ai_product_details_generations, only: [:create]
+
+        resources :fund_carts, only: [] do
+          resources :items, only: [:index, :create, :destroy], controller: "fund_cart_items"
+        end
 
         # Conversational store agent
         post "/agent/messages", to: "agent_messages#create", as: :agent_messages
@@ -1322,6 +1354,7 @@ Rails.application.routes.draw do
     post "/sns-aws-config-webhook", to: "foreign_webhooks#sns_aws_config"
     post "/grmc-webhook", to: "foreign_webhooks#grmc"
     post "/resend-webhook", to: "foreign_webhooks#resend"
+    post "/killbill-webhook", to: "foreign_webhooks#killbill"
 
     # secure redirect
     get "/secure_url_redirect", to: "secure_redirect#new", as: :secure_url_redirect

@@ -100,12 +100,22 @@ export type AnyPayPalMethodParams =
 
 export type StripeErrorParams = { status: "error"; stripe_error: StripeError };
 
+export type KillBillPaymentMethodParams = {
+  status: "success";
+  type: "killbill";
+  killbill_payment_method_id: string;
+  killbill_account_id: string;
+  wallet_address: string | null;
+  is_cryptocurrency: boolean;
+};
+
 export type AnyPaymentMethodParams =
   | CardPaymentMethodParams
   | ReusableCardPaymentMethodParams
   | PaymentRequestPaymentMethodParams
   | ReusablePaymentRequestPaymentMethodParams
-  | AnyPayPalMethodParams;
+  | AnyPayPalMethodParams
+  | KillBillPaymentMethodParams;
 
 // We should be able to change `AnyPaymentMethodParams` representation on the frontend without making any backend changes
 // Since `AnyPaymentMethodParams` is being used to construct query params for the request to save the payment method,
@@ -116,6 +126,10 @@ export const serializeCardParamsIntoQueryParamsObject = (
 ): Record<string, unknown> => {
   if (cardParams.status === "error") {
     const { status: _, ...rest } = cardParams;
+    return rest;
+  }
+  if (cardParams.type === "killbill") {
+    const { status: _, type: __, ...rest } = cardParams;
     return rest;
   }
   // The wallet and element-collected fields are client-side checkout context (tax location,

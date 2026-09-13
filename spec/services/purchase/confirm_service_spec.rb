@@ -4,6 +4,7 @@ describe Purchase::ConfirmService, :vcr do
   include ManageSubscriptionHelpers
 
   let(:user) { create(:user) }
+  let!(:operator_account) { MerchantAccount.operator(StripeChargeProcessor.charge_processor_id) || create(:merchant_account, user: nil) }
   let(:chargeable) { build(:chargeable, card: StripePaymentMethodHelper.success_sca_not_required) }
 
   context "when the recurring payment was registered on a setup intent" do

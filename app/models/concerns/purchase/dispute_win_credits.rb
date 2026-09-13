@@ -31,7 +31,7 @@ module Purchase::DisputeWinCredits
   end
 
   def create_credit_for_dispute_won_for_seller!(flow_of_funds, amount_cents:)
-    return unless charged_using_gumroad_merchant_account?
+    return unless charged_using_server_owner_account?
 
     canonical_issued_amount = presentment_canonical_dispute_won_issued_amount
 
@@ -59,6 +59,9 @@ module Purchase::DisputeWinCredits
   end
 
   def create_credit_for_dispute_won!(flow_of_funds)
+    if FundCartFundingLot.exists?(source_purchase_id: id)
+      return FundCart::RefundService.new(purchase: self).dispute_won!(dispute: charge.present? ? charge.dispute : dispute, flow_of_funds:)
+    end
     unless stripe_partially_refunded?
       # Short circuit for full refund, or dispute
       seller_disputed_cents = payment_cents - affiliate_credit_cents

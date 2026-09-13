@@ -104,6 +104,27 @@ export type InstallmentPlan = {
   number_of_installments: number;
 };
 
+export type PricingMode = "legacy" | "gross" | "multi_currency";
+
+export type CurrencyPrice = {
+  id: string | null;
+  currency: string;
+  price_cents: number;
+  recurrence: string | null;
+  newlyAdded?: boolean;
+};
+
+export type AvailableCurrency = {
+  code: string;
+  symbol: string;
+  display_format: string;
+  min_price: number;
+};
+
+export type AvailableCryptocurrency = AvailableCurrency & {
+  decimals: number;
+};
+
 export type OfferCode = {
   id: string;
   code: string;
@@ -157,6 +178,9 @@ export type Product = {
   should_include_last_post: boolean;
   should_show_all_posts: boolean;
   block_access_after_membership_cancellation: boolean;
+  batch_billing_enabled: boolean;
+  batch_entitlement_enabled: boolean;
+  batch_billing_day: number;
   duration_in_months: number | null;
   subscription_duration: RecurrenceId | null;
   integrations: {
@@ -186,6 +210,8 @@ export type Product = {
   default_offer_code: OfferCode | null;
   public_files: PublicFileWithStatus[];
   community_chat_enabled: boolean;
+  pricing_mode: PricingMode;
+  currency_prices: CurrencyPrice[];
   // External ids of variants / content pages the seller explicitly deleted in
   // this editor session (via the respective confirmation modals). Sent with the
   // save payload so the server can tell an intentional deletion apart from an
@@ -309,6 +335,8 @@ export const ProductEditContext = React.createContext<{
   awsKey: string;
   s3Url: string;
   availableCountries: ShippingCountry[];
+  availableCurrencies: AvailableCurrency[];
+  availableCryptocurrencies: AvailableCryptocurrency[];
   saving: boolean;
   // Resolves true only when the save request actually succeeded (false on
   // request failure or when the seller cancels the deletion confirmation) —

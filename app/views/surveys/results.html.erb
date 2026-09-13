@@ -1,0 +1,262 @@
+<div class="survey-results">
+  <div class="results-header">
+    <h1><%= @survey.title %></h1>
+    <div class="header-actions">
+      <%= link_to "View Survey", survey_path(@survey), class: "btn btn-secondary" %>
+      <%= link_to "Edit Survey", edit_link_survey_path(@survey.surveyable, @survey), class: "btn btn-secondary" %>
+    </div>
+  </div>
+
+  <!-- Overview Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-value"><%= @analytics[:overview][:total_responses] %></div>
+      <div class="stat-label">Total Responses</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-value"><%= @analytics[:overview][:completed_responses] %></div>
+      <div class="stat-label">Completed</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-value"><%= @analytics[:overview][:completion_rate] %>%</div>
+      <div class="stat-label">Completion Rate</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-value"><%= @analytics[:overview][:average_time_to_complete] || 'N/A' %></div>
+      <div class="stat-label">Avg. Time</div>
+    </div>
+  </div>
+
+  <!-- Question Results -->
+  <div class="questions-results">
+    <h2>Question Breakdown</h2>
+
+    <% @analytics[:questions].each do |question_data| %>
+      <div class="question-result">
+        <h3><%= question_data[:question] %></h3>
+        <div class="question-type-badge"><%= question_data[:type].humanize %></div>
+
+        <div class="question-stats">
+          <% stats = question_data[:stats] %>
+
+          <% if ['multiple_choice_single', 'multiple_choice_multi', 'yes_no'].include?(question_data[:type]) %>
+            <!-- Bar chart for multiple choice -->
+            <div class="bar-chart">
+              <% stats.each do |option| %>
+                <div class="bar-item">
+                  <div class="bar-label"><%= option[:option_text] %></div>
+                  <div class="bar-container">
+                    <div class="bar-fill" style="width: <%= option[:percentage] %>%">
+                      <span class="bar-value"><%= option[:count] %> (<%= option[:percentage] %>%)</span>
+                    </div>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+
+          <% elsif question_data[:type] == 'rating_scale' %>
+            <!-- Rating distribution -->
+            <div class="rating-stats">
+              <div class="rating-summary">
+                <div class="avg-rating">
+                  <div class="rating-number"><%= stats[:average] %></div>
+                  <div class="rating-label">Average Rating</div>
+                </div>
+                <div class="rating-details">
+                  <div><strong><%= stats[:count] %></strong> responses</div>
+                  <div>Range: <%= stats[:min] %> - <%= stats[:max] %></div>
+                </div>
+              </div>
+
+              <div class="rating-distribution">
+                <% stats[:distribution].sort.reverse.each do |rating, count| %>
+                  <div class="rating-bar">
+                    <span class="rating-star">★ <%= rating %></span>
+                    <div class="bar-container">
+                      <div class="bar-fill" style="width: <%= (count.to_f / stats[:count] * 100).round %>%">
+                        <span class="bar-value"><%= count %></span>
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+
+          <% elsif ['text_short', 'text_long'].include?(question_data[:type]) %>
+            <!-- Text response stats -->
+            <div class="text-stats">
+              <p><strong><%= stats[:total_responses] %></strong> text responses</p>
+              <%= link_to "View All Responses", "#", class: "btn btn-sm btn-secondary" %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+</div>
+
+<style>
+.survey-results {
+  max-width: 1200px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.stat-card {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 36px;
+  font-weight: 700;
+  color: #007bff;
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.questions-results h2 {
+  margin-bottom: 24px;
+}
+
+.question-result {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.question-result h3 {
+  margin-bottom: 12px;
+}
+
+.question-type-badge {
+  display: inline-block;
+  background: #e9ecef;
+  color: #495057;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  margin-bottom: 20px;
+}
+
+.bar-chart {
+  margin-top: 20px;
+}
+
+.bar-item {
+  margin-bottom: 16px;
+}
+
+.bar-label {
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.bar-container {
+  background: #e9ecef;
+  border-radius: 4px;
+  height: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.bar-fill {
+  background: linear-gradient(90deg, #007bff, #0056b3);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  transition: width 0.3s;
+}
+
+.bar-value {
+  color: white;
+  font-size: 14px;
+  font-weight: 600white-space: nowrap;
+}
+
+.rating-stats {
+  margin-top: 20px;
+}
+
+.rating-summary {
+  display: flex;
+  gap: 40px;
+  margin-bottom: 32px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.avg-rating {
+  text-align: center;
+}
+
+.rating-number {
+  font-size: 48px;
+  font-weight: 700;
+  color: #007bff;
+}
+
+.rating-label {
+  font-size: 14px;
+  color: #666;
+}
+
+.rating-distribution {
+  max-width: 600px;
+}
+
+.rating-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rating-star {
+  width: 60px;
+  font-weight: 600;
+  color: #ffc107;
+}
+
+.text-stats {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+</style>

@@ -6,15 +6,16 @@ class Purchase::CreateService < Purchase::BaseService
   RESERVED_URL_PARAMETERS = %w[code wanted referrer email as_modal as_embed debug affiliate_id].freeze
   INVENTORY_LOCK_ACQUISITION_TIMEOUT = 50.seconds
 
-  attr_reader :product, :params, :purchase_params, :gift_params, :buyer
+  attr_reader :product, :params, :purchase_params, :gift_params, :buyer, :buyer_cookie
   attr_accessor :purchase, :gift
 
-  def initialize(product:, params:, buyer: nil)
+  def initialize(product:, params:, buyer: nil, buyer_cookie: nil)
     @product = product
     @params = params
     @purchase_params = params[:purchase]
     @gift_params = params[:gift].presence
     @buyer = buyer
+    @buyer_cookie = buyer_cookie
     @force_new_subscription = !!params[:force_new_subscription]
   end
 
@@ -192,7 +193,7 @@ class Purchase::CreateService < Purchase::BaseService
       if purchase.displayed_price_cents == 0 && purchase.offer_code.present?
         logger.info("Free purchase with offer code - purchaser_email: #{purchase.email} | offer_code: #{purchase_params[:discount_code]} | id: #{purchase.id} | params: #{params}")
       end
-    rescue Purchase::PurchaseInvalid => e
+    rescue Purchase::PurchaseInvalid, FundCart::SettlementError => e
       if purchase.present?
         handle_purchase_failure
       else
@@ -225,7 +226,7 @@ class Purchase::CreateService < Purchase::BaseService
 
     def buyer_currency_quote_rate_hint(purchase)
       return if params[:buyer_currency_quote].blank?
-      return unless buyer_currency_quote_components_verified_path?
+      return unless stripe_quote_components_applicable?
       return unless purchase.link.price_currency_type.to_s.downcase != Currency::USD
 
       Checkout::BuyerCurrencyQuote.listed_currency_rate_hint(
@@ -237,6 +238,7 @@ class Purchase::CreateService < Purchase::BaseService
     end
 
     def direct_listed_currency_rate_hint(purchase)
+      return unless stripe_quote_components_applicable?
       return if params[:buyer_currency_quote].present?
       return unless params[:payment_details_source] == PurchasePaymentFlow::PAYMENT_ELEMENT
       return unless purchase.link.price_currency_type.to_s.downcase != Currency::USD
@@ -251,7 +253,7 @@ class Purchase::CreateService < Purchase::BaseService
       return if params[:buyer_currency_quote].blank?
       # Charge::CreateService discards the token for PayPal before verify!.
       # Do not make that token authoritative over the USD split.
-      return unless buyer_currency_quote_components_verified_path?
+      return unless stripe_quote_components_applicable?
 
       # Do not require a submit-time tip or a non-USD listing. Quote-time largest-remainder
       # can hand a cent to a different line — including a USD line in a mixed cart — so any
@@ -274,16 +276,29 @@ class Purchase::CreateService < Purchase::BaseService
       hint
     end
 
-    def buyer_currency_quote_components_verified_path?
+    def stripe_quote_components_applicable?
       return false if params.values_at(
         :paypal_order_id,
         :billing_agreement_id,
         :braintree_transient_customer_store_key,
-        :braintree_device_data
+        :braintree_device_data,
+        :killbill_payment_method_id,
+        :killbill_account_id
+      ).any?(&:present?)
+
+      return true if params.values_at(
+        :stripe_payment_method_id,
+        :stripe_customer_id,
+        :stripe_setup_intent_id,
+        :confirmation_token,
+        :paymentToken
       ).any?(&:present?)
 
       chargeable = purchase_params&.[](:chargeable)
-      processor_id = chargeable.respond_to?(:charge_processor_id) ? chargeable.charge_processor_id : nil
+      processor_id = chargeable&.charge_processor_id ||
+        purchase&.credit_card&.charge_processor_id ||
+        purchase&.subscription&.credit_card&.charge_processor_id ||
+        buyer&.credit_card&.charge_processor_id
       return true if processor_id.blank?
 
       processor_id == StripeChargeProcessor.charge_processor_id
@@ -549,6 +564,10 @@ class Purchase::CreateService < Purchase::BaseService
       end
 
       purchase.url_parameters = parse_url_parameters(params_for_purchase[:url_parameters])
+
+      # Set buyer_cookie for A/B test price enforcement (for guest buyers)
+      purchase.buyer_cookie = buyer_cookie if buyer_cookie.present?
+
       purchase
     end
 

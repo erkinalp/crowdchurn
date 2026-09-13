@@ -1,0 +1,205 @@
+<div class="template-builder">
+  <h1><%= @template.persisted? ? "Edit Message Template" : "Create Message Template" %></h1>
+
+  <%= form_with(model: [@templateable, @template], class: "template-form") do |f| %>
+    <!-- Template Details -->
+    <div class="form-section">
+      <h2>Template Details</h2>
+
+      <div class="form-group">
+        <%= f.label :name, "Template Name *" %>
+        <%= f.text_field :name, class: "form-control", placeholder: "e.g., Welcome Message", required: true %>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <%= f.label :trigger_type, "Trigger Type *" %>
+          <%= f.select :trigger_type,
+              options_for_select(
+                MessageTemplate.trigger_types.map { |k,v| [k.humanize, k] },
+                @template.trigger_type
+              ),
+              {},
+              class: "form-control trigger-type-select" %>
+        </div>
+
+        <div class="form-group">
+          <%= f.label :priority, "Priority" %>
+          <%= f.number_field :priority, class: "form-control", value: @template.priority || 0 %>
+          <small class="text-muted">Higher priority messages send first</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <%= f.check_box :active %>
+            Active
+          </label>
+        </div>
+      </div>
+
+      <!-- Trigger Config (for delayed messages) -->
+      <div class="trigger-config" style="display:none;">
+        <div class="form-group">
+          <label>Delay (hours)</label>
+          <%= number_field_tag 'message_template[trigger_config][delay_hours]',
+              @template.trigger_config&.dig('delay_hours'),
+              class: "form-control",
+              placeholder: "e.g., 168 (7 days)" %>
+        </div>
+      </div>
+    </div>
+
+    <!-- Message Content -->
+    <div class="form-section">
+      <h2>Message Content</h2>
+
+      <div class="variables-help">
+        <strong>Available Variables:</strong>
+        <div class="variables-list">
+          <% MessageTemplate::VARIABLES.each do |var, desc| %>
+            <button type="button" class="variable-chip" data-variable="<%= var %>">
+              <%= var %> <span class="variable-desc"><%= desc %></span>
+            </button>
+          <% end %>
+        </div>
+        <small class="text-muted">Click to insert into message</small>
+      </div>
+
+      <div class="form-group">
+        <%= f.label :subject, "Subject (Optional)" %>
+        <%= f.text_field :subject,
+            class: "form-control message-field",
+            id: "template-subject",
+            placeholder: "e.g., Welcome to {product}!" %>
+      </div>
+
+      <div class="form-group">
+        <%= f.label :message_body, "Message Body *" %>
+        <%= f.text_area :message_body,
+            class: "form-control message-field",
+            id: "template-body",
+            rows: 8,
+            placeholder: "Hey {name}!\n\nThanks for joining {product}...",
+            required: true %>
+      </div>
+    </div>
+
+    <!-- A/B Testing Variants -->
+    <div class="form-section">
+      <div class="section-header">
+        <h2>A/B Test Variants (Optional)</h2>
+        <button type="button" class="btn btn-secondary" id="add-variant">
+          + Add Variant
+        </button>
+      </div>
+
+      <p class="text-muted">Test different message styles to see which performs best</p>
+
+      <div id="variants-container">
+        <%= f.fields_for :message_template_variants do |v| %>
+          <%= render 'variant_fields', f: v %>
+        <% end %>
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <div class="form-actions">
+      <%= f.submit @template.persisted? ? "Update Template" : "Create Template", class: "btn btn-primary btn-lg" %>
+      <%= link_to "Cancel", :back, class: "btn btn-secondary" %>
+    </div>
+  <% end %>
+</div>
+
+<style>
+.template-builder {
+  max-width: 900px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.variables-help {
+  background: #e7f3ff;
+  border: 1px solid #b3d9ff;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.variables-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.variable-chip {
+  background: white;
+  border: 1px solid #007bff;
+  border-radius: 16px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.variable-chip:hover {
+  background: #007bff;
+  color: white;
+}
+
+.variable-desc {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+.trigger-config {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  let variantIndex = <%= @template.message_template_variants.length %>;
+  let lastFocusedField = null;
+
+  // Track which field was last focused
+  document.querySelectorAll('.message-field').forEach(field => {
+    field.addEventListener('focus', () => {
+      lastFocusedField = field;
+    });
+  });
+
+  // Insert variable on click
+  document.querySelectorAll('.variable-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const variable = chip.dataset.variable;
+      const field = lastFocusedField || document.getElementById('template-body');
+
+      const start = field.selectionStart;
+      const end = field.selectionEnd;
+      const text = field.value;
+
+      field.value = text.substring(0, start) + variable + text.substring(end);
+      field.focus();
+      field.selectionStart = field.selectionEnd = start + variable.length;
+    });
+  });
+
+  // Show/hide trigger config based on trigger type
+  document.querySelector('.trigger-type-select')?.addEventListener('change', (e) => {
+    const triggerConfig = document.querySelector('.trigger-config');
+    const needsConfig = ['delayed_purchase', 'milestone'].includes(e.target.value);
+    triggerConfig.style.display = needsConfig ? '' : 'none';
+  });
+
+  // Initial state
+  const triggerType = document.querySelector('.trigger-type-select')?.value;
+  if (triggerType && ['delayed_purchase', 'milestone'].includes(triggerType)) {
+    document.querySelector('.trigger-config').style.display = '';
+  }
+});
+</script>

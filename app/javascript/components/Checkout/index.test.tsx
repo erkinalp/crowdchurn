@@ -50,6 +50,7 @@ const cartProduct = (overrides: Partial<CartProduct> = {}): CartProduct => ({
   thumbnail_url: null,
   currency_code: "usd",
   price_cents: 1_000,
+  variant_price_cents: null,
   quantity_remaining: null,
   pwyw: null,
   installment_plan: null,

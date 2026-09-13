@@ -52,6 +52,8 @@ export type Product = {
 };
 
 export type RecurringProductType = "membership" | "newsletter" | "podcast";
+export type PhysicalProductType = "physical" | "print_book" | "food";
+export type OptionallyPhysicalProductType = "bread" | "literal_coffee";
 
 export async function getFolderArchiveDownloadUrl(request_url: string) {
   const res = await request({

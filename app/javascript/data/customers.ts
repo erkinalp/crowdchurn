@@ -392,19 +392,20 @@ export const getCharges = (purchaseId: string, purchaseEmail: string) =>
     })
     .then((json) => typia.assert<Charge[]>(json));
 
-export const refund = (purchaseId: string, amount: number) =>
+export const refund = (purchaseId: string, amount: number, operationKey: string) =>
   request({
     method: "PUT",
     accept: "json",
-    url: Routes.refund_purchase_path(purchaseId, { amount }),
+    url: Routes.refund_purchase_path(purchaseId, { amount, operation_key: operationKey }),
   })
     .then((response) => {
       if (!response.ok) throw new ResponseError();
       return response.json();
     })
-    .then((json) => typia.assert<{ success: true } | { success: false; message: string }>(json))
+    .then((json) => typia.assert<{ success: true; pending?: boolean } | { success: false; message: string }>(json))
     .then((response) => {
       if (!response.success) throw new ResponseError(response.message);
+      return response;
     });
 
 export const revokeAccess = (purchaseId: string) =>

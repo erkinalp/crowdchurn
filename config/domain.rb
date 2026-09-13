@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# CrowdChurn is a fork of Gumroad - https://github.com/antiwork/gumroad
+# Domain configuration for self-hosted instances
 # bin/dev-lane exports DEV_LANE_PORT per lane; without it every absolute URL a
 # nonzero lane generates (mailer links, *_url helpers, cross-subdomain redirects)
 # would point at lane 0's :3000. Port-less entries (valid_discover_host, the bare
@@ -10,54 +12,54 @@ dev_lane_port = ENV.fetch("DEV_LANE_PORT", "3000")
 configuration_by_env = {
   production: {
     protocol: "https",
-    domain: "gumroad.com",
-    asset_domain: "assets.gumroad.com",
-    root_domain: "gumroad.com",
-    short_domain: "gum.co",
-    discover_domain: "gumroad.com",
-    api_domain: "api.gumroad.com",
-    third_party_analytics_domain: "gumroad-analytics.com",
-    valid_request_hosts: ["gumroad.com", "app.gumroad.com"],
-    valid_api_request_hosts: ["api.gumroad.com"],
-    valid_discover_host: "gumroad.com",
-    valid_cors_origins: ["gumroad.com"],
-    internal_gumroad_domain: "gumroad.net",
-    default_email_domain: "gumroad.com",
-    anycable_host: "cable.gumroad.com",
+    domain: "example.com",
+    asset_domain: "assets.example.com",
+    root_domain: "example.com",
+    short_domain: "example.com",
+    discover_domain: "example.com",
+    api_domain: "api.example.com",
+    third_party_analytics_domain: "analytics.example.com",
+    valid_request_hosts: ["example.com", "app.example.com"],
+    valid_api_request_hosts: ["api.example.com"],
+    valid_discover_host: "example.com",
+    valid_cors_origins: ["example.com"],
+    internal_domain: "internal.example.com",
+    default_email_domain: "example.com",
+    anycable_host: "cable.example.com",
   },
   staging: {
     protocol: "https",
-    domain: "staging.gumroad.com",
-    asset_domain: "staging-assets.gumroad.com",
-    root_domain: "staging.gumroad.com",
-    short_domain: "staging.gum.co",
-    discover_domain: "staging.gumroad.com",
-    api_domain: "api.staging.gumroad.com",
-    third_party_analytics_domain: "staging.gumroad-analytics.com",
-    valid_request_hosts: ["staging.gumroad.com", "app.staging.gumroad.com"],
-    valid_api_request_hosts: ["api.staging.gumroad.com"],
-    valid_discover_host: "staging.gumroad.com",
-    valid_cors_origins: ["staging.gumroad.com"],
-    internal_gumroad_domain: "gumroad.net",
-    default_email_domain: "staging.gumroad.com",
-    anycable_host: "cable.staging.gumroad.com",
+    domain: "staging.example.com",
+    asset_domain: "staging-assets.example.com",
+    root_domain: "staging.example.com",
+    short_domain: "staging.example.com",
+    discover_domain: "staging.example.com",
+    api_domain: "api.staging.example.com",
+    third_party_analytics_domain: "staging.analytics.example.com",
+    valid_request_hosts: ["staging.example.com", "app.staging.example.com"],
+    valid_api_request_hosts: ["api.staging.example.com"],
+    valid_discover_host: "staging.example.com",
+    valid_cors_origins: ["staging.example.com"],
+    internal_domain: "internal.example.com",
+    default_email_domain: "staging.example.com",
+    anycable_host: "cable.staging.example.com",
   },
   test: {
     protocol: "http",
-    domain: "app.test.gumroad.com:31337",
-    asset_domain: "test.gumroad.com:31337",
-    root_domain: "test.gumroad.com:31337",
-    short_domain: "short-domain.test.gumroad.com:31337",
-    discover_domain: "test.gumroad.com:31337",
-    api_domain: "api.test.gumroad.com:31337",
-    third_party_analytics_domain: "analytics.test.gumroad.com",
-    valid_request_hosts: ["127.0.0.1", "app.test.gumroad.com", "test.gumroad.com"],
-    valid_api_request_hosts: ["api.test.gumroad.com"],
-    valid_discover_host: "test.gumroad.com",
-    valid_cors_origins: ["help.test.gumroad.com", "customers.test.gumroad.com"],
-    internal_gumroad_domain: "test.gumroad.net",
-    default_email_domain: "test.gumroad.com", # unused
-    anycable_host: "cable.test.gumroad.com",
+    domain: "app.test.example.com:31337",
+    asset_domain: "test.example.com:31337",
+    root_domain: "test.example.com:31337",
+    short_domain: "short-domain.test.example.com:31337",
+    discover_domain: "test.example.com:31337",
+    api_domain: "api.test.example.com:31337",
+    third_party_analytics_domain: "analytics.test.example.com",
+    valid_request_hosts: ["127.0.0.1", "app.test.example.com", "test.example.com"],
+    valid_api_request_hosts: ["api.test.example.com"],
+    valid_discover_host: "test.example.com",
+    valid_cors_origins: ["help.test.example.com", "customers.test.example.com"],
+    internal_domain: "test.internal.example.com",
+    default_email_domain: "test.example.com", # unused
+    anycable_host: "cable.test.example.com",
   },
   development: {
     protocol: "http",
@@ -72,8 +74,8 @@ configuration_by_env = {
     valid_api_request_hosts: ["api.localhost", "api.localhost:#{dev_lane_port}"],
     valid_discover_host: "localhost",
     valid_cors_origins: [],
-    internal_gumroad_domain: "internal.localhost",
-    default_email_domain: "staging.gumroad.com",
+    internal_domain: "internal.localhost",
+    default_email_domain: "staging.example.com",
     anycable_host: "cable.localhost",
   }
 }
@@ -99,7 +101,7 @@ THIRD_PARTY_ANALYTICS_DOMAIN = config[:third_party_analytics_domain]
 VALID_REQUEST_HOSTS = config[:valid_request_hosts]
 VALID_API_REQUEST_HOSTS = config[:valid_api_request_hosts]
 VALID_CORS_ORIGINS = config[:valid_cors_origins]
-INTERNAL_GUMROAD_DOMAIN = config[:internal_gumroad_domain]
+INTERNAL_DOMAIN = config[:internal_domain]
 DEFAULT_EMAIL_DOMAIN    = config[:default_email_domain]
 ANYCABLE_HOST           = config[:anycable_host]
 

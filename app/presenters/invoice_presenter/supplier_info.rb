@@ -44,7 +44,7 @@ class InvoicePresenter::SupplierInfo
     def gumroad_title_attribute
       {
         label: nil,
-        value: "Gumroad, Inc.",
+        value: PLATFORM_SUPPLIER_NAME,
       }
     end
 
@@ -77,7 +77,7 @@ class InvoicePresenter::SupplierInfo
     def gumroad_note_attribute
       {
         label: nil,
-        value: "Products supplied by Gumroad.",
+        value: "Products supplied by #{PLATFORM_SUPPLIER_NAME}.",
       }
     end
 
