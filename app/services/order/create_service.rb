@@ -5,7 +5,7 @@ class Order::CreateService
 
   LISTED_CURRENCY_RATE_EXPIRED_MESSAGE = "The listed-currency price changed or expired. Please refresh the page and try again."
 
-  attr_accessor :params, :buyer, :order
+  attr_accessor :params, :buyer, :buyer_cookie, :order
 
   PARAM_TO_ATTRIBUTE_MAPPINGS = {
     friend: :friend_actions,
@@ -18,15 +18,10 @@ class Order::CreateService
 
   PARAMS_TO_REMOVE_IF_BLANK = [:full_name, :email].freeze
 
-  # Terminal states a purchase can reach that mean its attempt is over and bought nothing. Used to
-  # decide whether the buyer's cart survives a wholly-failed checkout. It lists every way a purchase
-  # can end badly at checkout time — an ordinary decline, a declined preorder card authorization, a
-  # giftee purchase that could not be created — rather than only the one the current code paths
-  # produce, so that a change elsewhere cannot quietly start destroying carts. See the comment at
-  # the cart-cleanup branch in `perform` for which of these are reachable today.
-  def initialize(params:, buyer: nil)
+  def initialize(params:, buyer: nil, buyer_cookie: nil)
     @params = params
     @buyer = buyer
+    @buyer_cookie = buyer_cookie
   end
 
   def perform
@@ -109,6 +104,7 @@ class Order::CreateService
               :billing_agreement_id, :paypal_order_id, :visual, :stripe_payment_method_id, :stripe_customer_id,
               :stripe_setup_intent_id, :stripe_error, :braintree_transient_customer_store_key,
               :braintree_device_data, :use_existing_card, :paymentToken, :buyer_currency_quote,
+              :killbill_payment_method_id, :killbill_account_id,
               # Client-confirm payment-surface hint consumed by Order::PreparePaymentIntentService
               # (which receives the order params directly from the controller); it is not a
               # Purchase attribute, so letting it through raises ActiveModel::UnknownAttributeError
@@ -137,7 +133,8 @@ class Order::CreateService
         # Charge::CreateService), but RestartAtCheckoutService needs them for UpdaterService
         card_params = common_params.slice(
           :card_data_handling_mode, :stripe_payment_method_id, :paypal_order_id, :billing_agreement_id,
-          :braintree_transient_customer_store_key, :braintree_device_data, :stripe_customer_id, :stripe_setup_intent_id
+          :braintree_transient_customer_store_key, :braintree_device_data, :stripe_customer_id, :stripe_setup_intent_id,
+          :killbill_payment_method_id, :killbill_account_id
         ).to_h.symbolize_keys.compact
 
         purchase, error, sca_response = Purchase::CreateService.new(
@@ -145,7 +142,8 @@ class Order::CreateService
           params: purchase_params.merge(is_part_of_combined_charge: true).merge(card_params).merge(
             buyer_currency_quote: params[:buyer_currency_quote]
           ),
-          buyer:
+          buyer:,
+          buyer_cookie:
         ).perform
 
         if sca_response

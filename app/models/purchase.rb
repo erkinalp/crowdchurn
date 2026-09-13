@@ -11,6 +11,7 @@ class Purchase < ApplicationRecord
           ChargeEventsHandler, AudienceMember, Reportable, Recommended, CustomFields, Charge::Disputable,
           Charge::Chargeable, Charge::Refundable, DisputeWinCredits, Order::Orderable, Paypal, Receipt, UnusedColumns, SecureExternalId,
           ChargeProcessable
+  include Purchase::FundCartFunding
 
   extend PreorderHelper
   extend ProductsHelper
@@ -20,12 +21,19 @@ class Purchase < ApplicationRecord
   # If a sku-enabled product has no skus (i.e. the product has no variants), then the sku id of the purchase will be "pid_#{external_product_id}".
   SKU_ID_PREFIX_FOR_PRODUCT_WITH_NO_SKUS = "pid_"
 
-  # Gumroad's fees per transaction
-  GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND = 100
+  # Operator's fees per transaction (CrowdChurn is a fork of Gumroad)
+  OPERATOR_FEE_PER_THOUSAND = 85
+  OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND = 100
 
-  GUMROAD_FLAT_FEE_PER_THOUSAND = 100
-  GUMROAD_DISCOVER_FEE_PER_THOUSAND = 300
-  GUMROAD_FIXED_FEE_CENTS = 50
+  OPERATOR_NON_PRO_FEE_PERCENTAGE = 60
+
+  OPERATOR_FLAT_FEE_PER_THOUSAND = 100
+  OPERATOR_DISCOVER_FEE_PER_THOUSAND = 300
+  OPERATOR_FIXED_FEE_CENTS = 50
+  GUMROAD_FLAT_FEE_PER_THOUSAND = OPERATOR_FLAT_FEE_PER_THOUSAND
+  GUMROAD_DISCOVER_FEE_PER_THOUSAND = OPERATOR_DISCOVER_FEE_PER_THOUSAND
+  GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND = OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND
+  GUMROAD_FIXED_FEE_CENTS = OPERATOR_FIXED_FEE_CENTS
   PROCESSOR_FEE_PER_THOUSAND = 29
   PROCESSOR_FIXED_FEE_CENTS = 30
   # Brazilian IOF (3.5%) on Pix that leaves Brazil. This constant is the RECOVERY fee, billed
@@ -106,7 +114,21 @@ class Purchase < ApplicationRecord
   CAN_CONTACT_REASON_SPAM_REPORT = "spam_report"
   CAN_CONTACT_REASON_INHERITED = "inherited"
 
+  # Virtual attribute for A/B test price enforcement - set from controller
+  attr_json_data_accessor :buyer_cookie
+
   alias_attribute :total_transaction_cents_usd, :total_transaction_cents
+
+  # Multi-currency aliases: _base_units suffix for currency-agnostic naming
+  # These aliases allow code to use currency-agnostic names while maintaining
+  # backward compatibility with the existing _cents column names.
+  alias_attribute :price_base_units, :price_cents
+  alias_attribute :tax_base_units, :tax_cents
+  alias_attribute :platform_tax_base_units, :gumroad_tax_cents # Platform-responsible tax (renamed from gumroad)
+  alias_attribute :gumroad_tax_base_units, :gumroad_tax_cents # Legacy alias for backward compatibility
+  alias_attribute :shipping_base_units, :shipping_cents
+  alias_attribute :total_transaction_base_units, :total_transaction_cents
+  alias_attribute :fee_base_units, :fee_cents
 
   belongs_to :link, optional: true
   has_one :url_redirect
@@ -291,6 +313,7 @@ class Purchase < ApplicationRecord
     after_transition any => %i[successful not_charged gift_receiver_purchase_successful], :do => :schedule_order_review_reminder
     after_transition any => NON_GIFT_SUCCESS_STATES.map(&:to_sym), :do => :schedule_indian_card_mandate_registration_check
     after_transition any => any, :do => :log_transition
+    after_transition any => [:successful, :not_charged, :gift_receiver_purchase_successful], :do => :record_ab_test_conversion!
 
     # normal purchase transitions:
 
@@ -1237,28 +1260,42 @@ class Purchase < ApplicationRecord
   end
 
   def transaction_url_for_seller
-    ChargeProcessor.transaction_url_for_seller(charge_processor_id, stripe_transaction_id, charged_using_gumroad_merchant_account?)
+    ChargeProcessor.transaction_url_for_seller(charge_processor_id, stripe_transaction_id, charged_using_server_owner_account?)
   end
 
   def base_product_price_cents
     return price_for_recurrence.price_cents if price_for_recurrence.present?
 
+    # Check for A/B test variant price override for one-time purchases
+    variant_override = ab_test_price_override_cents
+    return variant_override if variant_override.present?
+
     is_rental ? link.rental_price_cents : link.price_cents
   end
 
-  def charged_using_gumroad_merchant_account?
-    (merchant_account&.is_managed_by_gumroad?) ||
+  # Returns the A/B test variant price override in cents, or nil if not applicable.
+  # Only applies to one-time purchases (not recurring, preorder, rental, or plan changes).
+  # Memoized to avoid repeated queries during price calculation.
+  def ab_test_price_override_cents
+    return @ab_test_price_override_cents if defined?(@ab_test_price_override_cents)
+
+    @ab_test_price_override_cents = compute_ab_test_price_override_cents
+  end
+
+  def charged_using_server_owner_account?
+    (merchant_account&.is_managed_by_operator?) ||
         (stripe_charge_processor? && !charged_using_stripe_connect_account?)
   end
+  alias_method :charged_using_gumroad_merchant_account?, :charged_using_server_owner_account?
 
   def charged_using_stripe_connect_account?
     merchant_account&.is_a_stripe_connect_account?
   end
 
   def update_user_balance_in_transaction_for_affiliate
-    if charged_using_gumroad_merchant_account? && using_gumroad_merchant_account_for_affiliate_user?
+    if charged_using_server_owner_account? && using_operator_merchant_account_for_affiliate_user?
       true
-    elsif seller_merchant_migration_enabled? && !affiliate_merchant_account&.is_managed_by_gumroad?
+    elsif seller_merchant_migration_enabled? && !affiliate_merchant_account&.is_managed_by_operator?
       false
     else
       true
@@ -1271,23 +1308,24 @@ class Purchase < ApplicationRecord
 
   def affiliate_merchant_account_exists?
     affiliate_user_merchant_account = merchant_account_for_affiliate_user
-    affiliate_user_merchant_account && !affiliate_user_merchant_account.is_managed_by_gumroad?
+    affiliate_user_merchant_account && !affiliate_user_merchant_account.is_managed_by_operator?
   end
 
   def seller_merchant_migration_enabled?
     seller&.merchant_migration_enabled?
   end
 
-  def using_gumroad_merchant_account_for_affiliate_user?
+  def using_operator_merchant_account_for_affiliate_user?
     # Always true for now. Revisit when Stripe merchant migration is enabled.
     true
   end
+  alias_method :using_gumroad_merchant_account_for_affiliate_user?, :using_operator_merchant_account_for_affiliate_user?
 
   def merchant_account_for_affiliate_user
     affiliate_user = affiliate&.affiliate_user
     charge_processor_id = self.charge_processor_id || StripeChargeProcessor.charge_processor_id
     merchant_account = affiliate_user&.merchant_account(charge_processor_id)
-    merchant_account || MerchantAccount.gumroad(charge_processor_id)
+    merchant_account || MerchantAccount.operator(charge_processor_id)
   end
 
   def refunded? = stripe_refunded?
@@ -1975,7 +2013,7 @@ class Purchase < ApplicationRecord
       create_affiliate_balances!
     end
 
-    return if using_gumroad_merchant_account_for_affiliate_user?
+    return if using_operator_merchant_account_for_affiliate_user?
 
     if merchant_account_for_affiliate_user&.charge_processor_merchant_id
       logger.info("Transferring affiliate Credits for: #{id}")
@@ -2032,10 +2070,20 @@ class Purchase < ApplicationRecord
 
   def increment_sellers_balance!
     return if price_cents == 0
+    if has_fund_cart_settlement?
+      raise FundCart::SettlementError, "invalid_settlement_receipt" unless funded_by_fund_cart?
+      return
+    end
+    return if persisted? && FundCartFundingLot.exists?(source_purchase_id: id)
+    if fund_cart_contribution? && !is_test_purchase?
+      lot = FundCart::ContributeService.new(purchase: self).restrict_proceeds!
+      increment_affiliates_balance! if lot.previously_new_record?
+      return
+    end
 
     increment_affiliates_balance!
 
-    return unless charged_using_gumroad_merchant_account?
+    return unless charged_using_server_owner_account?
 
     if (seller_balance_transaction = balance_transactions.where(user: seller).where.not(balance_id: nil).last)
       self.purchase_success_balance = seller_balance_transaction.balance
@@ -2062,7 +2110,7 @@ class Purchase < ApplicationRecord
       purchase: self,
       issued_amount: seller_issued_amount,
       holding_amount: seller_holding_amount,
-      update_user_balance: charged_using_gumroad_merchant_account?
+      update_user_balance: charged_using_server_owner_account?
     )
 
     self.purchase_success_balance = seller_balance_transaction.balance
@@ -2121,6 +2169,7 @@ class Purchase < ApplicationRecord
       purchase_custom_fields.reload
     end
     create_commission! if is_commission_deposit_purchase?
+    contribute_to_fund_cart! if link.native_type == Link::NATIVE_TYPE_FUND_CART
     create_url_redirect!
     create_license!
     send_receipt
@@ -2174,6 +2223,12 @@ class Purchase < ApplicationRecord
     elsif is_commission_completion_purchase
       commission_as_completion
     end
+  end
+
+  def contribute_to_fund_cart!
+    return if link.native_type != Link::NATIVE_TYPE_FUND_CART
+
+    FundCart::ContributeService.new(purchase: self).perform
   end
 
   def from_foreign_currency?
@@ -2255,6 +2310,7 @@ class Purchase < ApplicationRecord
   end
 
   def amount_refundable_cents
+    return price_cents - amount_refunded_cents if funded_by_fund_cart?
     return 0 unless charge_processor_id.in?(ChargeProcessor.charge_processor_ids) # We can't refund purchases where we've removed support for the payment method
     price_cents - amount_refunded_cents
   end
@@ -2374,6 +2430,7 @@ class Purchase < ApplicationRecord
 
   def charge!(off_session: true)
     return if chargeable.nil?
+    ensure_fund_cart_funding_eligible!
 
     self.charge_intent = create_charge_intent(chargeable, off_session:)
     return if errors.present?
@@ -2396,6 +2453,7 @@ class Purchase < ApplicationRecord
 
   def confirm_charge_intent!
     return if processor_payment_intent_id.blank?
+    ensure_fund_cart_funding_eligible!
 
     self.charge_intent = ChargeProcessor.confirm_payment_intent!(merchant_account, processor_payment_intent_id)
 
@@ -2408,6 +2466,9 @@ class Purchase < ApplicationRecord
       errors.add :base, "Sorry, something went wrong."
     end
 
+  rescue FundCart::SettlementError => error
+    errors.add(:base, "Fund cart funding unavailable: #{error.code}.")
+    nil
   rescue ChargeProcessorFxQuoteInvalidError => e
     # SCA confirmation happens minutes after PaymentIntent creation, so the locked FX quote
     # can expire or drift-invalidate in between; the buyer must re-quote and retry.
@@ -2508,15 +2569,19 @@ class Purchase < ApplicationRecord
       end
     end
 
-    self.build_purchasing_power_parity_info(factor: purchasing_power_parity_factor) if is_purchasing_power_parity_discounted? && purchasing_power_parity_factor < 1
+    # Handle pricing based on product's pricing mode
+    resolved_price = resolve_price_based_on_pricing_mode
+
+    # Only apply PPP for non-explicit multi-currency prices
+    # PPP should not apply when seller has explicitly set prices for buyer's currency
+    should_apply_ppp = is_purchasing_power_parity_discounted? &&
+                       purchasing_power_parity_factor < 1 &&
+                       !resolved_price[:explicit_price]
+    self.build_purchasing_power_parity_info(factor: purchasing_power_parity_factor) if should_apply_ppp
 
     self.displayed_price_cents = determine_customized_price_cents || calculate_price_range_cents || minimum_paid_price_cents
-    self.displayed_price_currency_type = link.price_currency_type
-    # Reusing the quote's bound rate here (rather than a fresh `get_rate`) keeps this
-    # purchase's total in agreement with what BuyerCurrencyQuote.verify! signed
-    # (gumroad-private#1958) — a cache refresh between quote and charge would otherwise
-    # disagree with the token by a few cents and fail closed as buyer_currency_quote_invalid.
-    self.price_cents = locked_rate.present? ? get_usd_cents(displayed_price_currency_type, displayed_price_cents, rate: locked_rate) : displayed_price_usd_cents
+    self.displayed_price_currency_type = resolved_price[:currency]
+    self.price_cents = get_base_currency_units(displayed_price_currency_type, displayed_price_cents, rate: locked_rate)
     self.rate_converted_to_usd = locked_rate.present? ? locked_rate.to_s : get_rate(displayed_price_currency_type)
     self.total_transaction_cents = self.price_cents
     self.affiliate_credit_cents = determine_affiliate_balance_cents
@@ -2629,7 +2694,7 @@ class Purchase < ApplicationRecord
     logger.info("process_refund_or_chargeback_for_purchase_balance::flow_of_funds::#{flow_of_funds.inspect}")
     logger.info("process_refund_or_chargeback_for_purchase_balance::refund::#{refund.inspect}")
     logger.info("process_refund_or_chargeback_for_purchase_balance::dispute::#{dispute.inspect}")
-    return unless charged_using_gumroad_merchant_account?
+    return unless charged_using_server_owner_account?
 
     canonical_issued_amount = presentment_canonical_refund_or_chargeback_issued_amount(refund:, dispute:)
 
@@ -2653,7 +2718,7 @@ class Purchase < ApplicationRecord
       dispute:,
       issued_amount: seller_issued_amount,
       holding_amount: seller_holding_amount,
-      update_user_balance: charged_using_gumroad_merchant_account?
+      update_user_balance: charged_using_server_owner_account?
     )
 
     if refund
@@ -3326,6 +3391,15 @@ class Purchase < ApplicationRecord
     s3_obj
   end
 
+  def upload_invoice_xml(xml_content, filename: "invoice.xml")
+    timestamp = Time.current.strftime("%F")
+    key = "#{Rails.env}/#{timestamp}/invoices/purchases/#{external_id}-#{SecureRandom.hex}/#{filename}"
+
+    s3_obj = Aws::S3::Resource.new.bucket(INVOICES_S3_BUCKET).object(key)
+    s3_obj.put(body: xml_content, content_type: "application/xml")
+    s3_obj
+  end
+
   # Unsubscribe the buyer of this purchase from all of the seller's emails
   def unsubscribe_buyer(reason: CAN_CONTACT_REASON_BUYER_UNSUBSCRIBE)
     Purchase.where(email:, seller_id:, can_contact: true).find_each do |purchase|
@@ -3553,31 +3627,21 @@ class Purchase < ApplicationRecord
     fee_cents + paypal_fee_usd_cents
   end
 
-  # The slice of fee_cents that is Gumroad's own percentage revenue on this sale.
-  #
-  # fee_cents is a bundle: Gumroad's percentage fee, Gumroad's fixed fee, and — on sales
-  # charged through a Gumroad-owned Stripe account — the processor's percentage and fixed
-  # costs, which Gumroad only collects in order to hand them to Stripe. Anything that will
-  # be paid out to somebody else is not Gumroad's to give away, so a caller that needs to
-  # know how much of a charge Gumroad could absorb has to ask for this rather than reading
-  # fee_cents. Used by the buyer-currency charge path, where a displayed price rounded down
-  # from the exact conversion is taken out of Gumroad's share of the payment and must never
-  # reach the seller's proceeds or Stripe's costs (Charge::PresentmentOrchestrator).
-  #
-  # Returns 0 exactly where Gumroad's percentage fee is zero: a fee-waived sale (Gumroad
-  # Day or the per-seller waiver), a free purchase, and Brazilian Stripe Connect sellers,
-  # for whom calculate_fees zeroes the fee outright. The discover fee and the fixed Gumroad
-  # fee are deliberately left out even though they are Gumroad revenue — this is meant to
-  # be a floor on what is safely disposable, not an accurate total.
-  def gumroad_percentage_fee_cents
+  # Excludes processor costs, fixed fees and discover fees from absorbable revenue.
+  def operator_percentage_fee_cents
     return 0 if price_cents.to_i.zero?
     return 0 if merchant_account&.is_a_brazilian_stripe_connect_account?
 
-    fee_per_thousand = (custom_fee_per_thousand.presence || gumroad_flat_fee_per_thousand).to_i
+    fee_per_thousand = if flat_fee_applicable?
+      (custom_fee_per_thousand.presence || operator_flat_fee_per_thousand).to_i
+    else
+      calculate_operator_fee_per_thousand - (charged_using_server_owner_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
+    end
     return 0 unless fee_per_thousand.positive?
 
     [price_cents.to_i * fee_per_thousand / 1000, fee_cents.to_i].min
   end
+  alias_method :gumroad_percentage_fee_cents, :operator_percentage_fee_cents
 
   # "not_charged" purchases that are free trial purchases should be treated as
   # successful purchases for the purposes of some tasks such as scheduling workflows,
@@ -3657,7 +3721,7 @@ class Purchase < ApplicationRecord
   end
 
   def discover_fee_per_thousand
-    recommended_purchase_info&.discover_fee_per_thousand || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND
+    recommended_purchase_info&.discover_fee_per_thousand || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND
   end
 
   def is_direct_to_australian_customer?
@@ -4294,6 +4358,66 @@ class Purchase < ApplicationRecord
   end
 
   private
+    def compute_ab_test_price_override_cents
+      # Only apply to one-time purchases, not recurring/preorder/rental/plan changes
+      return nil if is_recurring_subscription_charge
+      return nil if is_preorder_charge?
+      return nil if is_rental
+      return nil if is_applying_plan_change
+      return nil unless link.present?
+
+      # Need buyer identity (user or cookie) to look up variant assignment
+      buyer_user = purchaser
+      return nil unless buyer_user.present? || buyer_cookie.present?
+
+      # Find first installment with A/B test variants for this product
+      installment = link.installments.alive.published
+        .joins(:post_variants)
+        .group("installments.id")
+        .having("COUNT(post_variants.id) > 1")
+        .first
+      return nil unless installment.present?
+
+      # Use VariantPriceService to get the assigned variant's price override
+      service = VariantPriceService.new(
+        product: link,
+        installment: installment,
+        user: buyer_user,
+        buyer_cookie: buyer_cookie
+      )
+      service.price_override_cents
+    end
+
+    # Record A/B test conversion when a purchase is successful
+    # Links the variant assignment to this purchase for conversion tracking
+    def record_ab_test_conversion!
+      return unless link.present?
+      return if is_recurring_subscription_charge
+      return if is_preorder_charge?
+
+      buyer_user = purchaser
+      return unless buyer_user.present? || buyer_cookie.present?
+
+      # Find first installment with A/B test variants for this product
+      installment = link.installments.alive.published
+        .joins(:post_variants)
+        .group("installments.id")
+        .having("COUNT(post_variants.id) > 1")
+        .first
+      return unless installment.present?
+
+      # Find the variant assignment for this buyer
+      assignment = VariantAssignment.find_assignment_for_buyer(
+        installment: installment,
+        user: buyer_user,
+        buyer_cookie: buyer_cookie
+      )
+      return unless assignment.present?
+
+      # Record the conversion (only if not already converted)
+      assignment.record_conversion!(self)
+    end
+
     # For presentment charges the processor-issued amount is in buyer currency, but the
     # "issued amount" booked to balances must stay the canonical seller/accounting amount;
     # this override is what the BalanceTransaction::Amount factories substitute in.
@@ -4504,9 +4628,11 @@ class Purchase < ApplicationRecord
       price.round
     end
 
-    def displayed_price_usd_cents
-      get_usd_cents(displayed_price_currency_type, displayed_price_cents)
+    def displayed_price_base_units
+      get_base_currency_units(displayed_price_currency_type, displayed_price_cents)
     end
+
+    alias_method :displayed_price_usd_cents, :displayed_price_base_units
 
     def transcode_product_videos
       # Transcode videos immediately after successful purchase
@@ -4560,12 +4686,12 @@ class Purchase < ApplicationRecord
       calculate_taxes
       return if errors.present?
 
-      self.price_cents += tax_cents if was_tax_excluded_from_price
-      self.total_transaction_cents = self.price_cents + gumroad_tax_cents
+      self.price_base_units += tax_base_units if was_tax_excluded_from_price
+      self.total_transaction_base_units = self.price_base_units + platform_tax_base_units
 
-      # Actually add the shipping amount to price cents and update total transaction cents
-      self.price_cents += shipping_cents
-      self.total_transaction_cents += shipping_cents
+      # Actually add the shipping amount to price and update total transaction amount
+      self.price_base_units += shipping_base_units
+      self.total_transaction_base_units += shipping_base_units
 
       apply_buyer_currency_quote_canonical_components!
       return if errors.present?
@@ -4681,13 +4807,9 @@ class Purchase < ApplicationRecord
       end
     end
 
-    # Only Stripe routes charges into seller-owned accounts (destination and direct), so every
-    # other processor is Gumroad-held. Not charged_using_gumroad_merchant_account?, which is also
-    # true of a seller's own custom account, nor MerchantAccount#holder_of_funds, which answers
-    # the same question by dispatching through the charge-processor registry.
-    # Prefer the Charge's account when a Charge exists: that is where the money actually sat.
     def funds_held_by_gumroad?
-      !(stripe_charge_processor? && settlement_merchant_account&.user_id.present?)
+      account = settlement_merchant_account
+      account.nil? || account.holder_of_funds == HolderOfFunds::GUMROAD
     end
 
     # Charge.merchant_account wins when the Charge row exists, even if that account is nil.
@@ -5013,6 +5135,7 @@ class Purchase < ApplicationRecord
         #
         # Empty hash means no valid fixing applies, so the charge keeps its canonical behavior.
         presentment_args = later_charge_presentment_processor_args(off_session:)
+        ensure_fund_cart_funding_eligible!(processor_currency: presentment_args[:processor_currency])
         # The RBI e-mandate cap is registered in US dollars, but Stripe reads mandate_options
         # amounts in the mandate's own currency and the mandate inherits the intent's currency.
         # An unconverted cap on a presentment charge registers as (say) ₹10.00 instead of $10.00
@@ -5209,6 +5332,10 @@ class Purchase < ApplicationRecord
 
     # Private: validator that guarantees that the right transaction information is present for paid purchases.
     def financial_transaction_validation
+      if has_fund_cart_settlement?
+        errors.add(:base, "Fund cart settlement receipt is invalid.") unless funded_by_fund_cart?
+        return
+      end
       return if self.price_cents.to_i > 0 &&
                 stripe_transaction_id.present? &&
                 merchant_account.present? &&
@@ -5259,13 +5386,14 @@ class Purchase < ApplicationRecord
     # This function should only set fee_cents and not change any other state.
     def calculate_fees
       return unless self.price_cents
+      return calculate_fund_cart_fees if fund_cart_pricing || has_fund_cart_settlement?
 
       if price_cents == 0 || merchant_account&.is_a_brazilian_stripe_connect_account?
         self.fee_cents = 0
         return
       end
 
-      fee_per_thousand = calculate_gumroad_fee_per_thousand
+      fee_per_thousand = calculate_operator_fee_per_thousand + pix_iof_fee_per_thousand
 
       if charge_discover_fee?
         discover_fee_per_thousand = calculate_additional_discover_fee_per_thousand
@@ -5277,15 +5405,15 @@ class Purchase < ApplicationRecord
 
       variable_fee_cents = (price_cents * fee_per_thousand / 1000.0).round
 
-      fixed_processor_fee_cents = charged_using_gumroad_merchant_account? ? PROCESSOR_FIXED_FEE_CENTS : 0
+      fixed_processor_fee_cents = charged_using_server_owner_account? ? PROCESSOR_FIXED_FEE_CENTS : 0
       fixed_fee_cents = if is_recurring_subscription_charge
         if subscription.mor_fee_applicable?
-          was_discover_fee_charged? ? 0 : GUMROAD_FIXED_FEE_CENTS + fixed_processor_fee_cents
+          was_discover_fee_charged? ? 0 : OPERATOR_FIXED_FEE_CENTS + fixed_processor_fee_cents
         else
           fixed_processor_fee_cents
         end
       else
-        was_discover_fee_charged? ? 0 : GUMROAD_FIXED_FEE_CENTS + fixed_processor_fee_cents
+        was_discover_fee_charged? ? 0 : OPERATOR_FIXED_FEE_CENTS + fixed_processor_fee_cents
       end
 
       self.fee_cents = variable_fee_cents + fixed_fee_cents
@@ -5294,37 +5422,27 @@ class Purchase < ApplicationRecord
 
     def calculate_additional_discover_fee_per_thousand
       if is_recurring_subscription_charge || is_updated_original_subscription_purchase
-        subscription.original_purchase.discover_fee_per_thousand - (custom_fee_per_thousand.presence || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND) - (subscription.mor_fee_applicable? && charged_using_gumroad_merchant_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
+        subscription.original_purchase.discover_fee_per_thousand - (flat_fee_applicable? ? (custom_fee_per_thousand.presence || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND) : 0) - (subscription.mor_fee_applicable? && charged_using_server_owner_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
       elsif is_preorder_charge?
-        preorder.authorization_purchase.discover_fee_per_thousand - (custom_fee_per_thousand.presence || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND) - PROCESSOR_FEE_PER_THOUSAND
+        preorder.authorization_purchase.discover_fee_per_thousand - (flat_fee_applicable? ? (custom_fee_per_thousand.presence || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND) + PROCESSOR_FEE_PER_THOUSAND : 0)
       else
-        GUMROAD_DISCOVER_FEE_PER_THOUSAND - (custom_fee_per_thousand.presence || GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND) - (charged_using_gumroad_merchant_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
+        OPERATOR_DISCOVER_FEE_PER_THOUSAND - (custom_fee_per_thousand.presence || OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND) - (charged_using_server_owner_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
       end
     end
 
-    def calculate_gumroad_fee_per_thousand
-      calculate_custom_fee_per_thousand
-      (custom_fee_per_thousand.presence || gumroad_flat_fee_per_thousand) +
-        (charged_using_gumroad_merchant_account? ? PROCESSOR_FEE_PER_THOUSAND : 0) +
-        pix_iof_fee_per_thousand
-    end
-
-    # The Brazilian IOF tax Gumroad absorbs on the buyer's behalf and recovers from the seller
-    # (see PIX_IOF_FEE_PER_THOUSAND). Keyed on card_type because that is where the purchase records
-    # which payment method it is being paid with — set from the buyer's Payment Element selection at
-    # intent-prepare time, before fees are computed, and re-confirmed from Stripe's own
-    # payment_method_details once the charge exists. Only Pix carries it; every other method reads 0.
-    #
-    # Gated on the charge riding Gumroad's own Stripe account, for the same reason
-    # PROCESSOR_FEE_PER_THOUSAND above is: we can only recover a cost we actually paid. On a direct
-    # charge the money never touches a Gumroad account — Stripe settles into the seller's own
-    # account and deducts the IOF from that balance itself — so the seller has already absorbed it.
-    # Adding it to fee_cents there would bill them for the same tax a second time.
-    def pix_iof_fee_per_thousand
-      return 0 unless card_type == CardType::PIX
-      return 0 unless charged_using_gumroad_merchant_account?
-
-      PIX_IOF_FEE_PER_THOUSAND
+    def calculate_operator_fee_per_thousand
+      if flat_fee_applicable?
+        calculate_custom_fee_per_thousand
+        (custom_fee_per_thousand.presence || operator_flat_fee_per_thousand) + (charged_using_server_owner_account? ? PROCESSOR_FEE_PER_THOUSAND : 0)
+      elsif seller.tier_pricing_enabled?
+        (seller.tier_fee(is_merchant_account: charged_using_server_owner_account?).to_f * 1000).round
+      else
+        if charged_using_server_owner_account?
+          operator_fee_percentage_for_non_migrated_account
+        else
+          operator_fee_percentage_for_migrated_account
+        end
+      end
     end
 
     def calculate_custom_fee_per_thousand
@@ -5342,13 +5460,33 @@ class Purchase < ApplicationRecord
       end
     end
 
-    def gumroad_flat_fee_per_thousand
+    def pix_iof_fee_per_thousand
+      return 0 unless card_type == CardType::PIX
+      return 0 unless stripe_charge_processor? && settlement_merchant_account&.is_managed_by_operator?
+
+      PIX_IOF_FEE_PER_THOUSAND
+    end
+
+    def operator_flat_fee_per_thousand
       return 0 if seller.waive_gumroad_fee_on_new_sales? && subscription.blank? && !is_preorder_charge?
-      # Discover keeps its full 30%: the 5% volume rate applies to direct sales only,
-      # so don't let it lower the base under the discover surcharge.
       return User::HIGH_VOLUME_FEE_PER_THOUSAND if seller.high_volume_seller_fee? && !charge_discover_fee?
 
-      GUMROAD_FLAT_FEE_PER_THOUSAND
+      OPERATOR_FLAT_FEE_PER_THOUSAND
+    end
+    alias_method :gumroad_flat_fee_per_thousand, :operator_flat_fee_per_thousand
+
+    def flat_fee_applicable?
+      # 10% flat fee is applicable to this purchase if it is not a recurring charge
+      # on a subscription that started before the flat fee was introduced.
+      subscription.blank? || subscription.flat_fee_applicable?
+    end
+
+    def operator_fee_percentage_for_non_migrated_account
+      OPERATOR_FEE_PER_THOUSAND
+    end
+
+    def operator_fee_percentage_for_migrated_account
+      OPERATOR_NON_PRO_FEE_PERCENTAGE
     end
 
     def calculate_taxes
@@ -5417,12 +5555,75 @@ class Purchase < ApplicationRecord
       end
 
       self.was_purchase_taxable = gumroad_tax_cents > 0 || tax_cents > 0
-      self.was_tax_excluded_from_price = true
+
+      # Handle gross (tax-inclusive) pricing mode
+      if link.gross? && was_purchase_taxable
+        apply_gross_pricing_tax_decomposition(tax_calculation)
+        self.was_tax_excluded_from_price = false
+      else
+        self.was_tax_excluded_from_price = true
+      end
+    end
+
+    # Decompose a gross (tax-inclusive) price into pre-tax amount and tax.
+    # For gross pricing, the seller sets a single tax-inclusive price, and we need
+    # to work backwards to determine the pre-tax amount and tax separately.
+    #
+    # Formula: gross_price = pre_tax * (1 + tax_rate)
+    # Therefore: pre_tax = gross_price / (1 + tax_rate)
+    # And: tax = gross_price - pre_tax
+    #
+    # tax_calculation - The SalesTaxCalculation object containing tax rate info.
+    def apply_gross_pricing_tax_decomposition(tax_calculation)
+      effective_tax_rate = get_effective_tax_rate(tax_calculation)
+
+      # Edge case: zero tax rate means no decomposition needed
+      return if effective_tax_rate.nil? || effective_tax_rate <= 0
+
+      gross_price_base_units = price_cents
+      pre_tax_base_units = (gross_price_base_units / (1 + effective_tax_rate)).round
+      calculated_tax_base_units = gross_price_base_units - pre_tax_base_units
+
+      # For platform-responsible tax, we need to adjust price_cents to be the pre-tax amount
+      # so that total_transaction_cents = price_cents + platform_tax_cents = gross_price
+      if platform_tax_base_units > 0
+        self.price_cents = pre_tax_base_units
+        self.platform_tax_base_units = calculated_tax_base_units
+      else
+        # For seller-responsible tax, price_cents stays as gross (includes tax)
+        # and tax_cents is set to the calculated tax amount
+        self.tax_cents = calculated_tax_base_units
+      end
+    end
+
+    # Get the effective combined tax rate from a tax calculation.
+    # Handles both lookup table rates (zip_tax_rate) and TaxJar rates.
+    #
+    # tax_calculation - The SalesTaxCalculation object.
+    #
+    # Returns Float tax rate (e.g., 0.10 for 10%) or nil if not available.
+    def get_effective_tax_rate(tax_calculation)
+      return nil unless tax_calculation
+
+      if tax_calculation.zip_tax_rate.present?
+        tax_calculation.zip_tax_rate.combined_rate
+      elsif tax_calculation.used_taxjar && tax_calculation.taxjar_info.present?
+        tax_calculation.taxjar_info[:combined_tax_rate]
+      end
     end
 
     def calculate_shipping(locked_rate: nil)
       return unless link.is_physical
       return if country.blank?
+
+      # Handle shipping mode for gross pricing
+      # - shipping_added: Calculate and add shipping to price (default behavior)
+      # - shipping_inclusive: Shipping is included in the product price (no additional charge)
+      # - no_shipping: No shipping (free shipping or not applicable)
+      if link.shipping_inclusive? || link.no_shipping?
+        self.shipping_cents = 0
+        return
+      end
 
       self.shipping_cents = if is_recurring_subscription_charge
         subscription.original_purchase.shipping_cents
@@ -5432,6 +5633,15 @@ class Purchase < ApplicationRecord
         shipping_rate = ShippingDestination.for_product_and_country_code(product: link, country_code: Compliance::Countries.find_by_name(country)&.alpha2)
         shipping_rate.calculate_shipping_rate(quantity:, currency_type: link.price_currency_type, rate: locked_rate)
       end
+    end
+
+    # Check if shipping is included in the gross price and needs decomposition.
+    # For shipping_inclusive mode with gross pricing, we need to extract the shipping
+    # portion from the gross price similar to how we decompose tax.
+    #
+    # Returns Boolean.
+    def shipping_included_in_gross_price?
+      link.gross? && link.shipping_inclusive?
     end
 
     def validate_shipping
@@ -5973,6 +6183,9 @@ class Purchase < ApplicationRecord
       elsif is_free_trial_purchase?
         subscription.schedule_charge(subscription.free_trial_ends_at)
         FreeTrialExpiringReminderWorker.perform_at(subscription.free_trial_ends_at - Subscription::FREE_TRIAL_EXPIRING_REMINDER_EMAIL, subscription_id)
+      elsif link.batch_billing_enabled?
+        subscription.grant_batch_entitlement! if link.batch_entitlement_enabled? && !subscription.batch_entitled?
+        subscription.schedule_renewal_reminder
       else
         subscription.schedule_renewal_reminder
         subscription.schedule_charge(succeeded_at + subscription.period)
@@ -6155,6 +6368,10 @@ class Purchase < ApplicationRecord
       self.email = email.downcase
     end
 
+    def run_risk_checks?
+      price_cents > 0 && !not_charged? && charged_using_server_owner_account?
+    end
+
     def all_workflows
       link.workflows.alive + seller.workflows.alive.seller_or_audience_type
     end
@@ -6169,6 +6386,67 @@ class Purchase < ApplicationRecord
 
     def purchasing_power_parity_factor
       @_purchasing_power_parity_factor ||= PurchasingPowerParityService.new.get_factor(Compliance::Countries.find_by_name(ip_country)&.alpha2, seller)
+    end
+
+    # Resolve price based on the product's pricing mode.
+    # Returns a hash with :price_cents, :currency, :conversion_needed, :explicit_price keys.
+    #
+    # For multi_currency mode: looks up explicit price in buyer's currency
+    # For gross mode: uses the tax-inclusive price directly
+    # For legacy mode: uses product's default price (conversion at checkout)
+    def resolve_price_based_on_pricing_mode
+      buyer_currency = determine_buyer_currency
+
+      case link.pricing_mode&.to_sym
+      when :multi_currency
+        link.resolve_price_for_buyer(buyer_currency:) || default_price_resolution
+      when :gross
+        # Gross mode: same numeric value in buyer's currency
+        link.resolve_price_for_buyer(buyer_currency:) || default_price_resolution
+      else # :legacy or nil
+        default_price_resolution
+      end
+    end
+
+    # Determine the buyer's currency based on their location.
+    # Uses IP country to determine the default currency for the buyer.
+    def determine_buyer_currency
+      return link.price_currency_type if ip_country.blank?
+
+      country_code = Compliance::Countries.find_by_name(ip_country)&.alpha2
+      return link.price_currency_type if country_code.blank?
+
+      country = Country.find_by(alpha2_code: country_code)
+      country&.default_currency || link.price_currency_type
+    end
+
+    # Default price resolution for legacy mode or fallback.
+    def default_price_resolution
+      {
+        price_cents: link.default_price_cents,
+        currency: link.price_currency_type,
+        source_currency: link.price_currency_type,
+        conversion_needed: false,
+        pricing_mode: :legacy,
+        explicit_price: false
+      }
+    end
+
+    # Convert resolved price to base currency units.
+    # Handles different pricing modes and currency conversions.
+    #
+    # resolved_price - Hash with :price_cents, :currency, :conversion_needed keys.
+    #
+    # Returns Integer price in base currency units.
+    def convert_to_base_currency_units(resolved_price)
+      price_cents = resolved_price[:price_cents]
+      currency = resolved_price[:currency]
+
+      # If already in base currency, no conversion needed
+      return price_cents if currency.to_s.downcase == instance_base_currency
+
+      # Convert to base currency units
+      get_base_currency_units(currency, price_cents)
     end
 
     def fetch_installment_plan

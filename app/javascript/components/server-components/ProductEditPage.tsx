@@ -33,12 +33,15 @@ import { Seller } from "$app/components/Product";
 import { ContentTab } from "$app/components/ProductEdit/ContentTab";
 import { getDownloadUrl } from "$app/components/ProductEdit/ContentTab/FileEmbed";
 import { Page, titleWithFallback } from "$app/components/ProductEdit/ContentTab/PageTab";
+import { FundCartItemsPanel } from "$app/components/ProductEdit/FundCartItemsPanel";
 import { ProductTab } from "$app/components/ProductEdit/ProductTab";
 import { ReceiptTab } from "$app/components/ProductEdit/ReceiptTab";
 import { RefundPolicy } from "$app/components/ProductEdit/RefundPolicy";
 import { ShareTab } from "$app/components/ProductEdit/ShareTab";
 import {
   ContentUpdates,
+  AvailableCurrency,
+  AvailableCryptocurrency,
   ExistingFileEntry,
   Product,
   ProductEditContext,
@@ -72,6 +75,10 @@ const routes: RouteObject[] = [
     element: <ReceiptTab />,
     handle: "receipt",
   },
+  {
+    path: "/products/:id/edit/fund_cart",
+    handle: "fund_cart",
+  },
 ];
 
 type Props = {
@@ -97,6 +104,8 @@ type Props = {
   aws_key: string;
   s3_url: string;
   available_countries: ShippingCountry[];
+  available_currencies: AvailableCurrency[];
+  available_cryptocurrencies: AvailableCryptocurrency[];
   google_client_id: string;
   seller_refund_policy_enabled: boolean;
   seller_refund_policy: Pick<RefundPolicy, "title" | "fine_print">;
@@ -108,6 +117,7 @@ type Props = {
   custom_html_global_nav_hosts: string[];
   custom_html_global_nav_paths: string[];
   ai_generated: boolean;
+  fund_cart_id: string | null;
 };
 
 const buildFilesById = (productId: string, files: Props["product"]["files"]) =>
@@ -138,6 +148,8 @@ const createContextValue = (props: Props) => ({
   awsKey: props.aws_key,
   s3Url: props.s3_url,
   availableCountries: props.available_countries,
+  availableCurrencies: props.available_currencies,
+  availableCryptocurrencies: props.available_cryptocurrencies,
   saving: false,
   save: () => Promise.resolve(false),
   variantIdMappings: {},
@@ -534,7 +546,18 @@ const ProductEditPage = (props: Props) => {
       return updated;
     });
   const [existingFiles, setExistingFiles] = React.useState(props.existing_files);
-  const [router] = React.useState(() => createBrowserRouter(routes));
+  const [router] = React.useState(() =>
+    createBrowserRouter(
+      routes.map((route) =>
+        route.handle === "fund_cart"
+          ? {
+              ...route,
+              element: props.fund_cart_id ? <FundCartItemsPanel fundCartId={props.fund_cart_id} /> : null,
+            }
+          : route,
+      ),
+    ),
+  );
 
   const [saving, setSaving] = React.useState(false);
   const [imagesUploading, setImagesUploading] = React.useState<Set<File>>(new Set());

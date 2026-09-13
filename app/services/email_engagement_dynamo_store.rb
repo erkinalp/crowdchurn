@@ -4,9 +4,8 @@
 #
 # Partition key `pk` (S, the stringified installment id), sort key `sk` (S), one of:
 #   SUMMARY                    — open_count / click_count / click_pair_count counters;
-#                                click_pair_count (unique recipient+url pairs) is what the
-#                                dashboard's "Clicks" has historically shown, click_count is
-#                                true unique clickers
+#                                click_count preserves CrowdChurn's distinct-recipient
+#                                total_unique_clicks; click_pair_count counts recipient+url pairs
 #   OPEN#<recipient>           — one item per recipient who opened
 #   CLICKER#<recipient>        — claims the recipient's first click; drives click_count
 #   CLICK#<recipient>#<url>    — one item per recipient + url first click
@@ -55,7 +54,7 @@ class EmailEngagementDynamoStore
     end
 
     def table_name
-      "#{table_prefix}#{TABLE_BASE_NAME}"
+      ENV["EMAIL_ENGAGEMENT_DYNAMODB_TABLE_NAME"].presence || "#{table_prefix}#{TABLE_BASE_NAME}"
     end
 
     # Production and staging default to the Terraform-owned <env>- tables;

@@ -12,6 +12,7 @@ import {
 import {
   AnyPayPalMethodParams,
   CardPaymentMethodParams,
+  KillBillPaymentMethodParams,
   PaymentRequestPaymentMethodParams,
   ReusableCardPaymentMethodParams,
   ReusablePaymentRequestPaymentMethodParams,
@@ -66,12 +67,20 @@ export type NewPayPalNativeSelectedPaymentMethod = {
   info: PayPalNativeResultInfo;
   keepOnFile: null;
 };
+export type NewKillBillSelectedPaymentMethod = {
+  type: "killbill";
+  paymentMethodId: string;
+  accountId: string;
+  walletAddress: string | null;
+  isCryptocurrency: boolean;
+};
 export type SelectedPaymentMethod =
   | SavedSelectedPaymentMethod
   | NewCardSelectedPaymentMethod
   | NewPaymentElementSelectedPaymentMethod
   | NewPayPalBraintreeSelectedPaymentMethod
-  | NewPayPalNativeSelectedPaymentMethod;
+  | NewPayPalNativeSelectedPaymentMethod
+  | NewKillBillSelectedPaymentMethod;
 type SavedPaymentMethodResult = { type: "saved" };
 type OneOffNewCardPaymentMethodResult = {
   type: "new";
@@ -118,6 +127,11 @@ type ReusablePaymentRequestPaymentMethodResult = {
       }
     | { type: "error"; cardParams: StripeErrorParams };
 };
+export type { KillBillPaymentMethodParams } from "$app/data/payment_method_params";
+type KillBillPaymentMethodResult = {
+  type: "new";
+  cardParamsResult: { type: "killbill"; cardParams: KillBillPaymentMethodParams };
+};
 
 export type AnyPaymentMethodResult =
   | SavedPaymentMethodResult
@@ -125,7 +139,8 @@ export type AnyPaymentMethodResult =
   | OneOffNewCardPaymentMethodResult
   | ReusableNewCardPaymentMethodResult
   | OneOffPaymentRequestPaymentMethodResult
-  | ReusablePaymentRequestPaymentMethodResult;
+  | ReusablePaymentRequestPaymentMethodResult
+  | KillBillPaymentMethodResult;
 
 // FIXME: overloads will not properly type the cases where an argument is a union
 // see https://github.com/microsoft/TypeScript/issues/33912
@@ -138,14 +153,21 @@ export async function getPaymentMethodResult(
 export async function getPaymentMethodResult(
   selected: NewCardSelectedPaymentMethod | NewPaymentElementSelectedPaymentMethod,
 ): Promise<OneOffNewCardPaymentMethodResult>;
+export async function getPaymentMethodResult(
+  selected: NewKillBillSelectedPaymentMethod,
+): Promise<KillBillPaymentMethodResult>;
 // catch-all
 export async function getPaymentMethodResult(
   selected: SelectedPaymentMethod,
-): Promise<SavedPaymentMethodResult | PayPalPaymentMethodResult | OneOffNewCardPaymentMethodResult>;
+): Promise<
+  SavedPaymentMethodResult | PayPalPaymentMethodResult | OneOffNewCardPaymentMethodResult | KillBillPaymentMethodResult
+>;
 
 export async function getPaymentMethodResult(
   selected: SelectedPaymentMethod,
-): Promise<SavedPaymentMethodResult | PayPalPaymentMethodResult | OneOffNewCardPaymentMethodResult> {
+): Promise<
+  SavedPaymentMethodResult | PayPalPaymentMethodResult | OneOffNewCardPaymentMethodResult | KillBillPaymentMethodResult
+> {
   switch (selected.type) {
     case "saved": {
       return { type: "saved" };
@@ -232,6 +254,22 @@ export async function getPaymentMethodResult(
         },
       };
     }
+    case "killbill": {
+      return {
+        type: "new",
+        cardParamsResult: {
+          type: "killbill",
+          cardParams: {
+            status: "success",
+            type: "killbill",
+            killbill_payment_method_id: selected.paymentMethodId,
+            killbill_account_id: selected.accountId,
+            wallet_address: selected.walletAddress,
+            is_cryptocurrency: selected.isCryptocurrency,
+          },
+        },
+      };
+    }
   }
 }
 
@@ -253,16 +291,30 @@ export async function getReusablePaymentMethodResult(
   selected: NewCardSelectedPaymentMethod | NewPaymentElementSelectedPaymentMethod,
   options: ReusableOptions,
 ): Promise<ReusableNewCardPaymentMethodResult>;
+export async function getReusablePaymentMethodResult(
+  selected: NewKillBillSelectedPaymentMethod,
+  options: ReusableOptions,
+): Promise<KillBillPaymentMethodResult>;
 // catch-all
 export async function getReusablePaymentMethodResult(
   selected: SelectedPaymentMethod,
   { products }: ReusableOptions,
-): Promise<SavedPaymentMethodResult | PayPalPaymentMethodResult | ReusableNewCardPaymentMethodResult>;
+): Promise<
+  | SavedPaymentMethodResult
+  | PayPalPaymentMethodResult
+  | ReusableNewCardPaymentMethodResult
+  | KillBillPaymentMethodResult
+>;
 
 export async function getReusablePaymentMethodResult(
   selected: SelectedPaymentMethod,
   { products, billingInfo, mandateReliabilitySetup }: ReusableOptions,
-): Promise<SavedPaymentMethodResult | PayPalPaymentMethodResult | ReusableNewCardPaymentMethodResult> {
+): Promise<
+  | SavedPaymentMethodResult
+  | PayPalPaymentMethodResult
+  | ReusableNewCardPaymentMethodResult
+  | KillBillPaymentMethodResult
+> {
   const data = await getPaymentMethodResult(selected);
 
   switch (data.type) {
@@ -275,6 +327,9 @@ export async function getReusablePaymentMethodResult(
         return { type: "new", cardParamsResult: data.cardParamsResult };
       } else if (data.cardParamsResult.type === "paypal") {
         // PayPal token should already be reusable by now
+        return { type: "new", cardParamsResult: data.cardParamsResult };
+      } else if (data.cardParamsResult.type === "killbill") {
+        // Kill Bill payment method is already reusable
         return { type: "new", cardParamsResult: data.cardParamsResult };
       }
       const { cardParamsResult } = data;

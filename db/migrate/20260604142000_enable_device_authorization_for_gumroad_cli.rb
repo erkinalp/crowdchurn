@@ -11,9 +11,7 @@ class EnableDeviceAuthorizationForGumroadCli < ActiveRecord::Migration[7.1]
     return unless updated_count.zero?
 
     message = "Gumroad CLI OAuth application #{CLI_CLIENT_ID} was not found"
-    raise ActiveRecord::RecordNotFound, message if Rails.env.production?
-
-    say "#{message}; skipping production-only opt-in"
+    say "#{message}; skipping vendor application opt-in"
   end
 
   def down

@@ -73,7 +73,11 @@ class Purchase::HandleFailedRefundService
     @failure_status = Refund::TERMINAL_FAILURE_STATUSES.include?(failure_status) ? failure_status : "failed"
   end
 
-  def perform
+  def perform(fund_cart_locked: false)
+    fund_cart_refund = FundCart::RefundService.new(purchase:) if FundCartFundingLot.exists?(source_purchase_id: purchase.id)
+    if fund_cart_refund && !fund_cart_locked
+      return fund_cart_refund.with_failed_refund_lock { perform(fund_cart_locked: true) }
+    end
     handled = false
     reversed = false
     queue_created = false
@@ -102,6 +106,7 @@ class Purchase::HandleFailedRefundService
       if needs_status_update || needs_balance_reversal
         refund.update!(status: failure_status) if needs_status_update
         if needs_balance_reversal
+          fund_cart_refund&.reverse_failed!(refund:)
           reverse_balance_transactions!
           reverse_fee_retention_credits!
           restore_affiliate_refund_state!
@@ -111,6 +116,7 @@ class Purchase::HandleFailedRefundService
           # dated compensating event without touching the original refund's day.
           refund.balance_reversed_on_failure_at = Time.current.utc.iso8601
           refund.save!
+          fund_cart_refund&.refresh_after_failure!
           reversed = true
         end
         handled = true

@@ -4,7 +4,7 @@ module ChargeProcessor
   # Time user has to complete Strong Customer Authentication (enter an OTP, confirm purchase via bank app, etc). Sensible default, not dictated by a payment processor.
   TIME_TO_COMPLETE_SCA = 15.minutes
 
-  NOTIFICATION_CHARGE_EVENT = "charge_event.charge_processor.gumroad"
+  NOTIFICATION_CHARGE_EVENT = "charge_event.charge_processor.operator"
 
   DEFAULT_CURRENCY_CODE = Currency::USD.upcase
 
@@ -12,12 +12,14 @@ module ChargeProcessor
     StripeChargeProcessor.charge_processor_id => StripeChargeProcessor::DISPLAY_NAME,
     BraintreeChargeProcessor.charge_processor_id => BraintreeChargeProcessor::DISPLAY_NAME,
     PaypalChargeProcessor.charge_processor_id => PaypalChargeProcessor::DISPLAY_NAME,
+    KillbillChargeProcessor.charge_processor_id => KillbillChargeProcessor::DISPLAY_NAME,
   }.freeze
 
   CHARGE_PROCESSOR_CLASS_MAP = {
     StripeChargeProcessor.charge_processor_id => StripeChargeProcessor,
     BraintreeChargeProcessor.charge_processor_id => BraintreeChargeProcessor,
     PaypalChargeProcessor.charge_processor_id => PaypalChargeProcessor,
+    KillbillChargeProcessor.charge_processor_id => KillbillChargeProcessor,
   }.freeze
   private_constant :CHARGE_PROCESSOR_CLASS_MAP
 
@@ -85,12 +87,19 @@ module ChargeProcessor
     get_charge_processor(charge_processor_id).search_charge(purchase:)
   end
 
+  # Charge processors that support payment intents
+  INTENT_SUPPORTING_PROCESSORS = [
+    StripeChargeProcessor.charge_processor_id,
+    KillbillChargeProcessor.charge_processor_id,
+  ].freeze
+  private_constant :INTENT_SUPPORTING_PROCESSORS
+
   # Public: Gets a ChargeIntent object given its charge processor ID.
   # Raises an error if the payment intent ID is not known by the charge processor.
   # Returns a ChargeIntent object.
   def self.get_charge_intent(merchant_account, payment_intent_id)
     return if payment_intent_id.blank?
-    return unless StripeChargeProcessor.charge_processor_id == merchant_account.charge_processor_id
+    return unless INTENT_SUPPORTING_PROCESSORS.include?(merchant_account.charge_processor_id)
 
     get_charge_processor(merchant_account.charge_processor_id).get_charge_intent(payment_intent_id, merchant_account:)
   end
@@ -100,7 +109,7 @@ module ChargeProcessor
   # Returns a SetupIntent object.
   def self.get_setup_intent(merchant_account, setup_intent_id)
     return if setup_intent_id.blank?
-    return unless StripeChargeProcessor.charge_processor_id == merchant_account.charge_processor_id
+    return unless INTENT_SUPPORTING_PROCESSORS.include?(merchant_account.charge_processor_id)
 
     get_charge_processor(merchant_account.charge_processor_id).get_setup_intent(setup_intent_id, merchant_account:)
   end
@@ -121,7 +130,7 @@ module ChargeProcessor
   #
   # Returns a SetupIntent object.
   def self.setup_future_charges!(merchant_account, chargeable, mandate_options: nil)
-    return unless StripeChargeProcessor.charge_processor_id == merchant_account.charge_processor_id
+    return unless INTENT_SUPPORTING_PROCESSORS.include?(merchant_account.charge_processor_id)
 
     charge_processor = get_charge_processor(merchant_account.charge_processor_id)
     chargeable_for_charge_processor = chargeable.get_chargeable_for(merchant_account.charge_processor_id)
@@ -174,21 +183,21 @@ module ChargeProcessor
   end
 
   def self.confirm_payment_intent!(merchant_account, charge_intent_id)
-    return unless StripeChargeProcessor.charge_processor_id == merchant_account.charge_processor_id
+    return unless INTENT_SUPPORTING_PROCESSORS.include?(merchant_account.charge_processor_id)
 
     charge_processor = get_charge_processor(merchant_account.charge_processor_id)
     charge_processor.confirm_payment_intent!(merchant_account, charge_intent_id)
   end
 
   def self.cancel_payment_intent!(merchant_account, charge_intent_id)
-    return unless StripeChargeProcessor.charge_processor_id == merchant_account.charge_processor_id
+    return unless INTENT_SUPPORTING_PROCESSORS.include?(merchant_account.charge_processor_id)
 
     charge_processor = get_charge_processor(merchant_account.charge_processor_id)
     charge_processor.cancel_payment_intent!(merchant_account, charge_intent_id)
   end
 
   def self.cancel_setup_intent!(merchant_account, setup_intent_id)
-    return unless StripeChargeProcessor.charge_processor_id == merchant_account.charge_processor_id
+    return unless INTENT_SUPPORTING_PROCESSORS.include?(merchant_account.charge_processor_id)
 
     charge_processor = get_charge_processor(merchant_account.charge_processor_id)
     charge_processor.cancel_setup_intent!(merchant_account, setup_intent_id)
@@ -234,14 +243,14 @@ module ChargeProcessor
     get_charge_processor(charge_processor_id).transaction_url(charge_id)
   end
 
-  def self.transaction_url_for_seller(charge_processor_id, charge_id, charged_using_gumroad_account)
-    return if charge_processor_id.blank? || charge_id.blank? || charged_using_gumroad_account
+  def self.transaction_url_for_seller(charge_processor_id, charge_id, charged_using_operator_account)
+    return if charge_processor_id.blank? || charge_id.blank? || charged_using_operator_account
 
     transaction_url(charge_processor_id, charge_id)
   end
 
-  def self.transaction_url_for_admin(charge_processor_id, charge_id, charged_using_gumroad_account)
-    return if charge_processor_id.blank? || charge_id.blank? || !charged_using_gumroad_account
+  def self.transaction_url_for_admin(charge_processor_id, charge_id, charged_using_operator_account)
+    return if charge_processor_id.blank? || charge_id.blank? || !charged_using_operator_account
 
     transaction_url(charge_processor_id, charge_id)
   end

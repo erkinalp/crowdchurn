@@ -42,6 +42,7 @@ class Charge::CreateService
 
     charge_intent = with_charge_processor_error_handler do
       presentment_args = buyer_currency_presentment_processor_args
+      purchases.each { |purchase| purchase.ensure_fund_cart_funding_eligible!(resolved_merchant: merchant_account, processor_currency: presentment_args[:processor_currency]) }
       idempotency_key = payment_intent_idempotency_key(presentment_args)
       processor_args = idempotency_key.present? ? presentment_args.merge(idempotency_key:) : presentment_args
 
@@ -84,6 +85,9 @@ class Charge::CreateService
 
   def with_charge_processor_error_handler
     yield
+  rescue FundCart::SettlementError => e
+    purchases.each { |purchase| purchase.errors.add(:base, "Fund cart funding unavailable: #{e.code}") }
+    nil
   rescue BuyerCurrencyQuoteInvalid => e
     logger.info "Buyer currency quote error: #{e.message} in charge: #{charge.external_id}"
     mark_purchases_buyer_currency_quote_invalid

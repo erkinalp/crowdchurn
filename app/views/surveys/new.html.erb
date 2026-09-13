@@ -1,0 +1,157 @@
+<div class="survey-builder">
+  <h1><%= @survey.persisted? ? "Edit Survey" : "Create Survey" %></h1>
+
+  <%= form_with(model: [@surveyable, @survey], class: "survey-form") do |f| %>
+    <%= f.hidden_field :base_variant_id, value: params[:variant_id] %>
+
+    <!-- Survey Details -->
+    <div class="form-section">
+      <h2>Survey Details</h2>
+
+      <div class="form-group">
+        <%= f.label :title, "Survey Title *" %>
+        <%= f.text_field :title, class: "form-control", placeholder: "e.g., Product Feedback Survey", required: true %>
+      </div>
+
+      <div class="form-group">
+        <%= f.label :description, "Description" %>
+        <%= f.text_area :description, class: "form-control", rows: 3, placeholder: "Optional description..." %>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <%= f.label :closes_at, "Closing Date (Optional)" %>
+          <%= f.datetime_field :closes_at, class: "form-control" %>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <%= f.check_box :anonymous %>
+            Anonymous Responses
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <%= f.check_box :allow_multiple_responses %>
+            Allow Multiple Responses
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Questions Section -->
+    <div class="form-section">
+      <div class="section-header">
+        <h2>Questions</h2>
+        <button type="button" class="btn btn-secondary" id="add-question">
+          + Add Question
+        </button>
+      </div>
+
+      <div id="questions-container">
+        <%= f.fields_for :survey_questions do |q| %>
+          <%= render 'question_fields', f: q %>
+        <% end %>
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <div class="form-actions">
+      <%= f.submit @survey.persisted? ? "Update Survey" : "Create Survey", class: "btn btn-primary btn-lg" %>
+      <%= link_to "Cancel", :back, class: "btn btn-secondary" %>
+    </div>
+  <% end %>
+</div>
+
+<template id="question-template">
+  <%= form_with(model: @survey, url: "#") do |f| %>
+    <%= f.fields_for :survey_questions, SurveyQuestion.new, child_index: 'TEMPLATE_ID' do |q| %>
+      <%= render 'question_fields', f: q %>
+    <% end %>
+  <% end %>
+</template>
+
+<style>
+.survey-builder {
+  max-width: 900px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.form-section {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 16px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.form-actions {
+  text-align: center;
+  margin-top: 40px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  let questionIndex = <%= @survey.survey_questions.length %>;
+
+  document.getElementById('add-question').addEventListener('click', () => {
+    const template = document.getElementById('question-template');
+    const content = template.innerHTML.replace(/TEMPLATE_ID/g, questionIndex++);
+    document.getElementById('questions-container').insertAdjacentHTML('beforeend', content);
+  });
+});
+</script>

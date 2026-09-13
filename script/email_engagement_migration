@@ -1,0 +1,52 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "optparse"
+require "json"
+
+options = { source_frozen: false, target_isolated: false, page_size: 500 }
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: bundle exec ruby script/email_engagement_migration [import|reconcile|release] [options]"
+  opts.on("--table NAME", "Isolated staging target (must already exist)") { |value| options[:table_name] = value }
+  opts.on("--active-table NAME", "Current runtime DynamoDB table, never a migration target") { |value| options[:active_table_name] = value }
+  opts.on("--run-id ID", "Stable identifier, reuse only to resume this exact migration") { |value| options[:run_id] = value }
+  opts.on("--snapshot-id ID", "Immutable Mongo/FerretDB snapshot identifier") { |value| options[:snapshot_id] = value }
+  opts.on("--source-frozen", "Confirm source is an immutable, read-only snapshot") { options[:source_frozen] = true }
+  opts.on("--target-isolated", "Confirm IAM/network isolation excludes ALL runtime target writes") { options[:target_isolated] = true }
+  opts.on("--page-size N", Integer, "Mongo keyset page size (default 500)") { |value| options[:page_size] = value }
+  opts.on("--region REGION", "AWS region (or AWS_REGION)") { |value| options[:region] = value }
+  opts.on("--endpoint URL", "Explicit DynamoDB endpoint for self-hosting/local testing") { |value| options[:endpoint] = value }
+  opts.on("-h", "--help") { puts opts; exit }
+end
+parser.parse!
+command = ARGV.shift
+abort parser.to_s unless %w[import reconcile release].include?(command) && ARGV.empty?
+%i[table_name active_table_name run_id snapshot_id].each do |key|
+  abort "Missing --#{key.to_s.delete_suffix('_name').tr('_', '-')}" unless options[key]
+end
+unless options[:source_frozen] && options[:target_isolated] && options[:table_name] != options[:active_table_name]
+  abort "Refusing unsafe migration: require --source-frozen --target-isolated and a target different from --active-table"
+end
+
+require "bundler/setup"
+require_relative "../app/services/email_engagement_migration"
+require_relative "../app/services/email_engagement_migration_source"
+
+source = nil
+begin
+  region = options.delete(:region) || ENV.fetch("AWS_REGION", "us-east-1")
+  endpoint = options.delete(:endpoint) || "https://dynamodb.#{region}.amazonaws.com"
+  source = EmailEngagementMigrationSource.connect(
+    uri: ENV.fetch("EMAIL_ENGAGEMENT_MONGO_URI"), database: ENV.fetch("EMAIL_ENGAGEMENT_MONGO_DATABASE"),
+    page_size: options.delete(:page_size)
+  )
+  client = Aws::DynamoDB::Client.new(region:, endpoint:)
+  migration = EmailEngagementMigration.new(source:, client:, **options)
+  puts JSON.pretty_generate(migration.public_send("#{command}!"))
+rescue StandardError => error
+  message = error.message.gsub(ENV.fetch("EMAIL_ENGAGEMENT_MONGO_URI", "__unset_uri__"), "[source URI]")
+  warn "#{error.class}: #{message}"
+  exit 1
+ensure
+  source&.close
+end

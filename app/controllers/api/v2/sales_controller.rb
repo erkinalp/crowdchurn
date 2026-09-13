@@ -191,7 +191,10 @@ class Api::V2::SalesController < Api::V2::BaseController
     # in the listed currency") would need to be made explicit or the param re-specified.
     amount = params[:amount_cents].to_i / unit_scaling_factor(purchase.displayed_price_currency_type).to_f if params[:amount_cents].present?
 
-    if purchase.refund!(refunding_user_id: current_resource_owner.id, amount:)
+    refunded = purchase.refund!(refunding_user_id: current_resource_owner.id, amount:, operation_key: params[:operation_key].presence)
+    if purchase.fund_cart_refund_pending
+      render json: { success: true, pending: true, message: "Refund requested; processing.", sale: purchase.as_json(version: 2, include_buyer_presentment: true) }, status: :accepted
+    elsif refunded
       success_with_sale(purchase.as_json(version: 2, include_buyer_presentment: true))
     else
       error_with_sale(purchase)

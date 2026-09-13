@@ -163,7 +163,7 @@ class Api::Internal::Admin::PurchasesController < Api::Internal::Admin::BaseCont
         return render json: { success: false, message: "Purchase has already been fully refunded" }, status: :unprocessable_entity
       end
 
-      if purchase.stripe_transaction_id.blank? || purchase.amount_refundable_cents <= 0
+      if (purchase.stripe_transaction_id.blank? && !purchase.funded_by_fund_cart?) || purchase.amount_refundable_cents <= 0
         return render json: { success: false, message: "Purchase has no charge to refund" }, status: :unprocessable_entity
       end
 
@@ -211,7 +211,10 @@ class Api::Internal::Admin::PurchasesController < Api::Internal::Admin::BaseCont
         amount = amount_cents / unit_scaling_factor(purchase.displayed_price_currency_type).to_f
       end
 
-      unless purchase.refund!(refunding_user_id: current_admin_actor_id, amount:, reason:)
+      unless purchase.refund!(refunding_user_id: current_admin_actor_id, amount:, reason:, operation_key: params[:operation_key].presence)
+        if purchase.fund_cart_refund_pending
+          return render json: { success: true, pending: true, message: "Refund requested; processing.", purchase: serialize_purchase(purchase) }, status: :accepted
+        end
         message = purchase.errors.full_messages.presence&.to_sentence || "Refund failed for purchase number #{purchase.external_id_numeric}"
         return render json: { success: false, message: }, status: :unprocessable_entity
       end
@@ -363,11 +366,15 @@ class Api::Internal::Admin::PurchasesController < Api::Internal::Admin::BaseCont
         return render json: { success: false, message: "Purchase has already been fully refunded" }, status: :unprocessable_entity
       end
 
-      if purchase.stripe_transaction_id.blank? || purchase.amount_refundable_cents <= 0
+      if (purchase.stripe_transaction_id.blank? && !purchase.funded_by_fund_cart?) || purchase.amount_refundable_cents <= 0
         return render json: { success: false, message: "Purchase has no charge to refund" }, status: :unprocessable_entity
       end
 
       unless purchase.refund_for_fraud_and_block_buyer!(current_admin_actor_id)
+        if purchase.fund_cart_refund_pending
+          purchase.block_buyer!(blocking_user_id: current_admin_actor_id)
+          return render json: { success: true, pending: true, message: "Refund requested; processing. Buyer blocked.", purchase: serialize_purchase(purchase) }, status: :accepted
+        end
         message = purchase.errors.full_messages.presence&.to_sentence || "Refund-for-fraud failed for purchase number #{purchase.external_id_numeric}"
         return render json: { success: false, message: }, status: :unprocessable_entity
       end

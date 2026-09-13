@@ -5,10 +5,12 @@ module PayoutProcessorType
   ACH = "ACH" # Retired. Kept because we still have payments in the database for this processor.
   ZENGIN = "ZENGIN" # Retired. Kept because we still have payments in the database for this processor, and validations for them.
   STRIPE = "STRIPE"
+  KILLBILL = "KILLBILL"
 
   ALL = {
     PAYPAL => PaypalPayoutProcessor,
-    STRIPE => StripePayoutProcessor
+    STRIPE => StripePayoutProcessor,
+    KILLBILL => KillbillPayoutProcessor
   }.freeze
   private_constant :ALL
 

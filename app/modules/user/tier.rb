@@ -16,6 +16,22 @@ module User::Tier
     1_000_000_00...Float::INFINITY => TIER_4,
   }.freeze
 
+  TIER_FEES_MERCHANT_ACCOUNT = {
+    TIER_0 => 0.09,
+    TIER_1 => 0.07,
+    TIER_2 => 0.05,
+    TIER_3 => 0.03,
+    TIER_4 => 0.029,
+  }.freeze
+
+  TIER_FEES_NON_MERCHANT_ACCOUNT = {
+    TIER_0 => 0.07,
+    TIER_1 => 0.05,
+    TIER_2 => 0.03,
+    TIER_3 => 0.01,
+    TIER_4 => 0.009,
+  }.freeze
+
   def tier(sales_cents = nil)
     return TIER_0 if sales_cents && sales_cents <= 0
 
@@ -24,5 +40,15 @@ module User::Tier
 
   def log_tier_transition(from_tier:, to_tier:)
     logger.info "User: user ID #{id} transitioned from tier #{from_tier} to tier #{to_tier}"
+  end
+
+  def tier_fee(is_merchant_account: nil)
+    return unless tier_pricing_enabled?
+
+    is_merchant_account ? TIER_FEES_MERCHANT_ACCOUNT[tier] : TIER_FEES_NON_MERCHANT_ACCOUNT[tier]
+  end
+
+  def tier_pricing_enabled?
+    true
   end
 end

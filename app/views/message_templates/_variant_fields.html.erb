@@ -1,0 +1,101 @@
+<div class="variant-field" data-variant-id="<%= f.object.id || 'new' %>">
+  <%= f.hidden_field :_destroy, class: 'destroy-flag' %>
+
+  <div class="variant-card">
+    <div class="variant-header">
+      <span class="variant-label">Variant</span>
+      <button type="button" class="btn-remove" data-action="remove-variant">×</button>
+    </div>
+
+    <div class="variant-body">
+      <div class="form-row">
+        <div class="form-group">
+          <%= f.label :variant_name, "Variant Name" %>
+          <%= f.text_field :variant_name,
+              class: "form-control",
+              placeholder: "e.g., Casual, Professional",
+              required: true %>
+        </div>
+
+        <div class="form-group">
+          <%= f.label :weight, "Weight" %>
+          <%= f.number_field :weight,
+              class: "form-control",
+              value: f.object.weight || 1,
+              min: 1 %>
+          <small class="text-muted">Higher weight = more likely to be selected</small>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <%= f.label :subject, "Subject (overrides main)" %>
+        <%= f.text_field :subject, class: "form-control message-field" %>
+      </div>
+
+      <div class="form-group">
+        <%= f.label :message_body, "Message Body" %>
+        <%= f.text_area :message_body,
+            class: "form-control message-field",
+            rows: 6,
+            required: true %>
+      </div>
+
+      <% if f.object.persisted? %>
+        <div class="variant-stats">
+          <div class="stat">
+            <strong><%= f.object.sent_count %></strong> sent
+          </div>
+          <div class="stat">
+            <strong><%= f.object.read_rate %>%</strong> read rate
+          </div>
+          <div class="stat">
+            <strong><%= f.object.reply_rate %>%</strong> reply rate
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>
+
+<style>
+.variant-field {
+  margin-bottom: 16px;
+}
+
+.variant-card {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.variant-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.variant-label {
+  font-weight: 600;
+  color: #856404;
+}
+
+.variant-stats {
+  display: flex;
+  gap: 24px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #ffc107;
+}
+
+.stat {
+  font-size: 14px;
+  color: #856404;
+}
+
+.stat strong {
+  display: block;
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+</style>

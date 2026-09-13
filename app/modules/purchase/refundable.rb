@@ -23,7 +23,10 @@ class Purchase
     #   the refund record and shown to the creator in the notification email when a Gumroad
     #   team member issues the refund. Required for team-member refunds (except fraud
     #   refunds, which send their own dedicated email); optional otherwise.
-    def refund!(refunding_user_id:, amount: nil, reason: nil)
+    def refund!(refunding_user_id:, amount: nil, reason: nil, operation_key: nil)
+      if FundCart::RefundService.handles?(self)
+        return refund_and_save!(refunding_user_id, amount_cents: amount.present? ? refunding_amount_cents(amount) : nil, reason:, operation_key:)
+      end
       if amount.blank?
         refund_and_save!(refunding_user_id, reason:)
       else
@@ -46,7 +49,10 @@ class Purchase
     # refunding_user_id can't be enforced from console, in which case it will be nil
     #
     # * amount - the amount to refund (out of `Purchase#price_cents`, VAT-exclusive). VAT will be refunded proportinally to this amount.
-    def refund_and_save!(refunding_user_id, amount_cents: nil, is_for_fraud: false, reason: nil)
+    def refund_and_save!(refunding_user_id, amount_cents: nil, is_for_fraud: false, reason: nil, operation_key: nil)
+      if FundCart::RefundService.handles?(self)
+        return FundCart::RefundService.new(purchase: self).request!(refunding_user_id:, amount_cents:, is_for_fraud:, reason:, operation_key:)
+      end
       if stripe_transaction_id.blank? || stripe_refunded || amount_refundable_cents <= 0
         # Returning nil (not false) is deliberate: callers like refund_for_fraud! use nil
         # to mean "nothing left to refund, skip cleanly". Still populate errors so UIs
@@ -96,7 +102,7 @@ class Purchase
         end
 
         amount_cents_to_refund = amount_cents.presence || amount_refundable_cents
-        if amount_cents_to_refund > seller.unpaid_balance_cents && charged_using_gumroad_merchant_account?
+        if amount_cents_to_refund > seller.unpaid_balance_cents && charged_using_server_owner_account?
           errors.add :base, "Your balance is insufficient to process this refund."
           return false
         end
@@ -273,7 +279,10 @@ class Purchase
   # consistent derivation is possible the refund fails closed rather than booking buyer-currency
   # cents as canonical USD.
   def refund_purchase!(flow_of_funds, refunding_user_id, stripe_refund = nil, is_for_fraud = false,
-                       canonical_gross_refund_cents: nil, presentment_refund: nil, note: nil)
+                       canonical_gross_refund_cents: nil, presentment_refund: nil, note: nil, fund_cart_operation: nil)
+    if fund_cart_operation.nil? && FundCart::RefundService.handles?(self)
+      return FundCart::RefundService.new(purchase: self).record_external_refund!(flow_of_funds:, processor_refund: stripe_refund, refunding_user_id:, is_for_fraud:, note:)
+    end
     if buyer_presentment? && canonical_gross_refund_cents.nil?
       derived = derive_presentment_refund_from_flow_of_funds(flow_of_funds)
       return false if derived.blank?
@@ -305,7 +314,11 @@ class Purchase
 
       vat_already_refunded = gumroad_tax_cents > 0 && gumroad_tax_cents == gumroad_tax_refunded_cents
 
-      refund = build_refund(gross_refund_amount: funds_refunded, refunding_user_id:)
+      refund = if fund_cart_operation
+        FundCart::RefundService.new(purchase: self).build_refund(gross_refund_amount: funds_refunded, refunding_user_id:)
+      else
+        build_refund(gross_refund_amount: funds_refunded, refunding_user_id:)
+      end
 
       unless refund.present?
         logger.error "Failed creating a refund: #{self.inspect} :: flow_of_funds :: #{flow_of_funds.inspect} :: stripe_refund :: #{stripe_refund}"
@@ -333,15 +346,19 @@ class Purchase
       # Shown to the creator in the notification email when a team member issued the refund.
       refund.note = note if note.present?
       refunds << refund
-      self.is_refund_chargeback_fee_waived = !charged_using_gumroad_merchant_account? || is_for_fraud
+      self.is_refund_chargeback_fee_waived = !charged_using_server_owner_account? || is_for_fraud
       mark_giftee_purchase_as_refunded(is_partially_refunded: self.stripe_partially_refunded?) if is_gift_sender_purchase
       subscription.cancel_immediately_if_pending_cancellation! if subscription.present?
-      decrement_balance_for_refund_or_chargeback!(flow_of_funds, refund:) unless chargedback_not_reversed?
+      if fund_cart_operation
+        FundCart::RefundService.new(purchase: self).account_for_refund!(operation: fund_cart_operation, refund:, flow_of_funds:)
+      else
+        decrement_balance_for_refund_or_chargeback!(flow_of_funds, refund:) unless chargedback_not_reversed?
+      end
       mark_product_purchases_as_refunded!(is_partially_refunded: self.stripe_partially_refunded?)
       save!
       reverse_the_transfer_made_for_dispute_win! if chargedback? && chargeback_reversed
       reverse_excess_amount_from_stripe_transfer(refund:) if stripe_partially_refunded && vat_already_refunded
-      debit_processor_fee_from_merchant_account!(refund) unless is_refund_chargeback_fee_waived || chargedback_not_reversed?
+      debit_processor_fee_from_merchant_account!(refund) unless is_refund_chargeback_fee_waived || chargedback_not_reversed? || fund_cart_operation
       Credit.create_for_vat_exclusive_refund!(refund:) if (paypal_order_id.present? || merchant_account&.is_a_stripe_connect_account?) && !chargedback_not_reversed?
       subscription.original_purchase.update!(should_exclude_product_review: true) if subscription&.should_exclude_product_review_on_charge_reversal?
       send_refunded_notification_webhook
@@ -376,6 +393,9 @@ class Purchase
   end
 
   def refund_partial_purchase!(gross_refund_amount_cents, refunding_user_id, processor_refund_id: nil)
+    if FundCart::RefundService.handles?(self)
+      return FundCart::RefundService.new(purchase: self).record_external_refund_id!(processor_refund_id:)
+    end
     ActiveRecord::Base.transaction do
       # Same purchase-first lock order as refund_purchase!: take the purchase row
       # lock before touching refund or balance rows, so this path cannot hold a
@@ -392,7 +412,7 @@ class Purchase
         self.stripe_refunded = false
         self.stripe_partially_refunded = true
       end
-      self.is_refund_chargeback_fee_waived = !charged_using_gumroad_merchant_account?
+      self.is_refund_chargeback_fee_waived = !charged_using_server_owner_account?
       if partially_refunded_previously && stripe_refunded
         refund = build_partial_full_refund(refunding_user_id:)
       else
@@ -419,6 +439,9 @@ class Purchase
   end
 
   def refund_gumroad_taxes!(refunding_user_id:, note: nil, business_vat_id: nil)
+    if FundCart::RefundService.handles?(self)
+      return FundCart::RefundService.new(purchase: self).request!(refunding_user_id:, reason: note, tax_only: true, business_vat_id:)
+    end
     gumroad_tax_refundable_cents = self.gumroad_tax_refundable_cents
     if stripe_refunded || gumroad_tax_refundable_cents <= 0
       # Populate a user-facing message so callers that render errors.full_messages

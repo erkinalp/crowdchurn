@@ -67,9 +67,10 @@ class InvoicePresenter::FormInfo
     {
       address_fields:,
       email: chargeable.orderable.email,
-      business_name: billing_detail&.business_name.to_s,
-      vat_id: billing_detail&.business_id.to_s,
-      additional_notes: billing_detail&.additional_notes.to_s,
+      vat_id: "",
+      additional_notes: "",
+      export_format: "pdf",
+
     }
   end
 

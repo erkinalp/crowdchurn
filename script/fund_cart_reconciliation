@@ -1,0 +1,57 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "optparse"
+require "json"
+
+options = { mode: :dry_run, verify_backing: false }
+parser = OptionParser.new do |cli|
+  cli.banner = "Usage: bundle exec ruby script/fund_cart_reconciliation --cart ID [--dry-run]"
+  cli.on("--cart ID", Integer, "Internal fund cart ID; one cart per invocation") { |id| options[:cart_id] = id }
+  cli.on("--dry-run", "Read-only local audit (default)") { options[:explicit_dry_run] = true }
+  cli.on("--verify-backing", "Read-only provider lookup using a configured, reviewed verifier") { options[:verify_backing] = true }
+  cli.on("--activate", "Import verified backing and activate under a configured write barrier") { options[:mode] = :activate }
+  cli.on("--expect SHA256", "Fingerprint from the reviewed dry-run report") { |value| options[:fingerprint] = value }
+  cli.on("--acknowledge-cutover", "Explicitly authorize the transactional cutover") { options[:acknowledged] = true }
+  cli.on("-h", "--help") { puts cli; exit 0 }
+end
+
+begin
+  parser.parse!
+  raise OptionParser::InvalidArgument, "--cart must be positive; positional arguments are not accepted" unless options[:cart_id]&.positive? && ARGV.empty?
+  if options[:mode] == :activate
+    raise OptionParser::InvalidArgument, "--activate conflicts with --dry-run" if options[:explicit_dry_run]
+    unless options[:acknowledged] && options[:fingerprint]&.match?(/\A[0-9a-f]{64}\z/)
+      raise OptionParser::InvalidArgument, "activation requires --expect SHA256 and --acknowledge-cutover"
+    end
+  elsif options[:fingerprint] || options[:acknowledged]
+    raise OptionParser::InvalidArgument, "cutover options require --activate"
+  end
+rescue OptionParser::ParseError => error
+  warn error.message
+  warn parser
+  exit 64
+end
+
+require_relative "../config/environment"
+
+begin
+  service = FundCart::ReconciliationService.new(fund_cart: FundCart.find(options.fetch(:cart_id)))
+  if options[:mode] == :activate
+    operation = service.activate!(expected_fingerprint: options.fetch(:fingerprint))
+    puts JSON.pretty_generate(mode: "activated", operation_id: operation.id, receipt: operation.payload)
+  else
+    report = service.dry_run(verify_backing: options.fetch(:verify_backing))
+    puts JSON.pretty_generate(report.as_json)
+    exit(report.activatable? ? 0 : 2)
+  end
+rescue FundCart::ReconciliationService::Blocked => error
+  puts JSON.pretty_generate(error.report.as_json.merge(error: error.code))
+  exit 2
+rescue FundCart::SettlementError => error
+  puts JSON.pretty_generate(error: error.code, activated: false)
+  exit 2
+rescue ActiveRecord::RecordNotFound
+  warn "Fund cart not found"
+  exit 66
+end

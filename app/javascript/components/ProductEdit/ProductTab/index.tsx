@@ -26,9 +26,12 @@ import { DurationEditor } from "$app/components/ProductEdit/ProductTab/DurationE
 import { DurationsEditor } from "$app/components/ProductEdit/ProductTab/DurationsEditor";
 import { FreeTrialSelector } from "$app/components/ProductEdit/ProductTab/FreeTrialSelector";
 import { GoogleCalendarIntegrationEditor } from "$app/components/ProductEdit/ProductTab/GoogleCalendarIntegrationEditor";
+import { GrossPriceEditor } from "$app/components/ProductEdit/ProductTab/GrossPriceEditor";
 import { MaxPurchaseCountToggle } from "$app/components/ProductEdit/ProductTab/MaxPurchaseCountToggle";
+import { MultiCurrencyPriceEditor } from "$app/components/ProductEdit/ProductTab/MultiCurrencyPriceEditor";
 import { PriceCheckerCard } from "$app/components/ProductEdit/ProductTab/PriceChecker";
 import { PriceEditor } from "$app/components/ProductEdit/ProductTab/PriceEditor";
+import { PricingModeSelector } from "$app/components/ProductEdit/ProductTab/PricingModeSelector";
 import { ShippingDestinationsEditor } from "$app/components/ProductEdit/ProductTab/ShippingDestinationsEditor";
 import { SuggestedAmountsEditor } from "$app/components/ProductEdit/ProductTab/SuggestedAmountsEditor";
 import { ThumbnailEditor } from "$app/components/ProductEdit/ProductTab/ThumbnailEditor";
@@ -259,9 +262,38 @@ export const ProductTab = () => {
                 </section>
               ) : (
                 <>
-                  <section className="flex flex-col gap-8 border-t border-border p-4 md:p-8 xl:flex-row xl:items-start">
-                    <div className="grid gap-4 xl:flex-1">
-                      <h2>Pricing</h2>
+                  <section className="grid gap-8 border-t border-border p-4 md:p-8">
+                    <h2>Pricing</h2>
+                    {priceCheckerEnabled &&
+                    !product.customizable_price &&
+                    product.native_type !== "bundle" &&
+                    product.pricing_mode === "legacy" ? (
+                      <PriceCheckerCard />
+                    ) : null}
+                    <PricingModeSelector />
+                    {product.pricing_mode === "multi_currency" ? (
+                      <MultiCurrencyPriceEditor />
+                    ) : product.pricing_mode === "gross" ? (
+                      <GrossPriceEditor
+                        price={product.price_cents}
+                        setPrice={(price) => {
+                          const hasPaidVariantPrices = product.variants.some(
+                            (v) => "price_difference_cents" in v && (v.price_difference_cents ?? 0) > 0,
+                          );
+                          updateProduct({
+                            price_cents: price,
+                            ...(price === 0 && !hasPaidVariantPrices && { customizable_price: true }),
+                          });
+                        }}
+                        currencyType={currencyType}
+                        currencyCodeSelector={{
+                          options: currencyCodeList,
+                          onChange: (currencyCode) => {
+                            setCurrencyType(currencyCode);
+                          },
+                        }}
+                      />
+                    ) : (
                       <PriceEditor
                         priceCents={product.price_cents}
                         suggestedPriceCents={product.suggested_price_cents}
@@ -297,22 +329,17 @@ export const ProductTab = () => {
                         )}
                         hasPaidVariants={hasPaidVariantPricing(product)}
                       />
-                      {product.native_type === "commission" ? (
-                        <p
-                          style={{
-                            marginTop: "var(--spacer-2)",
-                            fontSize: "var(--font-size-small)",
-                            color: "var(--color-text-secondary)",
-                          }}
-                        >
-                          Commission products use a 50% deposit upfront, 50% upon completion payment split.
-                        </p>
-                      ) : null}
-                    </div>
-                    {priceCheckerEnabled && !product.customizable_price && product.native_type !== "bundle" ? (
-                      <div className="xl:flex-1">
-                        <PriceCheckerCard />
-                      </div>
+                    )}
+                    {product.native_type === "commission" ? (
+                      <p
+                        style={{
+                          marginTop: "var(--spacer-2)",
+                          fontSize: "var(--font-size-small)",
+                          color: "var(--color-text-secondary)",
+                        }}
+                      >
+                        Commission products use a 50% deposit upfront, 50% upon completion payment split.
+                      </p>
                     ) : null}
                   </section>
                   {product.native_type === "call" ? (
@@ -400,6 +427,42 @@ export const ProductTab = () => {
                         }
                         label="Members will lose access when their memberships end"
                       />
+                      <Switch
+                        checked={product.batch_billing_enabled}
+                        onChange={(e) =>
+                          updateProduct({
+                            batch_billing_enabled: e.target.checked,
+                            ...(!e.target.checked && { batch_entitlement_enabled: false }),
+                          })
+                        }
+                        label="Charge all members on a fixed billing date instead of individually"
+                      />
+                      {product.batch_billing_enabled ? (
+                        <>
+                          <fieldset>
+                            <legend>
+                              <label htmlFor={`${uid}-batch-billing-day`}>Billing anchor day (1–28)</label>
+                            </legend>
+                            <input
+                              id={`${uid}-batch-billing-day`}
+                              type="number"
+                              min={1}
+                              max={28}
+                              value={product.batch_billing_day}
+                              onChange={(evt) =>
+                                updateProduct({
+                                  batch_billing_day: Math.max(1, Math.min(28, Number(evt.target.value))),
+                                })
+                              }
+                            />
+                          </fieldset>
+                          <Switch
+                            checked={product.batch_entitlement_enabled}
+                            onChange={(e) => updateProduct({ batch_entitlement_enabled: e.target.checked })}
+                            label="Delay content access until batch invoice is processed"
+                          />
+                        </>
+                      ) : null}
                       <DurationEditor />
                     </>
                   ) : null}

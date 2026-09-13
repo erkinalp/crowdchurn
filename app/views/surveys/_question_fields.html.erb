@@ -1,0 +1,208 @@
+<div class="question-field" data-question-id="<%= f.object.id || 'new' %>">
+  <%= f.hidden_field :_destroy, class: 'destroy-flag' %>
+  <%= f.hidden_field :position %>
+
+  <div class="question-card">
+    <div class="question-header">
+      <span class="drag-handle">⋮⋮</span>
+      <span class="question-number">Question <%= f.index + 1 %></span>
+      <button type="button" class="btn-remove" data-action="remove-question">×</button>
+    </div>
+
+    <div class="question-body">
+      <div class="form-group">
+        <%= f.text_field :question_text,
+            class: "form-control",
+            placeholder: "Enter your question...",
+            required: true %>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <%= f.label :question_type, "Question Type" %>
+          <%= f.select :question_type,
+              options_for_select(
+                [
+                  ['Short Text', 'text_short'],
+                  ['Long Text', 'text_long'],
+                  ['Multiple Choice (Single)', 'multiple_choice_single'],
+                  ['Multiple Choice (Multiple)', 'multiple_choice_multi'],
+                  ['Rating Scale', 'rating_scale'],
+                  ['Yes/No', 'yes_no']
+                ],
+                f.object.question_type
+              ),
+              {},
+              class: "form-control question-type-select" %>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <%= f.check_box :required %>
+            Required
+          </label>
+        </div>
+      </div>
+
+      <!-- Options for multiple choice -->
+      <div class="options-container" style="<%= f.object.needs_options? ? '' : 'display:none;' %>">
+        <div class="options-header">
+          <strong>Options</strong>
+          <button type="button" class="btn btn-sm btn-secondary add-option">+ Add Option</button>
+        </div>
+
+        <div class="options-list">
+          <%= f.fields_for :survey_question_options do |opt| %>
+            <div class="option-item">
+              <%= opt.hidden_field :position %>
+              <%= opt.text_field :option_text, class: "form-control", placeholder: "Option text..." %>
+              <button type="button" class="btn-remove-option">×</button>
+              <%= opt.hidden_field :_destroy, class: 'option-destroy' %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <!-- Settings for rating scale -->
+      <div class="rating-settings" style="<%= f.object.rating_scale? ? '' : 'display:none;' %>">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min Rating</label>
+            <%= text_field_tag "#{f.object_name}[settings][min_rating]",
+                f.object.settings&.dig('min_rating') || 1,
+                class: "form-control",
+                type: "number" %>
+          </div>
+          <div class="form-group">
+            <label>Max Rating</label>
+            <%= text_field_tag "#{f.object_name}[settings][max_rating]",
+                f.object.settings&.dig('max_rating') || 5,
+                class: "form-control",
+                type: "number" %>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.question-field {
+  margin-bottom: 20px;
+}
+
+.question-card {
+  background: #f8f9fa;
+  border: 2px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.question-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.drag-handle {
+  cursor: move;
+  color: #999;
+  font-size: 20px;
+}
+
+.question-number {
+  font-weight: 600;
+  flex: 1;
+}
+
+.btn-remove {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #dc3545;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+}
+
+.options-container {
+  margin-top: 16px;
+  padding: 16px;
+  background: white;
+  border-radius: 6px;
+}
+
+.options-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.option-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.btn-remove-option {
+  background: none;
+  border: none;
+  color: #dc3545;
+  font-size: 20px;
+  cursor: pointer;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Handle question type change
+  document.addEventListener('change', (e) => {
+    if (e.target.classList.contains('question-type-select')) {
+      const card = e.target.closest('.question-card');
+      const type = e.target.value;
+      const optionsContainer = card.querySelector('.options-container');
+      const ratingSettings = card.querySelector('.rating-settings');
+
+      // Show/hide options based on type
+      const needsOptions = ['multiple_choice_single', 'multiple_choice_multi', 'yes_no'].includes(type);
+      optionsContainer.style.display = needsOptions ? '' : 'none';
+
+      // Show/hide rating settings
+      ratingSettings.style.display = type === 'rating_scale' ? '' : 'none';
+    }
+  });
+
+  // Remove question
+  document.addEventListener('click', (e) => {
+    if (e.target.matches('[data-action="remove-question"]')) {
+      const field = e.target.closest('.question-field');
+      const destroyFlag = field.querySelector('.destroy-flag');
+      if (destroyFlag) {
+        destroyFlag.value = '1';
+        field.style.display = 'none';
+      } else {
+        field.remove();
+      }
+    }
+  });
+
+  // Add option
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('add-option')) {
+      const optionsList = e.target.closest('.options-container').querySelector('.options-list');
+      const optionHtml = `
+        <div class="option-item">
+          <input type="text" class="form-control" placeholder="Option text..." />
+          <button type="button" class="btn-remove-option">×</button>
+        </div>
+      `;
+      optionsList.insertAdjacentHTML('beforeend', optionHtml);
+    }
+  });
+});
+</script>

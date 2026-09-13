@@ -1,0 +1,40 @@
+# frozen_string_literal: true
+
+class CreateFundCartsAndFundCartItems < ActiveRecord::Migration[7.1]
+  def up
+    create_table :fund_carts do |t|
+      t.string :external_id, null: false
+      t.bigint :link_id, null: false
+      t.bigint :user_id, null: false
+      t.bigint :balance_subunits, default: 0, null: false
+      t.string :currency, null: false
+      t.timestamps
+
+      t.index :external_id, unique: true
+      t.index :link_id, unique: true
+      t.index :user_id
+    end unless table_exists?(:fund_carts)
+
+    create_table :fund_cart_items do |t|
+      t.string :external_id, null: false
+      t.bigint :fund_cart_id, null: false
+      t.bigint :product_id, null: false
+      t.string :state, default: "pending", null: false
+      t.datetime :purchased_at
+      t.bigint :purchase_id
+      t.timestamps
+
+      t.index :external_id, unique: true
+      t.index :fund_cart_id
+      t.index :product_id
+      t.index :state
+      t.index :purchase_id
+    end unless table_exists?(:fund_cart_items)
+  end
+
+  def down
+    return if table_exists?(:fund_cart_funding_lots)
+    drop_table :fund_cart_items, if_exists: true
+    drop_table :fund_carts, if_exists: true
+  end
+end

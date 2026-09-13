@@ -1,4 +1,4 @@
-import { Apple, CreditCard, Google, Paypal } from "@boxicons/react";
+import { Apple, CreditCard, DollarCircle, Google, Paypal } from "@boxicons/react";
 import { loadScript as loadPaypal, PayPalNamespace } from "@paypal/paypal-js";
 import { useStripe } from "@stripe/react-stripe-js";
 import {
@@ -14,6 +14,7 @@ import * as BraintreeClient from "braintree-web/client";
 import * as BraintreeDataCollector from "braintree-web/data-collector";
 import * as BraintreePaypal from "braintree-web/paypal";
 import * as React from "react";
+import typia from "typia";
 
 import { useBraintreeToken } from "$app/data/braintree_client_token_data";
 import {
@@ -36,6 +37,7 @@ import { assert, assertDefined } from "$app/utils/assert";
 import { classNames } from "$app/utils/classNames";
 import { checkEmailForTypos as checkEmailForTyposUtil } from "$app/utils/email";
 import { asyncVoid } from "$app/utils/promise";
+import { request } from "$app/utils/request";
 
 import { Button } from "$app/components/Button";
 import { persistAcknowledgedEmail } from "$app/components/Checkout/acknowledgedEmails";
@@ -779,7 +781,7 @@ const CreditCardContent = ({
   // events are the only reliable signal.
   const reclaimCardLane = React.useCallback(() => {
     if (!flatPaymentMethodsList) return;
-    if (state.paymentMethod !== "paypal" || isProcessing(state)) return;
+    if (state.paymentMethod === "card" || isProcessing(state)) return;
     dispatch({ type: "set-value", paymentMethod: "card" });
   }, [flatPaymentMethodsList, state, dispatch]);
 
@@ -791,11 +793,11 @@ const CreditCardContent = ({
   // row (and reclaimCardLane above switches checkout back to the card/wallet lane).
   // paymentElementReady is a dependency so a remounted element (currency/mode switch while
   // PayPal is selected) gets re-collapsed too — a fresh mount always renders expanded.
-  const paymentMethodIsPayPal = state.paymentMethod === "paypal";
+  const paymentMethodIsExternal = state.paymentMethod === "paypal" || state.paymentMethod === "killbill";
   React.useEffect(() => {
-    if (!flatPaymentMethodsList || !paymentMethodIsPayPal || !paymentElementReady) return;
+    if (!flatPaymentMethodsList || !paymentMethodIsExternal || !paymentElementReady) return;
     paymentElementRef.current?.elements.getElement("payment")?.collapse();
-  }, [flatPaymentMethodsList, paymentMethodIsPayPal, paymentElementReady]);
+  }, [flatPaymentMethodsList, paymentMethodIsExternal, paymentElementReady]);
 
   // Expose the synchronous click-time wallet submit to the pay button (see walletClickSubmitRef
   // in the props above). Runs in the click handler itself: when a wallet row is selected on a
@@ -1691,6 +1693,130 @@ const StripePaymentRequestContent = () => {
   );
 };
 
+const KillBill = () => {
+  const [state, dispatch] = useState();
+  const fail = useFail();
+  const payLabel = usePayLabel();
+  const uid = React.useId();
+
+  const [walletAddress, setWalletAddress] = React.useState("");
+  const [isCryptocurrency, setIsCryptocurrency] = React.useState(false);
+  const [killBillConfig, setKillBillConfig] = React.useState<{
+    publicKey: string | null;
+    accountId: string | null;
+  } | null>(null);
+
+  React.useEffect(() => {
+    const publicKeyTag = document.querySelector<HTMLElement>('meta[name="killbill-public-key"]');
+    const accountIdTag = document.querySelector<HTMLElement>('meta[name="killbill-account-id"]');
+    const config = {
+      publicKey: publicKeyTag?.getAttribute("content") ?? null,
+      accountId: accountIdTag?.getAttribute("content") ?? null,
+    };
+    if (config.publicKey && config.accountId) {
+      setKillBillConfig(config);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!killBillConfig) return;
+    dispatch({
+      type: "add-payment-method",
+      paymentMethod: {
+        type: "killbill",
+        button: null,
+      },
+    });
+  }, [killBillConfig]);
+
+  React.useEffect(() => {
+    if (state.status.type !== "starting" || state.paymentMethod !== "killbill") return;
+    if (!killBillConfig?.publicKey || !killBillConfig?.accountId) {
+      fail();
+      return;
+    }
+
+    (async () => {
+      try {
+        const response = await request({
+          url: "/killbill/setup_intents",
+          method: "POST",
+          accept: "json",
+          data: {
+            wallet_address: isCryptocurrency ? walletAddress : null,
+            is_cryptocurrency: isCryptocurrency,
+          },
+        });
+
+        const data = typia.assert<
+          { success: true; payment_method_id: string; account_id: string } | { success: false; error_message?: string }
+        >(await response.json());
+
+        if (!response.ok || !data.success || !data.payment_method_id || !data.account_id) {
+          throw new Error(!data.success ? data.error_message : "Failed to create Kill Bill setup intent");
+        }
+
+        const selectedPaymentMethod: SelectedPaymentMethod = {
+          type: "killbill",
+          paymentMethodId: data.payment_method_id,
+          accountId: data.account_id,
+          walletAddress: isCryptocurrency ? walletAddress : null,
+          isCryptocurrency,
+        };
+
+        dispatch({
+          type: "set-payment-method",
+          paymentMethod: await (requiresReusablePaymentMethod(state)
+            ? getReusablePaymentMethodResult(selectedPaymentMethod, { products: state.products })
+            : getPaymentMethodResult(selectedPaymentMethod)),
+        });
+      } catch {
+        fail();
+      }
+    })();
+  }, [state.status.type]);
+
+  if (!killBillConfig || state.paymentMethod !== "killbill") return null;
+
+  return (
+    <div style={{ borderTop: "none", paddingTop: "0" }}>
+      <div className="flex flex-col gap-4">
+        <fieldset>
+          <legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={isCryptocurrency}
+                onChange={(e) => setIsCryptocurrency(e.target.checked)}
+                disabled={isProcessing(state)}
+              />
+              Pay with cryptocurrency
+            </label>
+          </legend>
+        </fieldset>
+        {isCryptocurrency ? (
+          <fieldset>
+            <legend>
+              <label htmlFor={`${uid}walletAddress`}>Wallet address (for refunds)</label>
+            </legend>
+            <input
+              id={`${uid}walletAddress`}
+              type="text"
+              placeholder="Your cryptocurrency wallet address"
+              value={walletAddress}
+              onChange={(e) => setWalletAddress(e.target.value)}
+              disabled={isProcessing(state)}
+            />
+          </fieldset>
+        ) : null}
+        <Button color="primary" onClick={() => dispatch({ type: "offer" })} disabled={isSubmitDisabled(state)}>
+          {payLabel}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const StripePaymentRequestRadioOption = ({ canPay, isGooglePay }: { canPay: boolean; isGooglePay: boolean }) => {
   if (!canPay) return null;
 
@@ -1710,6 +1836,16 @@ const StripePaymentRequestPayButton = ({ canPay }: { canPay: boolean }) => {
   if (!canPay || state.paymentMethod !== "stripePaymentRequest") return null;
 
   return <StripePaymentRequestContent />;
+};
+
+const KillBillRadioOption = ({ killBillAvailable, flat = false }: { killBillAvailable: boolean; flat?: boolean }) => {
+  if (!killBillAvailable) return null;
+
+  return (
+    <div className={flat ? "overflow-hidden rounded border border-border" : "border-t border-border"}>
+      <PaymentMethodRadioRow paymentMethod="killbill" label="Kill Bill" icon={<DollarCircle className="size-5" />} />
+    </div>
+  );
 };
 
 // PayPal rendered as one more row of the flat payment-methods list (flat_payment_methods —
@@ -1777,7 +1913,8 @@ const PaymentMethodsSection = ({
   const walletClickSubmitRef = React.useRef<(() => void) | null>(null);
   const handleCardPayClick = React.useCallback(() => walletClickSubmitRef.current?.(), []);
 
-  const hasMultiplePaymentMethods = isPayPalAvailable || canPay;
+  const killBillAvailable = state.availablePaymentMethods.some((method) => method.type === "killbill");
+  const hasMultiplePaymentMethods = isPayPalAvailable || canPay || killBillAvailable;
   const usesPaymentElement = canUseStripePaymentElement(state) || canUseStripePaymentElementClientConfirm(state);
   const cardPayDisabled = usesPaymentElement && !paymentElementReady;
 
@@ -1799,6 +1936,7 @@ const PaymentMethodsSection = ({
           flatPaymentMethodsList
           paymentMethodsAppendix={isPayPalAvailable ? <FlatPayPalRow /> : null}
         />
+        <KillBillRadioOption killBillAvailable={killBillAvailable} flat />
         {state.paymentMethod === "paypal" ? <PayPalContent /> : null}
         {state.paymentMethod === "card" ? (
           <CreditCardPayButtonContent
@@ -1858,6 +1996,7 @@ const PaymentMethodsSection = ({
           </div>
         ) : null}
         <StripePaymentRequestRadioOption canPay={canPay} isGooglePay={isGooglePay} />
+        <KillBillRadioOption killBillAvailable={killBillAvailable} />
       </div>
       {state.paymentMethod === "paypal" ? <PayPalContent /> : null}
       {state.paymentMethod === "card" ? (
@@ -2001,6 +2140,7 @@ export const PaymentForm = ({
           </CardContent>
         </Card>
       )}
+      <KillBill />
       {recaptcha.container}
       {challengeRecaptcha.container}
       {state.recaptchaKey != null ? <RecaptchaDisclosure /> : null}

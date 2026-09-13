@@ -266,7 +266,7 @@ describe Charge::PresentmentOrchestrator do
     # money that is already owed elsewhere, and spending it on a price reduction would mean
     # Gumroad paying Stripe out of pocket.
     it "refuses when the only fee left on a Gumroad-managed charge is the processor's own cost" do
-      gumroad_merchant_account = MerchantAccount.gumroad(StripeChargeProcessor.charge_processor_id)
+      gumroad_merchant_account = MerchantAccount.operator(StripeChargeProcessor.charge_processor_id) || create(:merchant_account, user: nil)
       waived_purchase = create(:purchase,
                                link: product,
                                seller:,

@@ -34,6 +34,8 @@ class Payment < ApplicationRecord
   attr_json_data_accessor :payout_type
   attr_json_data_accessor :gumroad_fee_cents
   attr_json_data_accessor :error_message
+  attr_json_data_accessor :killbill_payment_id
+  attr_json_data_accessor :killbill_transaction_id
 
   # Payment state transitions:
   #

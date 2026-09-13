@@ -4,6 +4,10 @@ recover_pending_refund_fee_retention:
   description: Retries fee collection without issuing another customer refund
 
 # Every minute
+dispatch_fund_cart_settlement_operations:
+  cron: "* * * * *"
+  class: FundCartOutboxJob
+  description: Re-enqueues durable fund-cart operations and flags unknown worker outcomes for reconciliation
 dispatch_pending_workflow_installment_schedule_intents:
   cron: "* * * * *" # Every minute
   class: DispatchPendingWorkflowInstallmentScheduleIntentsJob
@@ -33,6 +37,10 @@ flush_installment_delivered_deltas:
   description: Flushes Redis-buffered installment customer_count increments from blast sends and email callbacks
 
 # Hourly
+cache_unreviewed_users_data:
+  cron: "0 * * * *"
+  class: CacheUnreviewedUsersDataWorker
+  description: Caches unreviewed users data for admin dashboard
 repair_order_charge_outcomes:
   cron: "20 * * * *" # Every hour
   class: RepairOrderChargeOutcomesJob
@@ -73,6 +81,11 @@ delete_expired_oauth_device_authorizations:
   description: Deletes expired OAuth device authorizations
 
 # Daily in format: [minute] [hour] * * *
+batch_billing:
+  cron: "30 0 * * *" # UTC 00:30
+  class: BatchBillingWorker
+  description: Process batch billing for subscription products with batch billing enabled
+
 delete_processed_workflow_installment_schedule_intents:
   cron: "15 3 * * *" # UTC 03:15
   class: DeleteProcessedWorkflowInstallmentScheduleIntentsJob
@@ -470,6 +483,10 @@ million_dollar_milestone_check:
   description: Send notifications about creators that cross the million-dollar milestone
 
 # Monthly
+reset_admin_action_call_counts:
+  cron: "0 11 1 * *"
+  class: ResetAdminActionCallCountsJob
+  description: Reset admin controller action call counts
 finances_report:
   cron: "0 11 1 * *" # UTC 11:00 on 1st of every month
   class: SendFinancesReportWorker
@@ -555,3 +572,9 @@ send_bundles_marketing_email:
   cron: "0 10 2 1 *" # UTC 10:00 on 2nd of January every year.
   class: SendBundlesMarketingEmailJob
   description: Send marketing emails for bundles every January 2nd
+
+# Automated Messages
+delayed_messages:
+  cron: "0 * * * *" # Every hour
+  class: DelayedMessageWorker
+  description: "Process delayed automated messages"

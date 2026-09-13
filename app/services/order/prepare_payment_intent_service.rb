@@ -503,6 +503,12 @@ class Order::PreparePaymentIntentService
       # gate, since a blocked order never gets an intent for them to belong to.
       return if block_pix_amount_outside_window(presentment)
       return if block_upi_autopay_amount_outside_window(presentment)
+      begin
+        purchases_to_charge.each { |purchase| purchase.ensure_fund_cart_funding_eligible!(resolved_merchant: merchant_account, processor_currency: presentment&.presentment_currency) }
+      rescue FundCart::SettlementError => error
+        cleanup_prepare_time_presentment_records
+        return fail_purchases_with("Fund cart funding unavailable: #{error.code}")
+      end
       charge_intent = create_unconfirmed_intent(charge, presentment)
       if charge_intent.nil?
         # The presentment rows were persisted before the intent create failed, and the

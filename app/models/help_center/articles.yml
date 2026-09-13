@@ -6,7 +6,7 @@
   category_id: <%= HelpCenter::Category::GET_PAID.id %>
 - id: 13
   slug: "13-getting-paid"
-  title: "Getting paid by Gumroad"
+  title: "Getting paid by CrowdChurn"
   description: "In this article: Payout modes Get paid to your bank account Get paid to Stripe Get paid to PayPal Other payout modes Stripe verification process Payout schedule"
   category_id: <%= HelpCenter::Category::GET_PAID.id %>
 - id: 15
@@ -81,8 +81,8 @@
   category_id: <%= HelpCenter::Category::OPEN_AN_ACCOUNT.id %>
 - id: 66
   slug: "66-gumroads-fees"
-  title: "Gumroad's fees"
-  description: "Gumroad's fees are simple  For sales made on Gumroad's website, we charge a 10% + $0.50 fee per transaction. This does not include:  Credit card processing  PayPal fees There are "
+  title: "Operator fees"
+  description: "Operator fees are simple  For sales made on the operator's website, we charge a 10% + $0.50 fee per transaction. This does not include:  Credit card processing  PayPal fees There are "
   category_id: <%= HelpCenter::Category::GET_PAID.id %>
 - id: 67
   slug: "67-the-settings-menu"

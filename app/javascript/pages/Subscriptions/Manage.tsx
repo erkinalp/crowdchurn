@@ -85,6 +85,9 @@ type Props = {
     payment_method_update_required: boolean;
     is_gift: boolean;
     is_installment_plan: boolean;
+    is_batch_billed: boolean;
+    is_batch_entitled: boolean;
+    batch_billing_day: number | null;
     current_recurrence_available: boolean;
   };
   contact_info: {
@@ -446,6 +449,15 @@ export default function SubscriptionsManage() {
           <Alert variant="warning" className="grow">
             Your {subscriptionEntity} is paid up until {formattedSubscriptionEndDate}. Add your own payment method below
             to ensure that your {subscriptionEntity} renews.
+          </Alert>
+        </CardContent>
+      ) : null}
+
+      {subscription.is_batch_billed ? (
+        <CardContent>
+          <Alert role="status" variant="accent" className="grow">
+            This membership uses batch billing (billing anchor: day {subscription.batch_billing_day}).
+            {subscription.is_batch_entitled ? " Access is granted after each billing cycle is processed." : null}
           </Alert>
         </CardContent>
       ) : null}

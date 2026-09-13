@@ -1,0 +1,142 @@
+<div class="survey-container">
+  <div class="survey-header">
+    <h1><%= @survey.title %></h1>
+    <% if @survey.description.present? %>
+      <p class="survey-description"><%= @survey.description %></p>
+    <% end %>
+
+    <% if @survey.closes_at %>
+      <p class="survey-closes">
+        <strong>Closes:</strong> <%= @survey.closes_at.strftime("%B %d, %Y at %I:%M %p") %>
+      </p>
+    <% end %>
+  </div>
+
+  <% if @can_respond %>
+    <!-- Start Survey Form -->
+    <%= form_with(model: [@survey, @survey.survey_responses.build],
+                  url: survey_survey_responses_path(@survey),
+                  class: "survey-start-form") do |f| %>
+      <%= f.submit "Start Survey", class: "btn btn-primary btn-lg" %>
+    <% end %>
+
+  <% elsif @existing_response %>
+    <div class="alert alert-info">
+      <% if @existing_response.completed? %>
+        <h3>✓ You've completed this survey</h3>
+        <p>Thank you for your response!</p>
+        <p><small>Submitted <%= time_ago_in_words(@existing_response.completed_at) %> ago</small></p>
+      <% else %>
+        <h3>Resume Your Response</h3>
+        <%= link_to "Continue Survey",
+                    survey_survey_response_path(@survey, @existing_response),
+                    class: "btn btn-primary" %>
+      <% end %>
+    </div>
+
+  <% else %>
+    <div class="alert alert-warning">
+      <p>This survey is currently closed or you are not eligible to respond.</p>
+    </div>
+  <% end %>
+
+  <% if @survey.creator?(current_user) %>
+    <div class="survey-admin-actions">
+      <h3>Survey Management</h3>
+      <%= link_to "View Results", results_survey_path(@survey), class: "btn btn-secondary" %>
+      <%= link_to "Edit Survey", edit_link_survey_path(@survey.surveyable, @survey), class: "btn btn-secondary" %>
+      <%= link_to "Delete Survey",
+                  link_survey_path(@survey.surveyable, @survey),
+                  method: :delete,
+                  data: { confirm: "Are you sure?" },
+                  class: "btn btn-danger" %>
+    </div>
+  <% end %>
+</div>
+
+<style>
+.survey-container {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.survey-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.survey-header h1 {
+  font-size: 32px;
+  margin-bottom: 16px;
+}
+
+.survey-description {
+  font-size: 18px;
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.survey-closes {
+  font-size: 14px;
+  color: #999;
+}
+
+.survey-start-form {
+  text-align: center;
+  margin: 40px 0;
+}
+
+.survey-admin-actions {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+}
+
+.survey-admin-actions h3 {
+  margin-bottom: 16px;
+}
+
+.btn {
+  padding: 12px 24px;
+  border-radius: 6px;
+  text-decoration: none;
+  display: inline-block;
+  margin: 4px;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.alert {
+  padding: 20px;
+  border-radius: 6px;
+  margin: 20px 0;
+}
+
+.alert-info {
+  background-color: #d1ecf1;
+  border: 1px solid #bee5eb;
+  color: #0c5460;
+}
+
+.alert-warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffeeba;
+  color: #856404;
+}
+</style>

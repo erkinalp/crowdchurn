@@ -16,6 +16,8 @@ class Subscription < ApplicationRecord
   include Subscription::PingNotification
   include Purchase::Searchable::SubscriptionCallbacks
   include AfterCommitEverywhere
+  include Subscription::KillbillIntegration
+  include CurrencyHelper
   # Memberships AND installment plans are both Subscriptions internally, so this one include
   # covers two of the four product types in gumroad-private#1322.
   include HasLaterChargePresentments
@@ -48,7 +50,7 @@ class Subscription < ApplicationRecord
   has_flags 1 => :is_test_subscription,
             2 => :cancelled_by_buyer,
             3 => :cancelled_by_admin,
-            4 => :DEPRECATED_flat_fee_applicable,
+            4 => :flat_fee_applicable,
             5 => :is_resubscription_pending_confirmation,
             6 => :mor_fee_applicable,
             7 => :is_installment_plan,
@@ -75,12 +77,14 @@ class Subscription < ApplicationRecord
   has_one :latest_applicable_plan_change, -> { alive.currently_applicable.order(created_at: :desc) }, class_name: "SubscriptionPlanChange"
   has_one :offer_code, through: :original_purchase
   has_many :subscription_events
+  has_many :variant_assignments, dependent: :destroy
 
   before_validation :assign_seller, on: :create
 
   validate :must_have_payment_option
   validate :installment_plans_cannot_be_cancelled_by_buyer
 
+  before_create :enable_flat_fee
   before_create :enable_mor_fee
   after_create :update_last_payment_option
   after_save :create_interruption_event, if: -> { deactivated_at_previously_changed? }
@@ -162,9 +166,19 @@ class Subscription < ApplicationRecord
   def grant_access_to_product?
     if is_installment_plan?
       !cancelled_or_failed?
+    elsif link.batch_entitlement_enabled?
+      batch_entitled? && (alive? || !link.block_access_after_membership_cancellation)
     else
       alive? || !link.block_access_after_membership_cancellation
     end
+  end
+
+  def batch_entitled?
+    batch_entitled_at.present?
+  end
+
+  def grant_batch_entitlement!
+    update!(batch_entitled_at: Time.current)
   end
 
   def license_key
@@ -217,10 +231,10 @@ class Subscription < ApplicationRecord
     return original_purchase.minimum_paid_price_cents if is_installment_plan
 
     if reuse_original_discount_on_next_charge?
-      return original_purchase.displayed_price_cents
+      return resolve_subscription_price_for_billing_currency(original_purchase.displayed_price_cents)
     end
 
-    pre_discount = renewal_pre_discount_total_cents
+    pre_discount = resolve_subscription_price_for_billing_currency(renewal_pre_discount_total_cents)
     auto = auto_renewal_offer_code(authenticated_offer_code_buyer:)
     return pre_discount unless auto
 
@@ -231,6 +245,41 @@ class Subscription < ApplicationRecord
     return cached_tiered_pwyw_renewal_pre_discount_total_cents if cached_tiered_pwyw_renewal_pre_discount_total_cents.present?
 
     original_purchase.displayed_price_cents_before_offer_code(include_deleted: true) || original_purchase.displayed_price_cents
+  end
+
+  def resolve_subscription_price_for_billing_currency(base_price_cents)
+    return base_price_cents if billing_currency.blank? || link.blank?
+
+    pricing_mode = link.pricing_mode&.to_sym
+    return base_price_cents if pricing_mode.nil? || pricing_mode == :legacy
+
+    product_currency = link.price_currency_type.to_s.downcase
+    target_currency = billing_currency.to_s.downcase
+
+    return base_price_cents if target_currency == product_currency
+
+    case pricing_mode
+    when :gross
+      base_units = get_base_currency_units(product_currency, base_price_cents)
+      base_currency_to_display_currency(target_currency, base_units)
+    when :multi_currency
+      resolved = link.resolve_price_for_buyer(
+        buyer_currency: target_currency,
+        recurrence: recurrence
+      )
+      if resolved&.dig(:price_cents)
+        resolved[:price_cents]
+      else
+        Rails.logger.warn(
+          "[Subscription##{id}] No explicit #{target_currency.upcase} price found for " \
+          "product #{link.id} in multi_currency mode. Falling back to base_price_cents " \
+          "(#{base_price_cents} #{product_currency.upcase}), which may charge the wrong amount."
+        )
+        base_price_cents
+      end
+    else
+      base_price_cents
+    end
   end
 
   def auto_renewal_offer_code(authenticated_offer_code_buyer: AUTHENTICATED_OFFER_CODE_BUYER_NOT_PROVIDED)
@@ -1838,6 +1887,10 @@ class Subscription < ApplicationRecord
 
     def cached_subscription_events
       @_cached_subscription_events ||= subscription_events.order(occurred_at: :asc).to_a
+    end
+
+    def enable_flat_fee
+      self.flat_fee_applicable = true
     end
 
     def enable_mor_fee

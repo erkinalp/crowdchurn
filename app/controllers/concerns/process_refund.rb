@@ -11,9 +11,12 @@ module ProcessRefund
       return e404_json if purchase.nil? || purchase.stripe_refunded? || purchase.paypal_refund_expired?
 
       begin
-        if purchase.refund!(refunding_user_id: user.id, amount:)
+        refunded = purchase.refund!(refunding_user_id: user.id, amount:, operation_key: params[:operation_key].presence)
+        if refunded || purchase.fund_cart_refund_pending
           purchase.seller.update!(refund_fee_notice_shown: true) unless impersonating
-          render json: { success: true, id: purchase.external_id, message: "Purchase successfully refunded.", partially_refunded: purchase.stripe_partially_refunded? }
+          pending = purchase.fund_cart_refund_pending == true
+          render json: { success: true, id: purchase.external_id, pending:,
+                         message: pending ? "Refund requested; processing." : "Purchase successfully refunded.", partially_refunded: purchase.stripe_partially_refunded? }
         else
           render json: { success: false, message: purchase.errors.full_messages.to_sentence }
         end

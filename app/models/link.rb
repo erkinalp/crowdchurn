@@ -43,7 +43,9 @@ class Link < ApplicationRecord
             31 => :created_via_cli,
             32 => :DEPRECATED_moderated_by_iffy,
             33 => :hide_sold_out_variants,
-            34 => :hide_bundle_product_reviews,
+            34 => :batch_billing_enabled,
+            35 => :batch_entitlement_enabled,
+            36 => :hide_bundle_product_reviews,
             :column => "flags",
             :flag_query_mode => :bit_operator,
             check_for_column: false
@@ -66,27 +68,35 @@ class Link < ApplicationRecord
   METADATA_CACHE_NAMESPACE = :product_metadata_cache
   REQUIRE_CAPTCHA_FOR_SELLERS_YOUNGER_THAN = 6.months
 
-  # Tax categories: https://developers.taxjar.com/api/reference/#get-list-tax-categories
+  # Tax categories: https://docs.stripe.com/tax/tax-codes
   # Categories mapping choices: https://www.notion.so/gumroad/System-support-for-US-sales-tax-collection-on-Gumroad-MPF-sales-9fa88740bf3c4453b476b7fa0a7af1e7#3404578361074b4ca24a6fb63464f522
   NATIVE_TYPES_TO_TAX_CODE = {
     "digital" => "31000",
     "course" => "86132000A0002",
-    "ebook" => "31000",
+    "ebook" => "81100",
     "newsletter" => "55111516A0310",
     "membership" => "55111516A0310",
     "podcast" => "55111516A0310",
     "audiobook" => "31000",
     "physical" => nil,
+    "print_book" => "81100",
+    "food" => "40030",
+    "bread" => "4004002",
+    "literal_coffee" => "41050006",
     "bundle" => "55111500A9220",
     "commission" => nil,
     "call" => nil,
     "coffee" => nil,
+    "consultancy" => "19000",
+    "fund_cart" => "19000",
   }.freeze
   NATIVE_TYPES = NATIVE_TYPES_TO_TAX_CODE.keys.freeze
   NATIVE_TYPES.each do |native_type|
     self.const_set("NATIVE_TYPE_#{native_type.upcase}", native_type)
   end
-  SERVICE_TYPES = [NATIVE_TYPE_COMMISSION, NATIVE_TYPE_CALL, NATIVE_TYPE_COFFEE].freeze
+  SERVICE_TYPES = [NATIVE_TYPE_COMMISSION, NATIVE_TYPE_CALL, NATIVE_TYPE_COFFEE, NATIVE_TYPE_CONSULTANCY, NATIVE_TYPE_FUND_CART].freeze
+  PHYSICAL_TYPES = [NATIVE_TYPE_PHYSICAL, NATIVE_TYPE_PRINT_BOOK, NATIVE_TYPE_FOOD].freeze
+  OPTIONALLY_PHYSICAL_TYPES = [NATIVE_TYPE_BREAD, NATIVE_TYPE_LITERAL_COFFEE].freeze
   LEGACY_TYPES = ["podcast", "newsletter", "audiobook"].freeze
 
   DEFAULT_BOOSTED_DISCOVER_FEE_PER_THOUSAND = 300
@@ -191,6 +201,10 @@ class Link < ApplicationRecord
   has_many :alive_public_files, -> { alive }, class_name: "PublicFile", as: :resource
   has_many :communities, as: :resource, dependent: :destroy
   has_one :active_community, -> { alive }, class_name: "Community", as: :resource
+  has_many :surveys, as: :surveyable, dependent: :destroy
+  has_many :message_templates, as: :templateable, dependent: :destroy
+  has_many :product_experiments, foreign_key: :product_id, dependent: :destroy
+  has_one :fund_cart
 
   before_validation :associate_price, on: :create
   before_validation :set_unique_permalink
@@ -223,6 +237,8 @@ class Link < ApplicationRecord
   validate :custom_permalink_of_licensed_product, if: :custom_permalink_or_is_licensed_changed?
   validate :max_purchase_count_is_greater_than_or_equal_to_inventory_sold
   validate :free_trial_only_enabled_if_recurring_billing
+  validate :batch_billing_only_enabled_if_recurring_billing
+  validate :batch_billing_day_in_range
   validates :native_type, inclusion: { in: NATIVE_TYPES }
   validates :discover_fee_per_thousand, inclusion: { in: [100, *(300..1000)], message: "must be between 30% and 100%" }
   validates :free_trial_duration_unit, presence: true, if: :free_trial_enabled?
@@ -275,6 +291,7 @@ class Link < ApplicationRecord
   after_update :create_licenses_for_existing_customers,
                if: ->(link) { link.saved_change_to_is_licensed? && link.is_licensed? }
   after_update :delete_unused_prices, if: :saved_change_to_purchase_type?
+  after_create :create_fund_cart_if_needed
   after_commit :submit_to_indexnow, on: :update, if: :indexnow_submission_needed?
 
   enum :subscription_duration, %i[monthly yearly quarterly biannually every_two_years]
@@ -291,12 +308,15 @@ class Link < ApplicationRecord
   end
 
   enum :free_trial_duration_unit, %i[week month]
+  enum :pricing_mode, %i[legacy gross multi_currency]
+  enum :shipping_mode, %i[shipping_added shipping_inclusive no_shipping] # Shipping handling mode for gross pricing
 
   attr_json_data_accessor :excluded_sales_tax_regions, default: -> { [] }
   attr_json_data_accessor :sections, default: -> { [] }
   attr_json_data_accessor :main_section_index, default: -> { 0 }
   attr_json_data_accessor :custom_view_content_button_text
   attr_json_data_accessor :custom_receipt_text
+  attr_json_data_accessor :batch_billing_day, default: -> { 1 }
   attr_json_data_accessor :content_moderation_disabled, default: -> { false }
   alias_method :content_moderation_disabled?, :content_moderation_disabled
 
@@ -1338,19 +1358,19 @@ class Link < ApplicationRecord
     user.name_or_username || "Gumroad"
   end
 
-  def gumroad_amount_for_paypal_order(amount_cents:, affiliate_id: nil, vat_cents: 0, was_recommended: false)
+  def operator_amount_for_paypal_order(amount_cents:, affiliate_id: nil, vat_cents: 0, was_recommended: false)
     # Volume rate applies to direct sales only (recommended keeps the full discover
     # rate). This path has always ignored custom_fee_per_thousand; unchanged here.
     fee_per_thousand = if !was_recommended && user.high_volume_seller_fee?
       User::HIGH_VOLUME_FEE_PER_THOUSAND
     else
-      Purchase::GUMROAD_FLAT_FEE_PER_THOUSAND
+      Purchase::OPERATOR_FLAT_FEE_PER_THOUSAND
     end
 
     if was_recommended
-      gumroad_fee_cents = (amount_cents * (fee_per_thousand + discover_fee_per_thousand - Purchase::GUMROAD_DISCOVER_EXTRA_FEE_PER_THOUSAND)) / 1000
+      operator_fee_cents = (amount_cents * (fee_per_thousand + discover_fee_per_thousand - Purchase::OPERATOR_DISCOVER_EXTRA_FEE_PER_THOUSAND)) / 1000
     else
-      gumroad_fee_cents = (amount_cents * fee_per_thousand) / 1000
+      operator_fee_cents = (amount_cents * fee_per_thousand) / 1000
     end
 
     affiliate_fee_cents = if
@@ -1363,8 +1383,9 @@ class Link < ApplicationRecord
       0
     end
 
-    gumroad_fee_cents + affiliate_fee_cents + vat_cents
+    operator_fee_cents + affiliate_fee_cents + vat_cents
   end
+  alias_method :gumroad_amount_for_paypal_order, :operator_amount_for_paypal_order
 
   def free_trial_details
     return nil unless free_trial_enabled?
@@ -1751,6 +1772,25 @@ class Link < ApplicationRecord
       end
     end
 
+    def batch_billing_only_enabled_if_recurring_billing
+      if !is_recurring_billing && (batch_billing_enabled? || batch_entitlement_enabled?)
+        errors.add(:base, "Batch billing and batch entitlement are only allowed for subscription products.")
+      end
+
+      if batch_entitlement_enabled? && !batch_billing_enabled?
+        errors.add(:base, "Batch entitlement requires batch billing to be enabled.")
+      end
+    end
+
+    def batch_billing_day_in_range
+      return unless batch_billing_enabled?
+
+      day = batch_billing_day.to_i
+      unless day.between?(1, 28)
+        errors.add(:base, "Batch billing day must be between 1 and 28.")
+      end
+    end
+
     class LinkInvalid < StandardError
     end
 
@@ -2009,5 +2049,11 @@ class Link < ApplicationRecord
       return if result.passed
 
       errors.add(:base, ContentModeration::ModerateRecordService.seller_message(result.reasons, "product"))
+    end
+
+    def create_fund_cart_if_needed
+      return if native_type != NATIVE_TYPE_FUND_CART
+
+      create_fund_cart!(user: self.user, currency: price_currency_type).activate_ledger!
     end
 end

@@ -31,7 +31,7 @@ class ProductPresenter
 
   def self.new_page_props(current_seller:)
     native_product_types = Link::NATIVE_TYPES - Link::LEGACY_TYPES - Link::SERVICE_TYPES
-    native_product_types -= [Link::NATIVE_TYPE_PHYSICAL] unless current_seller.can_create_physical_products?
+    native_product_types -= Link::PHYSICAL_TYPES unless current_seller.can_create_physical_products?
     service_product_types = Link::SERVICE_TYPES
     release_at_date = displayable_release_at_date(1.month.from_now, current_seller.timezone)
 
@@ -279,6 +279,9 @@ class ProductPresenter
         should_include_last_post: product.should_include_last_post,
         should_show_all_posts: product.should_show_all_posts,
         block_access_after_membership_cancellation: product.block_access_after_membership_cancellation,
+        batch_billing_enabled: product.batch_billing_enabled?,
+        batch_entitlement_enabled: product.batch_entitlement_enabled?,
+        batch_billing_day: product.batch_billing_day.to_i,
         duration_in_months: product.duration_in_months,
         subscription_duration: product.subscription_duration,
         collaborating_user: collaborator.present? ? UserPresenter.new(user: collaborator).author_byline_props : nil,
@@ -313,6 +316,15 @@ class ProductPresenter
         } : nil,
         public_files: product.alive_public_files.attached.map { PublicFilePresenter.new(public_file: _1).props },
         community_chat_enabled: product.community_chat_enabled?,
+        pricing_mode: product.pricing_mode || "legacy",
+        currency_prices: product.alive_prices.map do |price|
+          {
+            id: price.external_id,
+            currency: price.currency,
+            price_cents: price.price_cents,
+            recurrence: price.recurrence,
+          }
+        end,
       },
       id: product.external_id,
       unique_permalink: product.unique_permalink,
@@ -363,6 +375,24 @@ class ProductPresenter
         fine_print: product.user.refund_policy.fine_print,
       },
       cancellation_discounts_enabled: Feature.active?(:cancellation_discounts, product.user),
+      available_currencies: CURRENCY_CHOICES.map do |code, info|
+        {
+          code: code.to_s,
+          symbol: info["symbol"],
+          display_format: info["display_format"],
+          min_price: info["min_price"],
+        }
+      end,
+      available_cryptocurrencies: CRYPTO_CURRENCIES.map do |code, info|
+        {
+          code: code.to_s,
+          symbol: info["symbol"],
+          display_format: info["display_format"],
+          min_price: info["min_price"],
+          decimals: info["decimals"],
+        }
+      end,
+
       # The sender line receipt emails actually go out with (CustomerMailer#receipt builds the
       # same name + noreply@customers address), so the Receipt tab's email-style preview
       # chrome can show an honest From value.
@@ -380,6 +410,7 @@ class ProductPresenter
       custom_html_global_nav_paths: RendersCustomHtmlPages::GLOBAL_NAV_PATHS,
       dropbox_api_key: DROPBOX_PICKER_API_KEY,
       ai_generated:,
+      fund_cart_id: product.native_type == Link::NATIVE_TYPE_FUND_CART ? product.fund_cart&.external_id : nil,
     }
   end
 

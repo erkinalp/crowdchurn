@@ -19,7 +19,7 @@ class CommentsController < ApplicationController
       pundit_user:,
       commentable: @post,
       purchase: @purchase,
-      options: { page: params[:page] }
+      options: { page: params[:page], variant_filter: params[:variant_filter] }
     ).result
   end
 
@@ -77,6 +77,19 @@ class CommentsController < ApplicationController
       # `purchase` to recognize the comment author
       @comment.purchase = @purchase
       @comment.comment_type = Comment::COMMENT_TYPE_USER_SUBMITTED
+      @comment.post_variant_id = find_variant_assignment_for_commenter&.post_variant_id
+    end
+
+    def find_variant_assignment_for_commenter
+      return nil unless @purchase&.subscription_id.present?
+
+      subscription = Subscription.find_by(id: @purchase.subscription_id)
+      return nil unless subscription
+
+      post_variant_ids = @post.post_variants.pluck(:id)
+      return nil if post_variant_ids.empty?
+
+      VariantAssignment.find_by(subscription_id: subscription.id, post_variant_id: post_variant_ids)
     end
 
     def comment_json

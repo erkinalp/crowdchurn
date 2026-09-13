@@ -14,6 +14,24 @@ module Product::NativeTypeTemplates
     audiobook: [
       { name: "Length", value: "" }
     ],
+    print_book: [
+      { name: "Pages", value: "" },
+      { name: "ISBN", value: "" },
+      { name: "Weight", value: "" }
+    ],
+    food: [
+      { name: "Weight/Volume", value: "" },
+      { name: "Ingredients", value: "" }
+    ],
+    bread: [
+      { name: "Weight", value: "" },
+      { name: "Ingredients", value: "" }
+    ],
+    literal_coffee: [
+      { name: "Weight", value: "" },
+      { name: "Roast type", value: "" },
+      { name: "Origin", value: "" }
+    ],
   }.freeze
 
   PRODUCT_TYPES_THAT_INCLUDE_LAST_POST = ["membership", "newsletter"].freeze

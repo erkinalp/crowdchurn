@@ -73,6 +73,9 @@ class Installment < ApplicationRecord
   has_many :sent_post_emails, foreign_key: "post_id"
   has_many :blasts, class_name: "PostEmailBlast", foreign_key: "post_id"
   has_many :sent_abandoned_cart_emails
+  has_many :post_variants, dependent: :destroy
+  has_many :surveys, as: :surveyable, dependent: :destroy
+  has_many :message_templates, as: :templateable, dependent: :destroy
 
   friendly_id :slug_candidates, use: :slugged
 
@@ -271,6 +274,31 @@ class Installment < ApplicationRecord
 
   def user
     seller.presence || link.user
+  end
+
+  def has_ab_test?
+    post_variants.count > 1
+  end
+
+  def variant_for_subscription(subscription)
+    return nil if post_variants.empty?
+
+    existing_assignment = VariantAssignment.find_by(
+      post_variant: post_variants,
+      subscription: subscription
+    )
+    return existing_assignment.post_variant if existing_assignment.present?
+
+    selected_variant = select_variant_for_subscription(subscription)
+    return nil if selected_variant.nil?
+
+    VariantAssignment.create!(
+      post_variant: selected_variant,
+      subscription: subscription,
+      assigned_at: Time.current
+    )
+
+    selected_variant
   end
 
   def installment_mobile_json_data(purchase: nil, subscription: nil, imported_customer: nil, follower: nil,
@@ -828,6 +856,10 @@ class Installment < ApplicationRecord
   end
 
   def unique_click_count
+    dynamo_engagement_summary[:click_count]
+  end
+
+  def unique_click_pair_count
     dynamo_engagement_summary[:click_pair_count]
   end
 
@@ -1227,6 +1259,88 @@ class Installment < ApplicationRecord
         .gsub(/([^[:alnum:]\s])/, ' \1 ')
         .squish
         .titleize
+    end
+
+    def select_variant_for_subscription(subscription)
+      subscription_tier = subscription.original_purchase&.variant_attributes&.first
+      subscription_plan = subscription.product_installment_plan
+
+      post_variants.each do |variant|
+        # Priority 1: Match Plan AND Tier (if both exist)
+        rule = nil
+        if subscription_plan.present? && subscription_tier.present?
+          rule = variant.variant_distribution_rules.find_by(
+            product_installment_plan: subscription_plan,
+            base_variant: subscription_tier
+          )
+        end
+
+        # Priority 2: Match Plan Only
+        if rule.nil? && subscription_plan.present?
+          rule = variant.variant_distribution_rules.find_by(
+            product_installment_plan: subscription_plan,
+            base_variant: nil
+          )
+        end
+
+        # Priority 3: Match Tier Only
+        if rule.nil? && subscription_tier.present?
+          rule = variant.variant_distribution_rules.find_by(
+            product_installment_plan: nil,
+            base_variant: subscription_tier
+          )
+        end
+
+        # Priority 4: Default/Fallback Rule
+        rule ||= variant.variant_distribution_rules.find_by(
+          product_installment_plan: nil,
+          base_variant: nil
+        )
+
+        next if rule.nil?
+
+        current_assignment_count = variant.variant_assignments.count
+
+        if rule.unlimited?
+          return variant
+        elsif rule.percentage?
+          total_assignments = VariantAssignment.joins(:post_variant)
+                                               .where(post_variants: { installment_id: id })
+                                               .count
+          target_count = (total_assignments * rule.distribution_value / 100.0).ceil
+          return variant if current_assignment_count < [target_count, 1].max
+        elsif rule.count?
+          return variant if current_assignment_count < rule.distribution_value
+        end
+      end
+
+      post_variants.control.first || post_variants.first
+    end
+
+    # Select a variant for a buyer (non-subscription) based on distribution rules
+    # Unlike subscription assignments, buyers don't have tier info, so we use
+    # the first applicable rule for each variant
+    def select_variant_for_buyer
+      post_variants.each do |variant|
+        rule = variant.variant_distribution_rules.first
+        next if rule.nil?
+
+        current_assignment_count = variant.variant_assignments.count
+
+        if rule.unlimited?
+          return variant
+        elsif rule.percentage?
+          total_assignments = VariantAssignment.joins(:post_variant)
+                                               .where(post_variants: { installment_id: id })
+                                               .count
+          target_count = (total_assignments * rule.distribution_value / 100.0).ceil
+          return variant if current_assignment_count < [target_count, 1].max
+        elsif rule.count?
+          return variant if current_assignment_count < rule.distribution_value
+        end
+      end
+
+      post_variants.control.first || post_variants.first
     end
 
     # Collects the distinct purchase ids of an email_infos scope without asking the

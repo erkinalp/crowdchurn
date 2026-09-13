@@ -149,6 +149,7 @@ export const getPaymentDetailsSource = (
     case "cc-payment-request":
       return "payment_request";
     case "paypal":
+    case "killbill":
       return null;
   }
 };
@@ -389,6 +390,13 @@ export const createPurchasesRequestData = (
       if (paymentParams.type === "paypal-braintree") {
         data.braintree_transient_customer_store_key = paymentParams.braintree_transient_customer_store_key || "";
         data.braintree_device_data = paymentParams.braintree_device_data ?? "";
+      }
+
+      if (paymentParams.type === "killbill") {
+        data.killbill_payment_method_id = paymentParams.killbill_payment_method_id;
+        data.killbill_account_id = paymentParams.killbill_account_id;
+        data.wallet_address = paymentParams.wallet_address;
+        data.is_cryptocurrency = paymentParams.is_cryptocurrency;
       }
     } else {
       data.stripe_error = {
