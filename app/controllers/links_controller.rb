@@ -524,6 +524,7 @@ class LinksController < ApplicationController
           :call_limitation_info,
           :installment_plan,
           :community_chat_enabled,
+          :shared_community_id,
           :currency_prices,
           :default_offer_code_id,
           :confirmed_removed_variant_ids,
@@ -1908,9 +1909,10 @@ class LinksController < ApplicationController
     end
 
     def toggle_community_chat!(enabled)
+      return unless product_permitted_params.key?(:community_chat_enabled)
       return if [Link::NATIVE_TYPE_COFFEE, Link::NATIVE_TYPE_BUNDLE].include?(@product.native_type)
 
-      @product.toggle_community_chat!(enabled)
+      @product.toggle_community_chat!(enabled, **product_permitted_params.slice(:shared_community_id).to_h.symbolize_keys)
     end
 
     def update_currency_prices

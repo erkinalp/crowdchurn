@@ -22,6 +22,7 @@ RSpec.describe CommunityPresenter do
           avatar_url: seller.avatar_url,
         },
         last_read_community_chat_message_created_at: nil,
+        linked_product_count: 0,
         unread_count: 0,
       )
     end

@@ -4895,6 +4895,56 @@ class LinksControllerUpdateTest < ActionController::TestCase
 
   # --- community chat ---------------------------------------------------------
 
+  test "PUT update selects a shared community and can restore the own community" do
+    source_product = create_product(user: @seller, community_chat_enabled: true)
+    community = create_community(resource: source_product, seller: @seller)
+    @product.toggle_community_chat!(true)
+    own_community = @product.effective_community
+
+    post :update, params: { id: @product.unique_permalink, community_chat_enabled: true, shared_community_id: community.external_id }, as: :json
+
+    assert_response :success
+    assert_equal community, @product.reload.effective_community
+    assert own_community.reload.deleted?
+
+    post :update, params: { id: @product.unique_permalink, community_chat_enabled: true, shared_community_id: nil }, as: :json
+
+    assert_response :success
+    assert_equal own_community, @product.reload.effective_community
+    assert_empty @product.community_products
+  end
+
+  test "PUT update preserves shared community settings omitted from older payloads" do
+    source_product = create_product(user: @seller, community_chat_enabled: true)
+    community = create_community(resource: source_product, seller: @seller)
+    @product.toggle_community_chat!(true, shared_community_id: community.external_id)
+
+    post :update, params: { id: @product.unique_permalink, community_chat_enabled: true }, as: :json
+
+    assert_response :success
+    assert_equal community, @product.reload.effective_community
+
+    post :update, params: { id: @product.unique_permalink, name: "Updated product" }, as: :json
+
+    assert_response :success
+    assert @product.reload.community_chat_enabled?
+    assert_equal community, @product.effective_community
+  end
+
+  test "PUT update rejects another seller's shared community without changing the product" do
+    other_seller = create_user
+    community = create_community(resource: create_product(user: other_seller, community_chat_enabled: true), seller: other_seller)
+    original_name = @product.name
+
+    post :update, params: { id: @product.unique_permalink, name: "Rejected update", community_chat_enabled: true, shared_community_id: community.external_id }, as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "Invalid community", response.parsed_body["error_message"]
+    assert_equal original_name, @product.reload.name
+    assert_not @product.community_chat_enabled?
+    assert_empty @product.community_products
+  end
+
   test "PUT update enables community chat when requested" do
     post :update, params: { id: @product.unique_permalink, community_chat_enabled: true }, as: :json
 

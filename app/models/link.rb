@@ -201,6 +201,8 @@ class Link < ApplicationRecord
   has_many :alive_public_files, -> { alive }, class_name: "PublicFile", as: :resource
   has_many :communities, as: :resource, dependent: :destroy
   has_one :active_community, -> { alive }, class_name: "Community", as: :resource
+  has_many :community_products, foreign_key: :product_id, dependent: :destroy
+  has_many :shared_communities, -> { alive.order(:id) }, through: :community_products, source: :community
   has_many :surveys, as: :surveyable, dependent: :destroy
   has_many :message_templates, as: :templateable, dependent: :destroy
   has_many :product_experiments, foreign_key: :product_id, dependent: :destroy
@@ -1572,27 +1574,74 @@ class Link < ApplicationRecord
     offer_codes.is_cancellation_discount.alive.first
   end
 
-  def toggle_community_chat!(enable)
-    if enable
-      return if community_chat_enabled?
+  def toggle_community_chat!(enable, shared_community_id: shared_communities.first&.external_id)
+    with_lock do
+      update!(community_chat_enabled: !!enable) unless community_chat_enabled? == !!enable
 
-      transaction do
-        update!(community_chat_enabled: true)
-        return if active_community.present?
+      if enable
+        update_community_association!(shared_community_id)
+      else
+        previous_communities = shared_communities.to_a + communities.alive.to_a
+        community_products.destroy_all
+        association(:shared_communities).reset
+        previous_communities.each(&:archive_if_unused!)
+        association(:active_community).reset
+      end
+    end
+  end
+
+  def effective_community
+    effective_communities.first
+  end
+
+  def effective_communities
+    shared_communities.to_a.presence || [active_community].compact
+  end
+
+  def link_to_shared_community!(community_external_id)
+    with_lock do
+      community = user.seller_communities.alive.find_by_external_id!(community_external_id)
+      return unlink_from_shared_community! if community.resource == self
+
+      previous_communities = shared_communities.to_a + communities.alive.to_a
+      community_products.destroy_all
+      community.add_product!(self)
+      association(:community_products).reset
+      association(:shared_communities).reset
+      previous_communities.each(&:archive_if_unused!)
+      association(:active_community).reset
+    end
+  rescue ActiveRecord::RecordNotFound
+    raise LinkInvalid, "Invalid community"
+  end
+
+  def unlink_from_shared_community!
+    with_lock do
+      previous_communities = shared_communities.to_a
+      community_products.destroy_all
+      association(:shared_communities).reset
+
+      if community_chat_enabled? && active_community.blank?
         community = communities.deleted.order(deleted_at: :asc).last
         if community.present?
           community.mark_undeleted!
         else
           communities.create!(seller: user)
         end
+        association(:active_community).reset
       end
-    else
-      return unless community_chat_enabled?
 
-      transaction do
-        update!(community_chat_enabled: false)
-        communities.alive.each(&:mark_deleted!)
-      end
+      previous_communities.each(&:archive_if_unused!)
+    end
+  end
+
+  def update_community_association!(shared_community_id)
+    if shared_community_id.present?
+      return if shared_communities.first&.external_id == shared_community_id
+
+      link_to_shared_community!(shared_community_id)
+    else
+      unlink_from_shared_community!
     end
   end
 

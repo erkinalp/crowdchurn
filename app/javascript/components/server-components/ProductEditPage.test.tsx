@@ -136,6 +136,8 @@ it("saves changed state after the active save reconciles server ids", async () =
     default_offer_code: null,
     public_files: [],
     community_chat_enabled: false,
+    shared_community_id: null,
+    available_communities: [],
     confirmed_removed_variant_ids: [],
     confirmed_removed_rich_content_ids: [],
   };
@@ -340,6 +342,8 @@ it("reconciles same-id pages in different variant scopes using each variant's ow
     default_offer_code: null,
     public_files: [],
     community_chat_enabled: false,
+    shared_community_id: null,
+    available_communities: [],
     confirmed_removed_variant_ids: [],
     confirmed_removed_rich_content_ids: [],
   };
@@ -521,6 +525,8 @@ it("keeps a newly-created variant's move provenance after its own id is remapped
     default_offer_code: null,
     public_files: [],
     community_chat_enabled: false,
+    shared_community_id: null,
+    available_communities: [],
     confirmed_removed_variant_ids: [],
     confirmed_removed_rich_content_ids: [],
   };
@@ -679,6 +685,8 @@ const buildTieredProduct = (variants: Version[]): Product => ({
   default_offer_code: null,
   public_files: [],
   community_chat_enabled: false,
+  shared_community_id: null,
+  available_communities: [],
   confirmed_removed_variant_ids: [],
   confirmed_removed_rich_content_ids: [],
 });

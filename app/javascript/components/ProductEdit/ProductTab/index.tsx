@@ -16,6 +16,7 @@ import { BundleConversionNotice } from "$app/components/ProductEdit/ProductTab/B
 import { CallLimitationsEditor } from "$app/components/ProductEdit/ProductTab/CallLimitationsEditor";
 import { CancellationDiscountSelector } from "$app/components/ProductEdit/ProductTab/CancellationDiscountSelector";
 import { CircleIntegrationEditor } from "$app/components/ProductEdit/ProductTab/CircleIntegrationEditor";
+import { CommunityChatEditor } from "$app/components/ProductEdit/ProductTab/CommunityChatEditor";
 import { CoverEditor } from "$app/components/ProductEdit/ProductTab/CoverEditor";
 import { CustomButtonTextOptionInput } from "$app/components/ProductEdit/ProductTab/CustomButtonTextOptionInput";
 import { CustomPermalinkInput } from "$app/components/ProductEdit/ProductTab/CustomPermalinkInput";
@@ -39,7 +40,6 @@ import { TiersEditor } from "$app/components/ProductEdit/ProductTab/TiersEditor"
 import { VersionsEditor } from "$app/components/ProductEdit/ProductTab/VersionsEditor";
 import { RefundPolicySelector } from "$app/components/ProductEdit/RefundPolicy";
 import { hasPaidVariantPricing, useProductEditContext } from "$app/components/ProductEdit/state";
-import { ToggleSettingRow } from "$app/components/SettingRow";
 import { TypeSafeOptionSelect } from "$app/components/TypeSafeOptionSelect";
 import { Alert } from "$app/components/ui/Alert";
 import { Fieldset, FieldsetTitle } from "$app/components/ui/Fieldset";
@@ -209,15 +209,7 @@ export const ProductTab = () => {
               <section className="grid gap-8 border-t border-border p-4 md:p-8">
                 <h2>Integrations</h2>
                 <Fieldset>
-                  <ToggleSettingRow
-                    label="Invite your customers to your Gumroad community chat"
-                    value={product.community_chat_enabled}
-                    onChange={(newValue) => updateProduct({ community_chat_enabled: newValue })}
-                    help={{
-                      label: "Learn more",
-                      url: "/help/article/347-gumroad-community",
-                    }}
-                  />
+                  <CommunityChatEditor product={product} onChange={updateProduct} />
                   <CircleIntegrationEditor
                     integration={product.integrations.circle}
                     onChange={(newIntegration) =>
