@@ -52,6 +52,20 @@ RSpec.describe "Shared community presenters" do
         .to eq(signup_path(email: purchase.email, next: path))
     end
 
+    it "uses a stable default chat link and lists all linked communities for the buyer" do
+      other_community = create(:community, seller:, resource: create(:product, user: seller, community_chat_enabled: true))
+      community.remove_product!(product)
+      other_community.add_product!(product)
+      community.add_product!(product)
+      product.reload
+
+      expect(presenter.download_page_with_content_props[:content][:community_chat_url])
+        .to eq(community_path(seller.external_id, community.external_id))
+      expect(Link.includes(:shared_communities).find(product.id).effective_community).to eq(community)
+      expect(CommunitiesPresenter.new(current_user: buyer).communities_props.map { _1[:id] })
+        .to contain_exactly(community.external_id, other_community.external_id)
+    end
+
     it "omits links when the purchased product is disabled or deleted" do
       product.toggle_community_chat!(false)
       expect(presenter.download_page_with_content_props[:content][:community_chat_url]).to be_nil

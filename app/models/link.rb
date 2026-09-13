@@ -202,7 +202,7 @@ class Link < ApplicationRecord
   has_many :communities, as: :resource, dependent: :destroy
   has_one :active_community, -> { alive }, class_name: "Community", as: :resource
   has_many :community_products, foreign_key: :product_id, dependent: :destroy
-  has_many :shared_communities, -> { alive }, through: :community_products, source: :community
+  has_many :shared_communities, -> { alive.order(:id) }, through: :community_products, source: :community
   has_many :surveys, as: :surveyable, dependent: :destroy
   has_many :message_templates, as: :templateable, dependent: :destroy
   has_many :product_experiments, foreign_key: :product_id, dependent: :destroy
@@ -1591,7 +1591,11 @@ class Link < ApplicationRecord
   end
 
   def effective_community
-    shared_communities.first || active_community
+    effective_communities.first
+  end
+
+  def effective_communities
+    shared_communities.to_a.presence || [active_community].compact
   end
 
   def link_to_shared_community!(community_external_id)

@@ -103,6 +103,31 @@ RSpec.describe "Shared communities" do
       expect(source_product.community_products).to be_empty
     end
 
+    it "keeps each shared community alive while an enabled product links to both" do
+      other_source = create(:product, user: seller, community_chat_enabled: true)
+      other_community = create(:community, seller:, resource: other_source)
+      product.toggle_community_chat!(true, shared_community_id: community.external_id)
+      other_community.add_product!(product)
+
+      source_product.toggle_community_chat!(false)
+      other_source.toggle_community_chat!(false)
+
+      expect(community.reload).to be_alive
+      expect(other_community.reload).to be_alive
+      expect(community.active_products).to eq([product])
+      expect(other_community.active_products).to eq([product])
+
+      community.remove_product!(product)
+      community.archive_if_unused!
+
+      expect(community.reload).to be_deleted
+      expect(product.reload.effective_community).to eq(other_community)
+
+      product.toggle_community_chat!(false)
+
+      expect(other_community.reload).to be_deleted
+    end
+
     it "rejects cross-seller and deleted community selections atomically" do
       other_community = create(:community)
       community.mark_deleted!
@@ -133,6 +158,27 @@ RSpec.describe "Shared communities" do
       create(:purchase, link: product, purchaser: nil, email: buyer.email)
 
       expect(buyer.accessible_communities_ids).to eq([community.id])
+    end
+
+    it "grants every linked community through purchaser identity or email" do
+      other_community = create(:community, seller:, resource: create(:product, user: seller, community_chat_enabled: true))
+      other_community.add_product!(product)
+      email_buyer = create(:user)
+      create(:purchase, link: product, purchaser: buyer)
+      create(:purchase, link: product, purchaser: nil, email: email_buyer.email)
+
+      [buyer, email_buyer].each do |purchaser|
+        expect(purchaser.accessible_communities_ids).to contain_exactly(community.id, other_community.id)
+        [community, other_community].each do |shared_community|
+          expect(CommunityPolicy.new(SellerContext.new(user: purchaser, seller: purchaser), shared_community).show?).to be(true)
+        end
+      end
+
+      community.mark_deleted!
+
+      [buyer, email_buyer].each do |purchaser|
+        expect(purchaser.accessible_communities_ids).to eq([other_community.id])
+      end
     end
 
     it "rejects a buyer without a successful purchase" do

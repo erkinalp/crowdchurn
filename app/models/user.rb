@@ -1354,7 +1354,7 @@ class User < ApplicationRecord
     purchased_products = Link.alive.where(Link.community_chat_enabled_condition)
       .where(id: purchases.select(:link_id)).includes(:active_community, :shared_communities)
 
-    (seller_community_ids + purchased_products.filter_map { _1.effective_community&.id }).uniq
+    (seller_community_ids + purchased_products.flat_map { _1.effective_communities.map(&:id) }).uniq
   end
 
   def paypal_payout_email

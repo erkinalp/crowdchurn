@@ -29,6 +29,7 @@ class Community < ApplicationRecord
     products = all_products(lock:)
     other_shared_products = CommunityProduct.joins(:community).merge(Community.alive)
       .where(product_id: products.select(:id)).where.not(community_id: id).select(:product_id).lock(lock)
+      .where.not(product_id: community_products.select(:product_id).lock(lock))
 
     products.alive.where(Link.community_chat_enabled_condition).where.not(id: other_shared_products).lock(lock)
   end
