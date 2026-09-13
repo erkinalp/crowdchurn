@@ -17,20 +17,26 @@ class Community < ApplicationRecord
 
   def name = self[:name].presence || resource.name
 
-  def all_products
-    Link.where(id: community_products.select(:product_id))
+  def all_products(lock: false)
+    product_ids = community_products.select(:product_id)
+    product_ids = product_ids.lock.pluck(:product_id) if lock
+
+    Link.where(id: product_ids)
       .or(Link.where(id: resource_type == "Link" ? resource_id : nil))
   end
 
-  def active_products
+  def active_products(lock: false)
+    products = all_products(lock:)
     other_shared_products = CommunityProduct.joins(:community).merge(Community.alive)
-      .where.not(community_id: id).select(:product_id)
+      .where(product_id: products.select(:id)).where.not(community_id: id).select(:product_id).lock(lock)
 
-    all_products.alive.where(Link.community_chat_enabled_condition).where.not(id: other_shared_products)
+    products.alive.where(Link.community_chat_enabled_condition).where.not(id: other_shared_products).lock(lock)
   end
 
   def archive_if_unused!
-    mark_deleted! unless active_products.exists?
+    with_lock do
+      mark_deleted! unless active_products(lock: true).exists?
+    end
   end
 
   def add_product!(product)

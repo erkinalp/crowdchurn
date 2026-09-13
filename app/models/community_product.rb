@@ -7,7 +7,15 @@ class CommunityProduct < ApplicationRecord
   validates :community_id, uniqueness: { scope: :product_id }
   validate :community_and_product_belong_to_same_seller
 
+  before_create :lock_active_community
+  before_destroy -> { community.lock! }
+
   private
+    def lock_active_community
+      community.lock!
+      raise ActiveRecord::RecordNotFound, "Community is archived" unless community.alive?
+    end
+
     def community_and_product_belong_to_same_seller
       return if community.blank? || product.blank?
 
