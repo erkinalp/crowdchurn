@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_12_13_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_12_13_090001) do
   create_table "active_storage_attachments", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", precision: nil, null: false
@@ -681,6 +681,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_12_13_090000) do
   create_table "communities", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.datetime "deleted_at"
+    t.string "name"
     t.bigint "resource_id", null: false
     t.string "resource_type", null: false
     t.bigint "seller_id", null: false
@@ -744,6 +745,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_12_13_090000) do
     t.index ["seller_id"], name: "index_community_notification_settings_on_seller_id"
     t.index ["user_id", "seller_id"], name: "index_community_notification_settings_on_user_id_and_seller_id", unique: true
     t.index ["user_id"], name: "index_community_notification_settings_on_user_id"
+  end
+
+  create_table "community_products", charset: "utf8mb4", collation: "utf8mb4_unicode_ci", force: :cascade do |t|
+    t.bigint "community_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "product_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["community_id", "product_id"], name: "index_community_products_on_community_id_and_product_id", unique: true
+    t.index ["product_id"], name: "index_community_products_on_product_id"
   end
 
   create_table "computed_sales_analytics_days", id: :integer, charset: "latin1", force: :cascade do |t|

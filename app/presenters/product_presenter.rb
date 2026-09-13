@@ -316,6 +316,8 @@ class ProductPresenter
         } : nil,
         public_files: product.alive_public_files.attached.map { PublicFilePresenter.new(public_file: _1).props },
         community_chat_enabled: product.community_chat_enabled?,
+        shared_community_id: product.shared_communities.first&.external_id,
+        available_communities: available_communities_for_product,
         pricing_mode: product.pricing_mode || "legacy",
         currency_prices: product.alive_prices.map do |price|
           {
@@ -433,6 +435,18 @@ class ProductPresenter
   end
 
   private
+    def available_communities_for_product
+      product.user.seller_communities.alive.includes(:resource).filter_map do |community|
+        next if community.resource == product
+
+        {
+          id: community.external_id,
+          name: community.name,
+          product_name: community.resource.name,
+        }
+      end
+    end
+
     def default_sku
       skus_enabled && skus.alive.not_is_default_sku.empty? ? skus.is_default_sku.first : nil
     end

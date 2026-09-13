@@ -18,6 +18,7 @@ class CommunityPresenter
         avatar_url: community.seller.avatar_url,
       },
       last_read_community_chat_message_created_at:,
+      linked_product_count: community.community_products.count,
       unread_count:,
     }
   end

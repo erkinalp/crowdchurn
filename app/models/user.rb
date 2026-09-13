@@ -1346,21 +1346,15 @@ class User < ApplicationRecord
   end
 
   def accessible_communities_ids
-    # Communities owned by the seller
-    seller_communities = self.seller_communities.alive.includes(:resource).to_a
+    seller_community_ids = seller_communities.alive.filter_map do |community|
+      community.id if community.active_products.exists?
+    end
+    purchases = Purchase.where(purchase_state: "successful")
+      .where("purchaser_id = ? OR email = ?", id, email)
+    purchased_products = Link.alive.where(Link.community_chat_enabled_condition)
+      .where(id: purchases.select(:link_id)).includes(:active_community, :shared_communities)
 
-    # Communities of the products the user has purchased
-    buyer_communities = Community.alive.includes(:resource).joins(
-      "INNER JOIN links ON communities.resource_type = 'Link' AND communities.resource_id = links.id"
-    ).joins(
-      "INNER JOIN purchases ON purchases.link_id = links.id"
-    ).where(
-      "purchases.purchase_state = 'successful' AND (purchases.purchaser_id = ? OR purchases.email = ?)", id, email
-    ).to_a
-
-    (seller_communities + buyer_communities).map do
-      _1.resource.alive? && _1.resource.community_chat_enabled? ? _1.id : nil
-    end.compact.uniq
+    (seller_community_ids + purchased_products.filter_map { _1.effective_community&.id }).uniq
   end
 
   def paypal_payout_email

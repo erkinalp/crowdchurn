@@ -210,6 +210,8 @@ export type Product = {
   default_offer_code: OfferCode | null;
   public_files: PublicFileWithStatus[];
   community_chat_enabled: boolean;
+  shared_community_id: string | null;
+  available_communities: { id: string; name: string; product_name: string }[];
   pricing_mode: PricingMode;
   currency_prices: CurrencyPrice[];
   // External ids of variants / content pages the seller explicitly deleted in
